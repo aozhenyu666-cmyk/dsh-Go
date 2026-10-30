@@ -1,0 +1,60 @@
+{
+  "@@locale": "en",
+  "loopEntryTitle": "Trigger test",
+  "loopEntrySubtitle": "Shows a test page when you open a chosen app (experimental)",
+  "loopPageSubtitle": "The first closed loop: open the test app → a test page appears → tap Back → a receipt is saved. Only the foreground app's package name is read, never page content.",
+  "loopEnabled": "Turn on trigger test",
+  "loopEnabledHint": "Never shows while DSH is operating the phone or a confirmation is waiting",
+  "loopTargetApp": "Test app",
+  "loopTargetNone": "None",
+  "loopPickApp": "Choose the test app",
+  "loopNoApps": "No apps found",
+  "loopCooldown": "Cooldown",
+  "loopCooldownHint": "Minimum time between two pages; tap to change",
+  "loopSeconds": "{seconds} s",
+  "@loopSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "loopA11yNeeded": "Turn on DSH's accessibility service in system settings first",
+  "loopA11yWaiting": "Accessibility is on, waiting for the service to connect",
+  "loopA11yReady": "Accessibility service connected",
+  "loopCounters": "{events} window events, {readings} checks · last foreground {app}",
+  "@loopCounters": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "readings": {
+        "type": "int"
+      },
+      "app": {
+        "type": "String"
+      }
+    }
+  },
+  "loopStorageError": "Couldn't save receipts: {error}",
+  "@loopStorageError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "loopReceipts": "Receipts",
+  "loopReceiptsEmpty": "No receipts yet",
+  "loopClear": "Clear receipts",
+  "loopRefresh": "Refresh",
+  "loopResultReturned": "Tapped Back",
+  "loopResultBack": "Pressed system back",
+  "loopResultDismissed": "Left the page",
+  "loopResultTimeout": "No answer in time",
+  "loopResultAbandoned": "Closed after restart",
+  "loopResultUnavailable": "Page couldn't show",
+  "loopResultSuppressed": "Not triggered",
+  "loopResultError": "Error",
+  "loopResultOpen": "In progress"
+}

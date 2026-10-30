@@ -1,0 +1,60 @@
+{
+  "@@locale": "zh",
+  "loopEntryTitle": "触发测试",
+  "loopEntrySubtitle": "打开指定 APP 时弹出测试页（实验）",
+  "loopPageSubtitle": "第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。",
+  "loopEnabled": "开启触发测试",
+  "loopEnabledHint": "DSH 正在操作手机或有确认在等你时不会弹出",
+  "loopTargetApp": "测试 APP",
+  "loopTargetNone": "未选择",
+  "loopPickApp": "选择测试 APP",
+  "loopNoApps": "没有找到可选的 APP",
+  "loopCooldown": "冷却时间",
+  "loopCooldownHint": "两次弹出之间至少隔这么久，点一下切换",
+  "loopSeconds": "{seconds} 秒",
+  "@loopSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "loopA11yNeeded": "需要先在系统设置里开启 DSH 的无障碍服务",
+  "loopA11yWaiting": "无障碍已开启，等待服务连接",
+  "loopA11yReady": "无障碍服务已连接",
+  "loopCounters": "收到 {events} 个窗口事件，复核 {readings} 次 · 最近前台 {app}",
+  "@loopCounters": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "readings": {
+        "type": "int"
+      },
+      "app": {
+        "type": "String"
+      }
+    }
+  },
+  "loopStorageError": "回执保存失败：{error}",
+  "@loopStorageError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "loopReceipts": "回执",
+  "loopReceiptsEmpty": "还没有回执",
+  "loopClear": "清空回执",
+  "loopRefresh": "刷新",
+  "loopResultReturned": "点了返回",
+  "loopResultBack": "按了系统返回",
+  "loopResultDismissed": "离开了页面",
+  "loopResultTimeout": "超时未回应",
+  "loopResultAbandoned": "重启后关闭",
+  "loopResultUnavailable": "页面没能弹出",
+  "loopResultSuppressed": "未触发",
+  "loopResultError": "出错",
+  "loopResultOpen": "进行中"
+}

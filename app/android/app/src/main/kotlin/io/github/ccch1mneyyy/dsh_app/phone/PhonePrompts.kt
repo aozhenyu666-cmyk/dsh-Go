@@ -63,6 +63,9 @@ class PhonePrompts(
     fun stopAll() = arbiter.stopAll()
     fun check() = arbiter.check()
 
+    /** A DSH question is open right now (the loop never competes with one). */
+    fun busy(): Boolean = arbiter.current() != null
+
     override fun confirm(request: ConfirmRequest): Decision {
         if (Looper.myLooper() == Looper.getMainLooper()) return Decision.UNAVAILABLE
         val taskOwner = tasks.activeOwner() ?: return Decision.STOP

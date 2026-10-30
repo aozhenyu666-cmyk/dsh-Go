@@ -7871,6 +7871,103 @@ class L10nEn extends L10n {
   String get localEnvSignInInstallFirst => 'Install it to sign in';
 
   @override
+  String get loopEntryTitle => 'Trigger test';
+
+  @override
+  String get loopEntrySubtitle => 'Shows a test page when you open a chosen app (experimental)';
+
+  @override
+  String get loopPageSubtitle =>
+      'The first closed loop: open the test app → a test page appears → tap Back → a receipt is saved. Only the foreground app\'s package name is read, never page content.';
+
+  @override
+  String get loopEnabled => 'Turn on trigger test';
+
+  @override
+  String get loopEnabledHint => 'Never shows while DSH is operating the phone or a confirmation is waiting';
+
+  @override
+  String get loopTargetApp => 'Test app';
+
+  @override
+  String get loopTargetNone => 'None';
+
+  @override
+  String get loopPickApp => 'Choose the test app';
+
+  @override
+  String get loopNoApps => 'No apps found';
+
+  @override
+  String get loopCooldown => 'Cooldown';
+
+  @override
+  String get loopCooldownHint => 'Minimum time between two pages; tap to change';
+
+  @override
+  String loopSeconds(int seconds) {
+    return '$seconds s';
+  }
+
+  @override
+  String get loopA11yNeeded => 'Turn on DSH\'s accessibility service in system settings first';
+
+  @override
+  String get loopA11yWaiting => 'Accessibility is on, waiting for the service to connect';
+
+  @override
+  String get loopA11yReady => 'Accessibility service connected';
+
+  @override
+  String loopCounters(int events, int readings, String app) {
+    return '$events window events, $readings checks · last foreground $app';
+  }
+
+  @override
+  String loopStorageError(String error) {
+    return 'Couldn\'t save receipts: $error';
+  }
+
+  @override
+  String get loopReceipts => 'Receipts';
+
+  @override
+  String get loopReceiptsEmpty => 'No receipts yet';
+
+  @override
+  String get loopClear => 'Clear receipts';
+
+  @override
+  String get loopRefresh => 'Refresh';
+
+  @override
+  String get loopResultReturned => 'Tapped Back';
+
+  @override
+  String get loopResultBack => 'Pressed system back';
+
+  @override
+  String get loopResultDismissed => 'Left the page';
+
+  @override
+  String get loopResultTimeout => 'No answer in time';
+
+  @override
+  String get loopResultAbandoned => 'Closed after restart';
+
+  @override
+  String get loopResultUnavailable => 'Page couldn\'t show';
+
+  @override
+  String get loopResultSuppressed => 'Not triggered';
+
+  @override
+  String get loopResultError => 'Error';
+
+  @override
+  String get loopResultOpen => 'In progress';
+
+  @override
   String get mediaGenerateTile => 'Create';
 
   @override

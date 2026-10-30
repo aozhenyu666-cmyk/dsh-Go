@@ -13646,6 +13646,186 @@ abstract class L10n {
   /// **'安装后即可登录'**
   String get localEnvSignInInstallFirst;
 
+  /// No description provided for @loopEntryTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发测试'**
+  String get loopEntryTitle;
+
+  /// No description provided for @loopEntrySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开指定 APP 时弹出测试页（实验）'**
+  String get loopEntrySubtitle;
+
+  /// No description provided for @loopPageSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。'**
+  String get loopPageSubtitle;
+
+  /// No description provided for @loopEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启触发测试'**
+  String get loopEnabled;
+
+  /// No description provided for @loopEnabledHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'DSH 正在操作手机或有确认在等你时不会弹出'**
+  String get loopEnabledHint;
+
+  /// No description provided for @loopTargetApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'测试 APP'**
+  String get loopTargetApp;
+
+  /// No description provided for @loopTargetNone.
+  ///
+  /// In zh, this message translates to:
+  /// **'未选择'**
+  String get loopTargetNone;
+
+  /// No description provided for @loopPickApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择测试 APP'**
+  String get loopPickApp;
+
+  /// No description provided for @loopNoApps.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有找到可选的 APP'**
+  String get loopNoApps;
+
+  /// No description provided for @loopCooldown.
+  ///
+  /// In zh, this message translates to:
+  /// **'冷却时间'**
+  String get loopCooldown;
+
+  /// No description provided for @loopCooldownHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'两次弹出之间至少隔这么久，点一下切换'**
+  String get loopCooldownHint;
+
+  /// No description provided for @loopSeconds.
+  ///
+  /// In zh, this message translates to:
+  /// **'{seconds} 秒'**
+  String loopSeconds(int seconds);
+
+  /// No description provided for @loopA11yNeeded.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要先在系统设置里开启 DSH 的无障碍服务'**
+  String get loopA11yNeeded;
+
+  /// No description provided for @loopA11yWaiting.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍已开启，等待服务连接'**
+  String get loopA11yWaiting;
+
+  /// No description provided for @loopA11yReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍服务已连接'**
+  String get loopA11yReady;
+
+  /// No description provided for @loopCounters.
+  ///
+  /// In zh, this message translates to:
+  /// **'收到 {events} 个窗口事件，复核 {readings} 次 · 最近前台 {app}'**
+  String loopCounters(int events, int readings, String app);
+
+  /// No description provided for @loopStorageError.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执保存失败：{error}'**
+  String loopStorageError(String error);
+
+  /// No description provided for @loopReceipts.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执'**
+  String get loopReceipts;
+
+  /// No description provided for @loopReceiptsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有回执'**
+  String get loopReceiptsEmpty;
+
+  /// No description provided for @loopClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空回执'**
+  String get loopClear;
+
+  /// No description provided for @loopRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新'**
+  String get loopRefresh;
+
+  /// No description provided for @loopResultReturned.
+  ///
+  /// In zh, this message translates to:
+  /// **'点了返回'**
+  String get loopResultReturned;
+
+  /// No description provided for @loopResultBack.
+  ///
+  /// In zh, this message translates to:
+  /// **'按了系统返回'**
+  String get loopResultBack;
+
+  /// No description provided for @loopResultDismissed.
+  ///
+  /// In zh, this message translates to:
+  /// **'离开了页面'**
+  String get loopResultDismissed;
+
+  /// No description provided for @loopResultTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'超时未回应'**
+  String get loopResultTimeout;
+
+  /// No description provided for @loopResultAbandoned.
+  ///
+  /// In zh, this message translates to:
+  /// **'重启后关闭'**
+  String get loopResultAbandoned;
+
+  /// No description provided for @loopResultUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面没能弹出'**
+  String get loopResultUnavailable;
+
+  /// No description provided for @loopResultSuppressed.
+  ///
+  /// In zh, this message translates to:
+  /// **'未触发'**
+  String get loopResultSuppressed;
+
+  /// No description provided for @loopResultError.
+  ///
+  /// In zh, this message translates to:
+  /// **'出错'**
+  String get loopResultError;
+
+  /// No description provided for @loopResultOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get loopResultOpen;
+
   /// No description provided for @mediaGenerateTile.
   ///
   /// In zh, this message translates to:

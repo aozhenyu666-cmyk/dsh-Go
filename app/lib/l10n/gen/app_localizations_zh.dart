@@ -7457,6 +7457,102 @@ class L10nZh extends L10n {
   String get localEnvSignInInstallFirst => '安装后即可登录';
 
   @override
+  String get loopEntryTitle => '触发测试';
+
+  @override
+  String get loopEntrySubtitle => '打开指定 APP 时弹出测试页（实验）';
+
+  @override
+  String get loopPageSubtitle => '第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。';
+
+  @override
+  String get loopEnabled => '开启触发测试';
+
+  @override
+  String get loopEnabledHint => 'DSH 正在操作手机或有确认在等你时不会弹出';
+
+  @override
+  String get loopTargetApp => '测试 APP';
+
+  @override
+  String get loopTargetNone => '未选择';
+
+  @override
+  String get loopPickApp => '选择测试 APP';
+
+  @override
+  String get loopNoApps => '没有找到可选的 APP';
+
+  @override
+  String get loopCooldown => '冷却时间';
+
+  @override
+  String get loopCooldownHint => '两次弹出之间至少隔这么久，点一下切换';
+
+  @override
+  String loopSeconds(int seconds) {
+    return '$seconds 秒';
+  }
+
+  @override
+  String get loopA11yNeeded => '需要先在系统设置里开启 DSH 的无障碍服务';
+
+  @override
+  String get loopA11yWaiting => '无障碍已开启，等待服务连接';
+
+  @override
+  String get loopA11yReady => '无障碍服务已连接';
+
+  @override
+  String loopCounters(int events, int readings, String app) {
+    return '收到 $events 个窗口事件，复核 $readings 次 · 最近前台 $app';
+  }
+
+  @override
+  String loopStorageError(String error) {
+    return '回执保存失败：$error';
+  }
+
+  @override
+  String get loopReceipts => '回执';
+
+  @override
+  String get loopReceiptsEmpty => '还没有回执';
+
+  @override
+  String get loopClear => '清空回执';
+
+  @override
+  String get loopRefresh => '刷新';
+
+  @override
+  String get loopResultReturned => '点了返回';
+
+  @override
+  String get loopResultBack => '按了系统返回';
+
+  @override
+  String get loopResultDismissed => '离开了页面';
+
+  @override
+  String get loopResultTimeout => '超时未回应';
+
+  @override
+  String get loopResultAbandoned => '重启后关闭';
+
+  @override
+  String get loopResultUnavailable => '页面没能弹出';
+
+  @override
+  String get loopResultSuppressed => '未触发';
+
+  @override
+  String get loopResultError => '出错';
+
+  @override
+  String get loopResultOpen => '进行中';
+
+  @override
   String get mediaGenerateTile => '生成';
 
   @override
