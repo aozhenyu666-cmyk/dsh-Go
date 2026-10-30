@@ -13718,6 +13718,36 @@ abstract class L10n {
   /// **'{seconds} 秒'**
   String loopSeconds(int seconds);
 
+  /// No description provided for @loopTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'等你回应的时间'**
+  String get loopTimeout;
+
+  /// No description provided for @loopTimeoutHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'超时就记成「超时未回应」，点一下切换'**
+  String get loopTimeoutHint;
+
+  /// No description provided for @loopVisitShort.
+  ///
+  /// In zh, this message translates to:
+  /// **'访问 {id}'**
+  String loopVisitShort(String id);
+
+  /// No description provided for @loopExport.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出回执（JSON 复制到剪贴板）'**
+  String get loopExport;
+
+  /// No description provided for @loopExportDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'已把 {count} 条回执复制到剪贴板'**
+  String loopExportDone(int count);
+
   /// No description provided for @loopQuietHours.
   ///
   /// In zh, this message translates to:
@@ -15943,6 +15973,18 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'只在你发起任务，或点「读一下当前屏幕」时。平时不读。'**
   String get phoneDisclosureWhenBody;
+
+  /// No description provided for @phoneDisclosureTriggerTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发测试（默认关闭）'**
+  String get phoneDisclosureTriggerTitle;
+
+  /// No description provided for @phoneDisclosureTriggerBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'只有你打开「触发测试」并选了测试 APP 之后，DSH 才会为了判断你有没有打开那个 APP 而读取当前前台 APP 的名称（包名）。不读页面内容，不录屏，不上传。随时可以关掉。'**
+  String get phoneDisclosureTriggerBody;
 
   /// No description provided for @phoneDisclosureWhoTitle.
   ///

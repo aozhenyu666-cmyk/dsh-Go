@@ -19,6 +19,25 @@
       }
     }
   },
+  "loopTimeout": "等你回应的时间",
+  "loopTimeoutHint": "超时就记成「超时未回应」，点一下切换",
+  "loopVisitShort": "访问 {id}",
+  "@loopVisitShort": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "loopExport": "导出回执（JSON 复制到剪贴板）",
+  "loopExportDone": "已把 {count} 条回执复制到剪贴板",
+  "@loopExportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "loopQuietHours": "免打扰时段",
   "loopQuietHoursHint": "这段时间里不弹测试页，可以跨零点。点一下切换。",
   "loopQuietHoursOff": "不限",

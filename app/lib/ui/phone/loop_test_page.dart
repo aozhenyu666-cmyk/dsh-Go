@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../loop/loop_channel.dart';
@@ -20,8 +22,14 @@ class LoopTestPage extends StatefulWidget {
 
   static const cooldownSteps = [0, 10, 60, 300];
 
+  /// T2: how long the page or notification waits for an answer.
+  static const timeoutSteps = [15, 30, 60, 120];
+
   /// 不限 → 3 → 5 → 10 → 不限.
   static const dailyCapSteps = [0, 3, 5, 10];
+
+  /// The full history is 200 receipts; export all of them.
+  static const exportLimit = 200;
 
   @override
   State<LoopTestPage> createState() => _LoopTestPageState();
@@ -125,6 +133,32 @@ class _LoopTestPageState extends State<LoopTestPage> {
     await _refresh();
   }
 
+  Future<void> _cycleTimeout(int currentMs) async {
+    const steps = LoopTestPage.timeoutSteps;
+    final i = steps.indexOf(currentMs ~/ 1000);
+    await _channel.setConfig(timeoutMs: steps[(i + 1) % steps.length] * 1000);
+    await _refresh();
+  }
+
+  /// T2: the raw receipts as JSON on the clipboard, for a bug report.
+  Future<void> _exportReceipts() async {
+    final events = await _channel.events(limit: LoopTestPage.exportLimit);
+    final status = await _channel.status();
+    final payload = const JsonEncoder.withIndent('  ').convert({
+      'exportedAt': DateTime.now().toIso8601String(),
+      'config': status?.config.toMap(),
+      'recoveredFrom': status?.recoveredFrom,
+      'storageError': status?.storageError,
+      'triggersToday': status?.triggersToday,
+      'triggerDay': status?.triggerDay,
+      'diagnostics': status?.diagnostics.toMap(),
+      'events': [for (final e in events) e.toMap()],
+    });
+    await Clipboard.setData(ClipboardData(text: payload));
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(context.l10n.loopExportDone(events.length))));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -174,6 +208,13 @@ class _LoopTestPageState extends State<LoopTestPage> {
               subtitle: l10n.loopCooldownHint,
               value: l10n.loopSeconds(config.cooldownMs ~/ 1000),
               onTap: status == null ? null : () => unawaited(_cycleCooldown(config.cooldownMs)),
+            ),
+            ListPageRow(
+              icon: AppIcons.commandTimeout,
+              title: l10n.loopTimeout,
+              subtitle: l10n.loopTimeoutHint,
+              value: l10n.loopSeconds(config.timeoutMs ~/ 1000),
+              onTap: status == null ? null : () => unawaited(_cycleTimeout(config.timeoutMs)),
             ),
             ListPageRow(
               icon: AppIcons.notificationsOff,
@@ -258,6 +299,7 @@ class _LoopTestPageState extends State<LoopTestPage> {
               for (final e in _events) _ReceiptRow(e, label: _labels[e.packageName]),
               ListPageRow(icon: AppIcons.clearAll, title: l10n.loopClear, onTap: () => unawaited(_clear())),
             ],
+            ListPageRow(icon: AppIcons.copy, title: l10n.loopExport, onTap: () => unawaited(_exportReceipts())),
           ],
         ),
         const SizedBox(height: 24),
@@ -297,14 +339,18 @@ String loopFaultKindLabel(L10n l10n, String kind) => switch (kind) {
   _ => kind,
 };
 
-/// Receipt detail: where it was asked, then the reason and the error.
+/// Receipt detail: where it was asked, then the visit, the reason and the error.
 String loopReceiptDetail(L10n l10n, LoopEvent e, String? label) {
   final surface = switch (e.surface) {
     'notification' => l10n.loopSurfaceNotification,
     'activity' => null,
     _ => e.surface,
   };
-  return [?label ?? e.packageName, ?surface, ?e.reason, ?e.error].join(' · ');
+  // T2: the visit id, shortened — enough to tell two visits apart in a bug report.
+  final visit = e.visitId == null || e.visitId!.isEmpty
+      ? null
+      : l10n.loopVisitShort(e.visitId!.length > 8 ? e.visitId!.substring(0, 8) : e.visitId!);
+  return [?label ?? e.packageName, ?surface, ?visit, ?e.reason, ?e.error].join(' · ');
 }
 
 class _ReceiptRow extends StatelessWidget {

@@ -28,6 +28,17 @@ class LoopConfig {
 
   bool get quietHoursSet => quietStartMinute != null && quietEndMinute != null && quietStartMinute != quietEndMinute;
 
+  /// The same shape the native side sends, so an export round-trips.
+  Map<String, Object?> toMap() => {
+    'enabled': enabled,
+    'targetPackage': targetPackage,
+    'cooldownMs': cooldownMs,
+    'timeoutMs': timeoutMs,
+    'quietStartMinute': quietStartMinute,
+    'quietEndMinute': quietEndMinute,
+    'dailyCap': dailyCap,
+  };
+
   static LoopConfig fromWire(Object? raw) {
     final m = raw is Map ? raw : const {};
     int? n(Object? v) => v is num ? v.toInt() : null;
@@ -50,6 +61,8 @@ class LoopFault {
   final String kind;
   final String detail;
   final DateTime at;
+
+  Map<String, Object?> toMap() => {'kind': kind, 'detail': detail, 'at': at.millisecondsSinceEpoch};
 
   static LoopFault? fromWire(Object? raw) {
     if (raw is! Map) return null;
@@ -86,6 +99,16 @@ class LoopDiagnosticsView {
   final DateTime? lastReadAt;
 
   bool get isEmpty => faults.isEmpty && lastEventAt == null && lastVerifyAt == null && lastReadAt == null;
+
+  /// For the JSON export.
+  Map<String, Object?> toMap() => {
+    'faults': faults,
+    'streaks': streaks,
+    'recent': [for (final f in recent) f.toMap()],
+    'lastEventAt': lastEventAt?.millisecondsSinceEpoch,
+    'lastVerifyAt': lastVerifyAt?.millisecondsSinceEpoch,
+    'lastReadAt': lastReadAt?.millisecondsSinceEpoch,
+  };
 
   static LoopDiagnosticsView fromWire(Object? raw) {
     final m = raw is Map ? raw : const {};
@@ -175,6 +198,7 @@ class LoopEvent {
     this.error,
     this.reason,
     this.packageName,
+    this.visitId,
     this.surface,
     this.updatedAt,
   });
@@ -192,9 +216,27 @@ class LoopEvent {
   final String? reason;
   final String? packageName;
 
+  /// One visit = one stay in the test app; at most one trigger per visit.
+  final String? visitId;
+
   /// "activity" or "notification" (T3's fallback surface).
   final String? surface;
   final DateTime? updatedAt;
+
+  /// For the JSON export: the same fields the native receipt carries.
+  Map<String, Object?> toMap() => {
+    'eventId': eventId,
+    'source': source,
+    'timestamp': timestamp.millisecondsSinceEpoch,
+    'state': state,
+    'result': result,
+    'error': error,
+    'reason': reason,
+    'packageName': packageName,
+    'visitId': visitId,
+    'surface': surface,
+    'updatedAt': updatedAt?.millisecondsSinceEpoch,
+  };
 
   static LoopEvent? fromWire(Object? raw) {
     if (raw is! Map) return null;
@@ -212,6 +254,7 @@ class LoopEvent {
       error: s(raw['error']),
       reason: s(raw['reason']),
       packageName: s(raw['packageName']),
+      visitId: s(raw['visitId']),
       surface: s(raw['surface']),
       updatedAt: up is num ? DateTime.fromMillisecondsSinceEpoch(up.toInt()) : null,
     );
@@ -246,6 +289,7 @@ class LoopChannel {
     String? targetPackage,
     bool clearTarget = false,
     int? cooldownMs,
+    int? timeoutMs,
     int? quietStartMinute,
     int? quietEndMinute,
     bool clearQuietHours = false,
@@ -256,6 +300,7 @@ class LoopChannel {
         'enabled': ?enabled,
         if (targetPackage != null || clearTarget) 'targetPackage': targetPackage,
         'cooldownMs': ?cooldownMs,
+        'timeoutMs': ?timeoutMs,
         if (clearQuietHours) ...{'quietStartMinute': null, 'quietEndMinute': null}
         else if (quietStartMinute != null || quietEndMinute != null) ...{
           'quietStartMinute': ?quietStartMinute,

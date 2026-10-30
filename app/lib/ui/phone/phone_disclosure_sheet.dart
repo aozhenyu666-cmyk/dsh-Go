@@ -34,6 +34,8 @@ class PhoneDisclosureSheet extends ConsumerWidget {
   static List<(IconData, int, String, String)> get items => [
     (AppIcons.readText, 0, appL10n.phoneDisclosureWhatTitle, appL10n.phoneDisclosureWhatBody),
     (AppIcons.time, 2, appL10n.phoneDisclosureWhenTitle, appL10n.phoneDisclosureWhenBody),
+    // T9: the trigger test reads the foreground app's *name* only, and only when switched on.
+    (AppIcons.play, 2, appL10n.phoneDisclosureTriggerTitle, appL10n.phoneDisclosureTriggerBody),
     (AppIcons.cloud, 6, appL10n.phoneDisclosureWhoTitle, appL10n.phoneDisclosureWhoBody),
     (AppIcons.blocked, 3, appL10n.phoneDisclosureNeverTitle, appL10n.phoneDisclosureNeverBody),
     (AppIcons.operate, 5, appL10n.phoneDisclosureStopTitle, appL10n.phoneDisclosureStopBody),

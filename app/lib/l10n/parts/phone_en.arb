@@ -230,6 +230,8 @@
   "phoneDisclosureWhatBody": "Text on the current screen. With a vision model, a screenshot may be included.",
   "phoneDisclosureWhenTitle": "When it reads",
   "phoneDisclosureWhenBody": "Only when you start a task or tap “Read current screen”. Never otherwise.",
+  "phoneDisclosureTriggerTitle": "Trigger test (off by default)",
+  "phoneDisclosureTriggerBody": "Only after you switch on the trigger test and pick a test app does DSH read the name (package) of the foreground app, to tell whether you opened it. No page content, no screen recording, no upload. You can switch it off at any time.",
   "phoneDisclosureWhoTitle": "Who receives it",
   "phoneDisclosureWhoBody": "Your chosen DeepSeek model in the cloud. Bank card and ID numbers are masked first.",
   "phoneDisclosureNeverTitle": "What it won’t do by default",

@@ -232,13 +232,73 @@ void main() {
       expect(find.textContaining('通过通知'), findsOneWidget);
     });
 
+    testWidgets('the timeout cycles through 15/30/60/120', (tester) async {
+      final native = FakeLoopNative()..install();
+      await pumpPhone(tester, const LoopTestPage());
+      // Default 60 s is on the ladder, so the first tap goes to the next step (120).
+      await tester.tap(find.text('等你回应的时间'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'timeoutMs': 120000});
+      await tester.tap(find.text('等你回应的时间'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'timeoutMs': 15000});
+      expect(find.text('15 秒'), findsWidgets);
+    });
+
+    testWidgets('a receipt shows the visit id, shortened', (tester) async {
+      FakeLoopNative()
+        ..events = [
+          {
+            ...receipt('v', 'RETURNED'),
+            'visitId': 'abcdef0123456789',
+          },
+        ]
+        ..install();
+      await pumpPhone(tester, const LoopTestPage());
+      expect(find.textContaining('访问 abcdef01'), findsOneWidget);
+      expect(find.textContaining('abcdef0123456789'), findsNothing);
+    });
+
+    testWidgets('exporting receipts copies JSON with the config and events', (tester) async {
+      final native = FakeLoopNative()
+        ..events = [receipt('a', 'RETURNED')]
+        ..install();
+      // Clipboard.setData goes over the platform channel; there is no real clipboard in a widget
+      // test, and Clipboard.getData would never answer. Record what the page sends instead.
+      final copied = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+
+      await pumpPhone(tester, const LoopTestPage());
+      await tester.tap(find.text('导出回执（JSON 复制到剪贴板）'));
+      await tester.pumpAndSettle();
+
+      expect(native.argsOf('events').last, {'limit': 200});
+      expect(copied, hasLength(1));
+      final payload = copied.single;
+      expect(payload, contains('"events"'));
+      expect(payload, contains('"config"'));
+      expect(payload, contains('"eventId": "a"'));
+      expect(payload, contains('"diagnostics"'));
+      expect(find.textContaining('已把 1 条回执复制到剪贴板'), findsOneWidget);
+    });
+
     testWidgets('a damaged state file shows the backup recovery', (tester) async {
       FakeLoopNative()
         ..recoveredFrom = 'state.json.bak'
         ..install();
       await pumpPhone(tester, const LoopTestPage());
-      expect(find.textContaining('已从备份'), findsOneWidget);
-    });
+      expect(find.textContaining('已从备份'), findsOneWidget);    });
 
     testWidgets('phone control links to it', (tester) async {
       FakeLoopNative().install();

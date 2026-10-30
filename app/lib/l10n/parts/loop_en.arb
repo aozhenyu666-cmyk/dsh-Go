@@ -19,6 +19,25 @@
       }
     }
   },
+  "loopTimeout": "Time to answer",
+  "loopTimeoutHint": "After this it counts as \"no answer in time\"; tap to change",
+  "loopVisitShort": "visit {id}",
+  "@loopVisitShort": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "loopExport": "Export receipts (JSON to clipboard)",
+  "loopExportDone": "Copied {count} receipts to the clipboard",
+  "@loopExportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "loopQuietHours": "Quiet hours",
   "loopQuietHoursHint": "No test page during this window; may cross midnight. Tap to change.",
   "loopQuietHoursOff": "Off",

@@ -7495,6 +7495,25 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get loopTimeout => '等你回应的时间';
+
+  @override
+  String get loopTimeoutHint => '超时就记成「超时未回应」，点一下切换';
+
+  @override
+  String loopVisitShort(String id) {
+    return '访问 $id';
+  }
+
+  @override
+  String get loopExport => '导出回执（JSON 复制到剪贴板）';
+
+  @override
+  String loopExportDone(int count) {
+    return '已把 $count 条回执复制到剪贴板';
+  }
+
+  @override
   String get loopQuietHours => '免打扰时段';
 
   @override
@@ -8650,6 +8669,13 @@ class L10nZh extends L10n {
 
   @override
   String get phoneDisclosureWhenBody => '只在你发起任务，或点「读一下当前屏幕」时。平时不读。';
+
+  @override
+  String get phoneDisclosureTriggerTitle => '触发测试（默认关闭）';
+
+  @override
+  String get phoneDisclosureTriggerBody =>
+      '只有你打开「触发测试」并选了测试 APP 之后，DSH 才会为了判断你有没有打开那个 APP 而读取当前前台 APP 的名称（包名）。不读页面内容，不录屏，不上传。随时可以关掉。';
 
   @override
   String get phoneDisclosureWhoTitle => '发给谁';

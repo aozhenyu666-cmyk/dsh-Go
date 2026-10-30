@@ -7910,6 +7910,25 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get loopTimeout => 'Time to answer';
+
+  @override
+  String get loopTimeoutHint => 'After this it counts as \"no answer in time\"; tap to change';
+
+  @override
+  String loopVisitShort(String id) {
+    return 'visit $id';
+  }
+
+  @override
+  String get loopExport => 'Export receipts (JSON to clipboard)';
+
+  @override
+  String loopExportDone(int count) {
+    return 'Copied $count receipts to the clipboard';
+  }
+
+  @override
   String get loopQuietHours => 'Quiet hours';
 
   @override
@@ -9081,6 +9100,13 @@ class L10nEn extends L10n {
 
   @override
   String get phoneDisclosureWhenBody => 'Only when you start a task or tap “Read current screen”. Never otherwise.';
+
+  @override
+  String get phoneDisclosureTriggerTitle => 'Trigger test (off by default)';
+
+  @override
+  String get phoneDisclosureTriggerBody =>
+      'Only after you switch on the trigger test and pick a test app does DSH read the name (package) of the foreground app, to tell whether you opened it. No page content, no screen recording, no upload. You can switch it off at any time.';
 
   @override
   String get phoneDisclosureWhoTitle => 'Who receives it';
