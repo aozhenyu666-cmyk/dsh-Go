@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Proactive page (loop/proactive/ProactivePageActivity.kt). Chinese in values-zh/proactive_strings.xml. -->
+<resources>
+    <string name="proactive_reply">Reply</string>
+    <string name="proactive_later">Later</string>
+</resources>

@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Proactive scheduler (loop/proactive/WakeAlarm.kt): re-plan the single alarm after reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Composer voice input (voice/VoicePlugin.kt), asked for on the first tap of the mic. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -257,6 +259,25 @@
             android:noHistory="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
             android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+
+        <!-- Proactive page (loop/proactive/ProactivePageActivity.kt): token-bound, own task. -->
+        <activity
+            android:name=".loop.proactive.ProactivePageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.proactive"
+            android:launchMode="singleInstance"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+        <!-- Proactive scheduler wake-ups: its own alarm (explicit intent), boot and app update. -->
+        <receiver
+            android:name=".loop.proactive.ProactiveWakeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 不打扰模式: Shizuku binder provider (shell-uid channel). -->
         <provider

@@ -15,7 +15,9 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
+import io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.Box
+import io.github.ccch1mneyyy.dsh_app.phone.a11y.ProtectedPages
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.TreeCapture
 import java.io.File
 import java.lang.ref.WeakReference
@@ -91,6 +93,7 @@ object LoopRuntime {
 
     fun attach(s: AccessibilityService) {
         runCatching { engine(s) }.onFailure { diagnostics.fault(LoopDiagnostics.KIND_ATTACH, it, "engine") }
+        runCatching { ProactiveRuntime.ensure(s); ProactiveRuntime.refreshGate("a11y_connected") }
         service = WeakReference(s)
         runCatching { InteractionHub.ensureChannel(s) }
         // The person may already be in the test app; a still-open visit makes this a no-op.
@@ -100,9 +103,12 @@ object LoopRuntime {
     fun detach(s: AccessibilityService) {
         if (service?.get() === s) service = null
         main.removeCallbacks(verify)
+        // Pages can no longer start from the background: the kernel falls back to notifications.
+        main.post { runCatching { ProactiveRuntime.refreshGate("a11y_gone") } }
     }
 
     fun onEvent(s: AccessibilityService, event: AccessibilityEvent?) {
+        proactive(event)
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
         val e = engine ?: return
@@ -111,6 +117,12 @@ object LoopRuntime {
         eventsSeen++
         diagnostics.success(LoopDiagnostics.KIND_EVENT)
         schedule()
+    }
+
+    /** Hooks for the proactive kernel; every window event is also its opportunistic clock. */
+    private fun proactive(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        runCatching { ProactiveRuntime.onWindowActivity() }
     }
 
     /** Settings changed: read the foreground again so the new target is judged from now on. */
@@ -125,6 +137,7 @@ object LoopRuntime {
         val s = service?.get() ?: return
         val e = engine ?: return
         if (!e.config().enabled) return
+        val previousForeground = lastForeground
         val pkg = try {
             foreground(s).also {
                 readings++
@@ -138,6 +151,11 @@ object LoopRuntime {
             return
         }
         try {
+            // The proactive gate cares whether a permission/security page took the foreground:
+            // it must yield while one is up, and reopen once it is gone.
+            if ((pkg in ProtectedPages.packages) != (previousForeground in ProtectedPages.packages)) {
+                runCatching { ProactiveRuntime.refreshGate("protected_page") }
+            }
             when (val out = e.onForeground(pkg, environment(s))) {
                 is LoopEngine.Outcome.Show -> InteractionHub.show(s, e, out)
                 is LoopEngine.Outcome.Suppressed -> Log.i(TAG, "suppressed ${out.event.packageName}: ${out.event.reason}")

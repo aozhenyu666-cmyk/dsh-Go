@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主动交互页（loop/proactive/ProactivePageActivity.kt）。英文在 values/proactive_strings.xml。 -->
+<resources>
+    <string name="proactive_reply">回应</string>
+    <string name="proactive_later">稍后</string>
+</resources>

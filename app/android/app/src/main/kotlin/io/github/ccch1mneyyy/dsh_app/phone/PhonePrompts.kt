@@ -66,6 +66,9 @@ class PhonePrompts(
     /** A DSH question is open right now (the loop never competes with one). */
     fun busy(): Boolean = arbiter.current() != null
 
+    /** Told on the main thread when a question opens or closes (proactive pages give way at once). Read-only hook. */
+    @Volatile var onBusyChanged: (() -> Unit)? = null
+
     override fun confirm(request: ConfirmRequest): Decision {
         if (Looper.myLooper() == Looper.getMainLooper()) return Decision.UNAVAILABLE
         val taskOwner = tasks.activeOwner() ?: return Decision.STOP
@@ -118,10 +121,12 @@ class PhonePrompts(
             onMain {
                 main.removeCallbacks(tick)
                 if (display?.first === ticket) clearDisplay()
+                runCatching { onBusyChanged?.invoke() }
             }
         }
         onMain {
             if (!ticket.live) return@onMain
+            runCatching { onBusyChanged?.invoke() }
             tick.run()
             val overlay = PhoneRegistry.overlayGate as? PhonePromptPresenter
             if (overlay != null && show(ticket, PromptSurface.OVERLAY, overlay::showPrompt)) return@onMain
