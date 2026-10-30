@@ -17,6 +17,9 @@ class LoopEngine(
     filter: PackageFilter,
     private val clock: () -> Long = System::currentTimeMillis,
     private val ids: () -> String = { UUID.randomUUID().toString() },
+    /** Local time facts for quiet hours and the daily cap; the Android side supplies them. */
+    private val minuteOfDay: () -> Int = { -1 },
+    private val dayKey: () -> String? = { null },
 ) {
     sealed interface Outcome {
         /** Show the interaction page for this event now. */
@@ -33,8 +36,16 @@ class LoopEngine(
     private var lastTriggerAt = 0L
     private val events = ArrayDeque<LoopEvent>()
 
+    /** Triggers already spent, and the device day they belong to (the cap resets when it changes). */
+    private var triggerDay: String? = null
+    private var triggersToday = 0
+
     /** Last storage failure, for the settings page. Null once a write succeeds again. */
     @Volatile var storageError: String? = null
+        private set
+
+    /** Set by [recover] when the file was unusable and the backup was loaded instead. */
+    @Volatile var recoveredFrom: String? = null
         private set
 
     /**
@@ -44,6 +55,7 @@ class LoopEngine(
      */
     fun recover(): List<LoopEvent> = synchronized(lock) {
         val closed = mutableListOf<LoopEvent>()
+        recoveredFrom = null
         when (val r = store.read()) {
             LoopStore.Read.Empty -> Unit
             is LoopStore.Read.Unreadable -> {
@@ -54,8 +66,15 @@ class LoopEngine(
                 config = r.snapshot.config
                 tracker.restore(r.snapshot.tracker)
                 lastTriggerAt = r.snapshot.lastTriggerAt
+                triggerDay = r.snapshot.triggerDay
+                triggersToday = r.snapshot.triggersToday
+                recoveredFrom = r.recoveredFrom
                 events.clear()
                 events.addAll(r.snapshot.events.takeLast(LoopStore.MAX_EVENTS))
+                if (r.recoveredFrom != null) {
+                    // The main file was damaged; say so in the receipts rather than looking healthy.
+                    closed += record(newEvent(EventSource.RECOVERY, EventState.CLOSED, EventResult.ERROR, error = "state_recovered_from_backup: ${r.recoveredFrom}"))
+                }
                 val now = clock()
                 for (i in events.indices) {
                     val e = events[i]
@@ -96,12 +115,19 @@ class LoopEngine(
         val now = clock()
         if (lastTriggerAt > now) lastTriggerAt = now // the clock went back: restart the cooldown from here
         val base = newEvent(source, EventState.CONFIRMED, packageName = verified, visitId = visitId)
-        when (val d = TriggerRules.decide(now, config, env, lastTriggerAt, events.any { it.open })) {
+        // The day bucket rolls over at midnight local time, so "today" never inherits yesterday's count.
+        val today = env.dayKey ?: dayKey()
+        if (today != null && today != triggerDay) { triggerDay = today; triggersToday = 0 }
+        val spent = if (today != null && today == triggerDay) triggersToday else 0
+        val minute = if (env.minuteOfDay >= 0) env.minuteOfDay else minuteOfDay()
+        val moment = env.copy(minuteOfDay = minute, dayKey = today)
+        when (val d = TriggerRules.decide(now, config, moment, lastTriggerAt, events.any { it.open }, spent)) {
             is TriggerRules.Decision.Suppress -> Outcome.Suppressed(
                 record(base.copy(state = EventState.CLOSED, result = EventResult.SUPPRESSED, reason = d.reason)),
             )
             TriggerRules.Decision.Trigger -> {
                 lastTriggerAt = now
+                if (today != null) { triggerDay = today; triggersToday = spent + 1 }
                 Outcome.Show(record(base.copy(state = EventState.TRIGGERED, surface = "activity")), config.timeoutMs)
             }
         }
@@ -120,12 +146,34 @@ class LoopEngine(
     fun stateOf(eventId: String): EventState? = synchronized(lock) { find(eventId)?.state }
 
     /**
+     * Records which surface is carrying the question right now, without closing the event: the page
+     * did not come up, so the notification took over. Null when the event is already closed (nothing
+     * is left to ask), which the caller reads as "drop the notification".
+     */
+    fun markSurface(eventId: String, surface: String): LoopEvent? = synchronized(lock) {
+        val e = find(eventId)?.takeIf { it.open } ?: return null
+        replace(e.copy(surface = surface, updatedAt = clock()))
+    }
+
+    /** Where the event was asked, for the fallback decision; null when unknown. */
+    fun surfaceOf(eventId: String): String? = synchronized(lock) { find(eventId)?.surface }
+
+    /**
      * Closes the event with the person's answer (or TIMEOUT / DISMISSED / UNAVAILABLE / ERROR).
      * Idempotent: the first answer wins, later ones (double tap, back + button) return null.
+     *
+     * [surface] records where the question was actually put, when it is not the page (T3's
+     * notification fallback passes `"notification"`). It is written only when the event did not
+     * already declare one, so the receipt always names the surface that closed it.
      */
-    fun answer(eventId: String, result: EventResult, reason: String? = null, error: String? = null): LoopEvent? = synchronized(lock) {
+    fun answer(eventId: String, result: EventResult, reason: String? = null, error: String? = null, surface: String? = null): LoopEvent? = synchronized(lock) {
         val e = find(eventId)?.takeIf { it.open } ?: return null
-        replace(e.copy(state = EventState.CLOSED, result = result, reason = reason ?: e.reason, error = error, updatedAt = clock()))
+        replace(
+            e.copy(
+                state = EventState.CLOSED, result = result, reason = reason ?: e.reason, error = error,
+                surface = surface ?: e.surface, updatedAt = clock(),
+            ),
+        )
     }
 
     /** Newest first. */
@@ -137,6 +185,9 @@ class LoopEngine(
     }
 
     fun trackerState(): ForegroundTracker.State = synchronized(lock) { tracker.state }
+
+    /** Triggers spent in the current device day, and that day, for the settings page. */
+    fun dailyUsage(): Pair<String?, Int> = synchronized(lock) { triggerDay to triggersToday }
 
     private fun closeOpenLocked(result: EventResult, reason: String) {
         val now = clock()
@@ -175,7 +226,7 @@ class LoopEngine(
 
     private fun persist() {
         storageError = try {
-            store.write(LoopSnapshot(config, tracker.state, lastTriggerAt, events.toList()))
+            store.write(LoopSnapshot(config, tracker.state, lastTriggerAt, triggerDay, triggersToday, events.toList()))
             null
         } catch (t: Throwable) {
             "${t.javaClass.simpleName}: ${t.message}".take(300)

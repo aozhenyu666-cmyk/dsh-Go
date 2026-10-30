@@ -19,6 +19,9 @@ import io.github.ccch1mneyyy.dsh_app.phone.a11y.Box
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.TreeCapture
 import java.io.File
 import java.lang.ref.WeakReference
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * EventObserver, Android half, and the process-wide owner of the loop.
@@ -27,6 +30,11 @@ import java.lang.ref.WeakReference
  * the real foreground is read back from the window list (package name only — never page
  * content), and only that reading reaches [LoopEngine]. Everything runs on the main thread,
  * where accessibility events arrive.
+ *
+ * Every failure on this path is counted by [diagnostics] instead of being swallowed by
+ * `runCatching` + `Log.w`: a phone where the window list always throws, or where every verification
+ * fails, used to look exactly like a phone with the loop switched off. [LoopPlugin] exposes the
+ * counters and the last few faults to the settings page.
  */
 object LoopRuntime {
     private const val TAG = "DshLoop"
@@ -37,6 +45,14 @@ object LoopRuntime {
     @Volatile private var engine: LoopEngine? = null
     private var service: WeakReference<AccessibilityService>? = null
     private val verify = Runnable { verifyNow() }
+
+    /** Failure counters and the last few faults, for the settings page. */
+    val diagnostics = LoopDiagnostics()
+
+    /** The local AgentBridge (v0). Null until the loop first runs, i.e. no agent turn is wired. */
+    @Volatile private var localBridge: AgentBridge? = null
+
+    fun bridge(): AgentBridge? = localBridge
 
     /** Counters for the settings page; reset with the process. */
     @Volatile var eventsSeen = 0L
@@ -54,17 +70,29 @@ object LoopRuntime {
             val filter = PackageFilter(app.packageName) {
                 imm?.enabledInputMethodList?.map { it.packageName }?.toSet().orEmpty()
             }
-            LoopEngine(FileLoopStore(File(File(app.filesDir, "loop"), "state.json")), filter).also {
+            val pm = app.packageManager
+            LoopEngine(
+                FileLoopStore(File(File(app.filesDir, "loop"), "state.json")),
+                filter,
+                minuteOfDay = { localMinuteOfDay() },
+                dayKey = { localDayKey() },
+            ).also {
                 val abandoned = it.recover()
                 if (abandoned.isNotEmpty()) Log.i(TAG, "recovered: closed ${abandoned.size} open event(s)")
+                it.recoveredFrom?.let { b -> Log.w(TAG, "state file damaged, loaded backup $b") }
+                localBridge = LocalTemplateBridge(
+                    labels = { p -> p?.let { pkg -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull() } },
+                    template = { app -> app },
+                )
                 engine = it
             }
         }
     }
 
     fun attach(s: AccessibilityService) {
-        engine(s)
+        runCatching { engine(s) }.onFailure { diagnostics.fault(LoopDiagnostics.KIND_ATTACH, it, "engine") }
         service = WeakReference(s)
+        runCatching { InteractionHub.ensureChannel(s) }
         // The person may already be in the test app; a still-open visit makes this a no-op.
         schedule()
     }
@@ -81,6 +109,7 @@ object LoopRuntime {
         if (!e.config().enabled) return
         if (service?.get() !== s) service = WeakReference(s)
         eventsSeen++
+        diagnostics.success(LoopDiagnostics.KIND_EVENT)
         schedule()
     }
 
@@ -96,17 +125,28 @@ object LoopRuntime {
         val s = service?.get() ?: return
         val e = engine ?: return
         if (!e.config().enabled) return
+        val pkg = try {
+            foreground(s).also {
+                readings++
+                lastForeground = it
+                diagnostics.success(LoopDiagnostics.KIND_READ_FOREGROUND)
+            }
+        } catch (t: Throwable) {
+            // A throwing window list used to vanish into Log.w; now it is a countable fault.
+            Log.w(TAG, "read foreground", t)
+            diagnostics.fault(LoopDiagnostics.KIND_READ_FOREGROUND, t)
+            return
+        }
         try {
-            val pkg = foreground(s)
-            readings++
-            lastForeground = pkg
             when (val out = e.onForeground(pkg, environment(s))) {
                 is LoopEngine.Outcome.Show -> InteractionHub.show(s, e, out)
                 is LoopEngine.Outcome.Suppressed -> Log.i(TAG, "suppressed ${out.event.packageName}: ${out.event.reason}")
                 is LoopEngine.Outcome.Ignored -> Unit
             }
+            diagnostics.success(LoopDiagnostics.KIND_VERIFY)
         } catch (t: Throwable) {
             Log.w(TAG, "verify", t)
+            diagnostics.fault(LoopDiagnostics.KIND_VERIFY, t)
         }
     }
 
@@ -116,7 +156,10 @@ object LoopRuntime {
      * DSH's general foreground reading as a fallback. Null when unreadable.
      */
     private fun foreground(s: AccessibilityService): String? {
-        val windows = try { s.windows } catch (_: Throwable) { null }
+        val windows = try { s.windows } catch (t: Throwable) {
+            diagnostics.fault(LoopDiagnostics.KIND_READ_FOREGROUND, t, "windows")
+            null
+        }
         try {
             windows?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && (it.isFocused || it.isActive) }
                 ?.let { w ->
@@ -140,8 +183,17 @@ object LoopRuntime {
             screenInteractive = power?.isInteractive != false,
             keyguardLocked = keyguard?.isKeyguardLocked == true,
             dshBusy = busy,
+            minuteOfDay = localMinuteOfDay(),
+            dayKey = localDayKey(),
         )
     }
+
+    private fun localMinuteOfDay(): Int {
+        val c = java.util.Calendar.getInstance()
+        return c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
+    }
+
+    private fun localDayKey(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
     private fun screenBox(s: AccessibilityService): Box {
         val p = Point()
@@ -154,4 +206,8 @@ object LoopRuntime {
     private fun release(node: android.view.accessibility.AccessibilityNodeInfo) {
         if (Build.VERSION.SDK_INT < 33) runCatching { node.recycle() }
     }
+
+    /** The label the person sees for a package; used by the page and the notification. */
+    fun appLabel(context: Context, pkg: String?): String =
+        pkg?.let { p -> runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(p, 0)).toString() }.getOrNull() } ?: pkg.orEmpty()
 }

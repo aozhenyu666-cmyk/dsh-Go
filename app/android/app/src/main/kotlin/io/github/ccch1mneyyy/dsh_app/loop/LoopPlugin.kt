@@ -13,10 +13,14 @@ import java.util.concurrent.Executors
 /**
  * 设置 → 手机操控 → 触发测试: MethodChannel `dsh/loop` (lib/loop/loop_channel.dart).
  *
- * - `status` → `{config, a11yEnabled, a11yConnected, eventsSeen, readings, lastForeground, storageError}`
- * - `setConfig` `{enabled?, targetPackage?, cooldownMs?, timeoutMs?}` → config
+ * - `status` → `{config, a11yEnabled, a11yConnected, eventsSeen, readings, lastForeground,
+ *   storageError, recoveredFrom, insideTarget, triggersToday, triggerDay, diagnostics}` —
+ *   `diagnostics` is the map from [LoopDiagnostics.toMap].
+ * - `setConfig` `{enabled?, targetPackage?, cooldownMs?, timeoutMs?, quietStartMinute?,
+ *   quietEndMinute?, dailyCap?}` → config
  * - `events` `{limit}` → receipts, newest first
  * - `clearEvents` → true
+ * - `clearDiagnostics` → true
  * - `apps` → launchable apps `[{package, label}]` (DSH itself left out)
  */
 class LoopPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -47,13 +51,21 @@ class LoopPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     targetPackage = if (args?.containsKey("targetPackage") == true) args["targetPackage"] as? String else cur.targetPackage,
                     cooldownMs = (args?.get("cooldownMs") as? Number)?.toLong() ?: cur.cooldownMs,
                     timeoutMs = (args?.get("timeoutMs") as? Number)?.toLong() ?: cur.timeoutMs,
+                    // Quiet hours: an explicit key present with null clears that end of the window.
+                    quietStartMinute = if (args?.containsKey("quietStartMinute") == true) (args["quietStartMinute"] as? Number)?.toInt() else cur.quietStartMinute,
+                    quietEndMinute = if (args?.containsKey("quietEndMinute") == true) (args["quietEndMinute"] as? Number)?.toInt() else cur.quietEndMinute,
+                    dailyCap = (args?.get("dailyCap") as? Number)?.toInt() ?: cur.dailyCap,
                 )
-                engine.setConfig(next).toMap().also { main.post { LoopRuntime.configChanged() } }
+                engine.setConfig(next).toMap().also { _ ->
+                    if (next.enabled) runCatching { InteractionHub.ensureChannel(context) }
+                    main.post { LoopRuntime.configChanged() }
+                }
             }
             "events" -> async(result) {
                 LoopRuntime.engine(context).events(call.argument<Int>("limit") ?: 50).map { it.toMap() }
             }
             "clearEvents" -> async(result) { LoopRuntime.engine(context).clearEvents(); true }
+            "clearDiagnostics" -> async(result) { LoopRuntime.diagnostics.clear(); true }
             "apps" -> async(result) { apps() }
             else -> result.notImplemented()
         }
@@ -61,6 +73,7 @@ class LoopPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private fun status(): Map<String, Any?> {
         val engine = LoopRuntime.engine(context)
+        val (day, spent) = engine.dailyUsage()
         return linkedMapOf(
             "config" to engine.config().toMap(),
             "a11yEnabled" to PhoneA11yService.isEnabled(context),
@@ -69,7 +82,11 @@ class LoopPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "readings" to LoopRuntime.readings,
             "lastForeground" to LoopRuntime.lastForeground,
             "storageError" to engine.storageError,
+            "recoveredFrom" to engine.recoveredFrom,
             "insideTarget" to engine.trackerState().insideTarget,
+            "triggersToday" to spent,
+            "triggerDay" to day,
+            "diagnostics" to LoopRuntime.diagnostics.toMap(),
         )
     }
 

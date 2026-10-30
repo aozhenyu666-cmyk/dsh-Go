@@ -7910,6 +7910,34 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get loopQuietHours => 'Quiet hours';
+
+  @override
+  String get loopQuietHoursHint => 'No test page during this window; may cross midnight. Tap to change.';
+
+  @override
+  String get loopQuietHoursOff => 'Off';
+
+  @override
+  String loopQuietHoursValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get loopDailyCap => 'Daily limit';
+
+  @override
+  String get loopDailyCapHint => 'At most this many test pages a day; resets after midnight';
+
+  @override
+  String get loopDailyCapOff => 'No limit';
+
+  @override
+  String loopDailyCapValue(int used, int cap) {
+    return '$used/$cap today';
+  }
+
+  @override
   String get loopA11yNeeded => 'Turn on DSH\'s accessibility service in system settings first';
 
   @override
@@ -7927,6 +7955,45 @@ class L10nEn extends L10n {
   String loopStorageError(String error) {
     return 'Couldn\'t save receipts: $error';
   }
+
+  @override
+  String loopRecoveredFromBackup(String file) {
+    return 'The receipt file was damaged; loaded the backup ($file)';
+  }
+
+  @override
+  String get loopDiagnostics => 'Accessibility diagnostics';
+
+  @override
+  String loopDiagnosticsSummary(int events, int readings, int faults) {
+    return '$events window events, $readings foreground checks, $faults failures';
+  }
+
+  @override
+  String loopDiagnosticsLastRead(String time) {
+    return 'Last successful foreground read: $time';
+  }
+
+  @override
+  String get loopDiagnosticsClear => 'Clear diagnostics';
+
+  @override
+  String get loopFaultEvent => 'Window event failed';
+
+  @override
+  String get loopFaultRead => 'Foreground read failed';
+
+  @override
+  String get loopFaultVerify => 'Trigger check failed';
+
+  @override
+  String get loopFaultAttach => 'Connect failed';
+
+  @override
+  String get loopFaultSurface => 'Showing the question failed';
+
+  @override
+  String get loopSurfaceNotification => 'via notification';
 
   @override
   String get loopReceipts => 'Receipts';

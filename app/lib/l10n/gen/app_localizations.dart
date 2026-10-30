@@ -13718,6 +13718,54 @@ abstract class L10n {
   /// **'{seconds} 秒'**
   String loopSeconds(int seconds);
 
+  /// No description provided for @loopQuietHours.
+  ///
+  /// In zh, this message translates to:
+  /// **'免打扰时段'**
+  String get loopQuietHours;
+
+  /// No description provided for @loopQuietHoursHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'这段时间里不弹测试页，可以跨零点。点一下切换。'**
+  String get loopQuietHoursHint;
+
+  /// No description provided for @loopQuietHoursOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不限'**
+  String get loopQuietHoursOff;
+
+  /// No description provided for @loopQuietHoursValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{start}–{end}'**
+  String loopQuietHoursValue(String start, String end);
+
+  /// No description provided for @loopDailyCap.
+  ///
+  /// In zh, this message translates to:
+  /// **'每天上限'**
+  String get loopDailyCap;
+
+  /// No description provided for @loopDailyCapHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'一天最多弹几次，过零点重新算'**
+  String get loopDailyCapHint;
+
+  /// No description provided for @loopDailyCapOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不限次数'**
+  String get loopDailyCapOff;
+
+  /// No description provided for @loopDailyCapValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'今天 {used}/{cap} 次'**
+  String loopDailyCapValue(int used, int cap);
+
   /// No description provided for @loopA11yNeeded.
   ///
   /// In zh, this message translates to:
@@ -13747,6 +13795,72 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'回执保存失败：{error}'**
   String loopStorageError(String error);
+
+  /// No description provided for @loopRecoveredFromBackup.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执文件损坏，已从备份（{file}）恢复'**
+  String loopRecoveredFromBackup(String file);
+
+  /// No description provided for @loopDiagnostics.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍诊断'**
+  String get loopDiagnostics;
+
+  /// No description provided for @loopDiagnosticsSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'{events} 个窗口事件、{readings} 次前台复核、{faults} 次失败'**
+  String loopDiagnosticsSummary(int events, int readings, int faults);
+
+  /// No description provided for @loopDiagnosticsLastRead.
+  ///
+  /// In zh, this message translates to:
+  /// **'上次成功读到前台：{time}'**
+  String loopDiagnosticsLastRead(String time);
+
+  /// No description provided for @loopDiagnosticsClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空诊断'**
+  String get loopDiagnosticsClear;
+
+  /// No description provided for @loopFaultEvent.
+  ///
+  /// In zh, this message translates to:
+  /// **'窗口事件出错'**
+  String get loopFaultEvent;
+
+  /// No description provided for @loopFaultRead.
+  ///
+  /// In zh, this message translates to:
+  /// **'读前台失败'**
+  String get loopFaultRead;
+
+  /// No description provided for @loopFaultVerify.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发判定出错'**
+  String get loopFaultVerify;
+
+  /// No description provided for @loopFaultAttach.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接失败'**
+  String get loopFaultAttach;
+
+  /// No description provided for @loopFaultSurface.
+  ///
+  /// In zh, this message translates to:
+  /// **'弹出问题失败'**
+  String get loopFaultSurface;
+
+  /// No description provided for @loopSurfaceNotification.
+  ///
+  /// In zh, this message translates to:
+  /// **'通过通知'**
+  String get loopSurfaceNotification;
 
   /// No description provided for @loopReceipts.
   ///

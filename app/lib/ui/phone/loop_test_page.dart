@@ -20,6 +20,9 @@ class LoopTestPage extends StatefulWidget {
 
   static const cooldownSteps = [0, 10, 60, 300];
 
+  /// 不限 → 3 → 5 → 10 → 不限.
+  static const dailyCapSteps = [0, 3, 5, 10];
+
   @override
   State<LoopTestPage> createState() => _LoopTestPageState();
 }
@@ -66,6 +69,42 @@ class _LoopTestPageState extends State<LoopTestPage> {
     await _channel.setConfig(cooldownMs: steps[(i + 1) % steps.length] * 1000);
     await _refresh();
   }
+
+  /// Cycles 关 → 23:00–08:00 → 12:00–14:00 → 关. Two presets keep this to one tap, like cooldown.
+  Future<void> _cycleQuietHours(LoopConfig config) async {
+    const presets = [(23 * 60, 8 * 60), (12 * 60, 14 * 60)];
+    final start = config.quietStartMinute;
+    final end = config.quietEndMinute;
+    var i = -1;
+    if (config.quietHoursSet && start != null && end != null) {
+      i = presets.indexWhere((p) => p.$1 == start && p.$2 == end);
+    }
+    // Off → first preset, preset → next preset, last preset (or an unknown pair) → off again.
+    if (i < 0) {
+      await _channel.setConfig(quietStartMinute: presets.first.$1, quietEndMinute: presets.first.$2);
+    } else if (i >= presets.length - 1) {
+      await _channel.setConfig(clearQuietHours: true);
+    } else {
+      final next = presets[i + 1];
+      await _channel.setConfig(quietStartMinute: next.$1, quietEndMinute: next.$2);
+    }
+    await _refresh();
+  }
+
+  Future<void> _cycleDailyCap(int current) async {
+    const steps = LoopTestPage.dailyCapSteps;
+    final i = steps.indexOf(current);
+    await _channel.setConfig(dailyCap: steps[(i + 1) % steps.length]);
+    await _refresh();
+  }
+
+  Future<void> _clearDiagnostics() async {
+    await _channel.clearDiagnostics();
+    await _refresh();
+  }
+
+  static bool _hasDiagnostics(LoopStatus s) =>
+      s.diagnostics.faults.isNotEmpty || s.diagnostics.recent.isNotEmpty || s.diagnostics.lastReadAt != null;
 
   Future<void> _pickApp() async {
     final apps = await _channel.apps();
@@ -137,6 +176,24 @@ class _LoopTestPageState extends State<LoopTestPage> {
               onTap: status == null ? null : () => unawaited(_cycleCooldown(config.cooldownMs)),
             ),
             ListPageRow(
+              icon: AppIcons.notificationsOff,
+              title: l10n.loopQuietHours,
+              subtitle: l10n.loopQuietHoursHint,
+              value: config.quietHoursSet
+                  ? l10n.loopQuietHoursValue(loopClock(config.quietStartMinute!), loopClock(config.quietEndMinute!))
+                  : l10n.loopQuietHoursOff,
+              onTap: status == null ? null : () => unawaited(_cycleQuietHours(config)),
+            ),
+            ListPageRow(
+              icon: AppIcons.today,
+              title: l10n.loopDailyCap,
+              subtitle: l10n.loopDailyCapHint,
+              value: config.dailyCap <= 0
+                  ? l10n.loopDailyCapOff
+                  : l10n.loopDailyCapValue(status?.triggersToday ?? 0, config.dailyCap),
+              onTap: status == null ? null : () => unawaited(_cycleDailyCap(config.dailyCap)),
+            ),
+            ListPageRow(
               icon: status?.a11yConnected ?? false ? AppIcons.allowed : AppIcons.error,
               iconColor: status?.a11yConnected ?? false ? colors.success : colors.warning,
               title: a11y,
@@ -153,8 +210,44 @@ class _LoopTestPageState extends State<LoopTestPage> {
                 title: l10n.loopStorageError(status!.storageError!),
                 titleMaxLines: 3,
               ),
+            if (status?.recoveredFrom != null)
+              ListPageRow(
+                icon: AppIcons.warning,
+                iconColor: colors.warning,
+                title: l10n.loopRecoveredFromBackup(status!.recoveredFrom!),
+                titleMaxLines: 3,
+              ),
           ],
         ),
+        const SizedBox(height: 24),
+        // Accessibility failures used to be invisible (Log.w only). Now they are on the page.
+        if (status != null && _hasDiagnostics(status))
+          ListPageCard(
+            title: l10n.loopDiagnostics,
+            children: [
+              ListPageRow(
+                icon: AppIcons.info,
+                title: l10n.loopDiagnosticsSummary(
+                  status.eventsSeen,
+                  status.readings,
+                  status.diagnostics.faults.values.fold<int>(0, (a, b) => a + b),
+                ),
+                titleMaxLines: 3,
+                subtitle: status.diagnostics.lastReadAt == null ? null : l10n.loopDiagnosticsLastRead(formatLogTime(status.diagnostics.lastReadAt!)),
+                subtitleMaxLines: 2,
+              ),
+              for (final f in status.diagnostics.recent.take(5))
+                ListPageRow(
+                  icon: AppIcons.error,
+                  iconColor: colors.danger,
+                  title: loopFaultKindLabel(l10n, f.kind),
+                  subtitle: f.detail,
+                  subtitleMaxLines: 2,
+                  meta: formatLogTime(f.at),
+                ),
+              ListPageRow(icon: AppIcons.clearAll, title: l10n.loopDiagnosticsClear, onTap: () => unawaited(_clearDiagnostics())),
+            ],
+          ),
         const SizedBox(height: 24),
         ListPageCard(
           title: l10n.loopReceipts,
@@ -186,6 +279,34 @@ String loopResultLabel(L10n l10n, String? result) => switch (result) {
   _ => result,
 };
 
+/// "23:00" from minutes after midnight.
+String loopClock(int minuteOfDay) {
+  final m = minuteOfDay.clamp(0, 1439);
+  final h = (m ~/ 60).toString().padLeft(2, '0');
+  final mm = (m % 60).toString().padLeft(2, '0');
+  return '$h:$mm';
+}
+
+/// The diagnostics card's per-fault title.
+String loopFaultKindLabel(L10n l10n, String kind) => switch (kind) {
+  'event' => l10n.loopFaultEvent,
+  'read_foreground' => l10n.loopFaultRead,
+  'verify' => l10n.loopFaultVerify,
+  'attach' => l10n.loopFaultAttach,
+  'surface' => l10n.loopFaultSurface,
+  _ => kind,
+};
+
+/// Receipt detail: where it was asked, then the reason and the error.
+String loopReceiptDetail(L10n l10n, LoopEvent e, String? label) {
+  final surface = switch (e.surface) {
+    'notification' => l10n.loopSurfaceNotification,
+    'activity' => null,
+    _ => e.surface,
+  };
+  return [?label ?? e.packageName, ?surface, ?e.reason, ?e.error].join(' · ');
+}
+
 class _ReceiptRow extends StatelessWidget {
   const _ReceiptRow(this.event, {this.label});
 
@@ -201,7 +322,7 @@ class _ReceiptRow extends StatelessWidget {
       'ABANDONED' || 'UNAVAILABLE' || 'ERROR' => (AppIcons.error, colors.danger),
       _ => (AppIcons.pending, colors.textTertiary),
     };
-    final detail = [?label ?? event.packageName, ?event.reason, ?event.error].join(' · ');
+    final detail = loopReceiptDetail(context.l10n, event, label);
     return ListPageRow(
       icon: icon,
       iconColor: color,

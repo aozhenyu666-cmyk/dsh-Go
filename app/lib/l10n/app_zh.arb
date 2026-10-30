@@ -4861,6 +4861,34 @@
       }
     }
   },
+  "loopQuietHours": "免打扰时段",
+  "loopQuietHoursHint": "这段时间里不弹测试页，可以跨零点。点一下切换。",
+  "loopQuietHoursOff": "不限",
+  "loopQuietHoursValue": "{start}–{end}",
+  "@loopQuietHoursValue": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDailyCap": "每天上限",
+  "loopDailyCapHint": "一天最多弹几次，过零点重新算",
+  "loopDailyCapOff": "不限次数",
+  "loopDailyCapValue": "今天 {used}/{cap} 次",
+  "@loopDailyCapValue": {
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "cap": {
+        "type": "int"
+      }
+    }
+  },
   "loopA11yNeeded": "需要先在系统设置里开启 DSH 的无障碍服务",
   "loopA11yWaiting": "无障碍已开启，等待服务连接",
   "loopA11yReady": "无障碍服务已连接",
@@ -4886,6 +4914,44 @@
       }
     }
   },
+  "loopRecoveredFromBackup": "回执文件损坏，已从备份（{file}）恢复",
+  "@loopRecoveredFromBackup": {
+    "placeholders": {
+      "file": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDiagnostics": "无障碍诊断",
+  "loopDiagnosticsSummary": "{events} 个窗口事件、{readings} 次前台复核、{faults} 次失败",
+  "@loopDiagnosticsSummary": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "readings": {
+        "type": "int"
+      },
+      "faults": {
+        "type": "int"
+      }
+    }
+  },
+  "loopDiagnosticsLastRead": "上次成功读到前台：{time}",
+  "@loopDiagnosticsLastRead": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDiagnosticsClear": "清空诊断",
+  "loopFaultEvent": "窗口事件出错",
+  "loopFaultRead": "读前台失败",
+  "loopFaultVerify": "触发判定出错",
+  "loopFaultAttach": "连接失败",
+  "loopFaultSurface": "弹出问题失败",
+  "loopSurfaceNotification": "通过通知",
   "loopReceipts": "回执",
   "loopReceiptsEmpty": "还没有回执",
   "loopClear": "清空回执",

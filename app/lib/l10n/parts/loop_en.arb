@@ -19,6 +19,34 @@
       }
     }
   },
+  "loopQuietHours": "Quiet hours",
+  "loopQuietHoursHint": "No test page during this window; may cross midnight. Tap to change.",
+  "loopQuietHoursOff": "Off",
+  "loopQuietHoursValue": "{start}–{end}",
+  "@loopQuietHoursValue": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDailyCap": "Daily limit",
+  "loopDailyCapHint": "At most this many test pages a day; resets after midnight",
+  "loopDailyCapOff": "No limit",
+  "loopDailyCapValue": "{used}/{cap} today",
+  "@loopDailyCapValue": {
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "cap": {
+        "type": "int"
+      }
+    }
+  },
   "loopA11yNeeded": "Turn on DSH's accessibility service in system settings first",
   "loopA11yWaiting": "Accessibility is on, waiting for the service to connect",
   "loopA11yReady": "Accessibility service connected",
@@ -44,6 +72,44 @@
       }
     }
   },
+  "loopRecoveredFromBackup": "The receipt file was damaged; loaded the backup ({file})",
+  "@loopRecoveredFromBackup": {
+    "placeholders": {
+      "file": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDiagnostics": "Accessibility diagnostics",
+  "loopDiagnosticsSummary": "{events} window events, {readings} foreground checks, {faults} failures",
+  "@loopDiagnosticsSummary": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "readings": {
+        "type": "int"
+      },
+      "faults": {
+        "type": "int"
+      }
+    }
+  },
+  "loopDiagnosticsLastRead": "Last successful foreground read: {time}",
+  "@loopDiagnosticsLastRead": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDiagnosticsClear": "Clear diagnostics",
+  "loopFaultEvent": "Window event failed",
+  "loopFaultRead": "Foreground read failed",
+  "loopFaultVerify": "Trigger check failed",
+  "loopFaultAttach": "Connect failed",
+  "loopFaultSurface": "Showing the question failed",
+  "loopSurfaceNotification": "via notification",
   "loopReceipts": "Receipts",
   "loopReceiptsEmpty": "No receipts yet",
   "loopClear": "Clear receipts",

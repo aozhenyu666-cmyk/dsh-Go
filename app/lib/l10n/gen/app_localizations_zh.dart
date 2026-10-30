@@ -7495,6 +7495,34 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get loopQuietHours => '免打扰时段';
+
+  @override
+  String get loopQuietHoursHint => '这段时间里不弹测试页，可以跨零点。点一下切换。';
+
+  @override
+  String get loopQuietHoursOff => '不限';
+
+  @override
+  String loopQuietHoursValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get loopDailyCap => '每天上限';
+
+  @override
+  String get loopDailyCapHint => '一天最多弹几次，过零点重新算';
+
+  @override
+  String get loopDailyCapOff => '不限次数';
+
+  @override
+  String loopDailyCapValue(int used, int cap) {
+    return '今天 $used/$cap 次';
+  }
+
+  @override
   String get loopA11yNeeded => '需要先在系统设置里开启 DSH 的无障碍服务';
 
   @override
@@ -7512,6 +7540,45 @@ class L10nZh extends L10n {
   String loopStorageError(String error) {
     return '回执保存失败：$error';
   }
+
+  @override
+  String loopRecoveredFromBackup(String file) {
+    return '回执文件损坏，已从备份（$file）恢复';
+  }
+
+  @override
+  String get loopDiagnostics => '无障碍诊断';
+
+  @override
+  String loopDiagnosticsSummary(int events, int readings, int faults) {
+    return '$events 个窗口事件、$readings 次前台复核、$faults 次失败';
+  }
+
+  @override
+  String loopDiagnosticsLastRead(String time) {
+    return '上次成功读到前台：$time';
+  }
+
+  @override
+  String get loopDiagnosticsClear => '清空诊断';
+
+  @override
+  String get loopFaultEvent => '窗口事件出错';
+
+  @override
+  String get loopFaultRead => '读前台失败';
+
+  @override
+  String get loopFaultVerify => '触发判定出错';
+
+  @override
+  String get loopFaultAttach => '连接失败';
+
+  @override
+  String get loopFaultSurface => '弹出问题失败';
+
+  @override
+  String get loopSurfaceNotification => '通过通知';
 
   @override
   String get loopReceipts => '回执';

@@ -16,6 +16,12 @@ class FakeLoopNative {
   List<Map<String, Object?>> events = [];
   final calls = <MethodCall>[];
 
+  /// Overridden per test; the defaults describe a healthy loop.
+  String? storageError;
+  String? recoveredFrom;
+  int triggersToday = 0;
+  Map<String, Object?> diagnostics = {};
+
   void install() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       const MethodChannel('dsh/loop'),
@@ -30,8 +36,12 @@ class FakeLoopNative {
               'eventsSeen': 12,
               'readings': 3,
               'lastForeground': 'com.example.test',
-              'storageError': null,
+              'storageError': storageError,
+              'recoveredFrom': recoveredFrom,
               'insideTarget': false,
+              'triggersToday': triggersToday,
+              'triggerDay': '2026-10-31',
+              'diagnostics': diagnostics,
             };
           case 'setConfig':
             final args = (call.arguments as Map).cast<String, Object?>();
@@ -41,6 +51,9 @@ class FakeLoopNative {
             return events;
           case 'clearEvents':
             events = [];
+            return true;
+          case 'clearDiagnostics':
+            diagnostics = {};
             return true;
           case 'apps':
             return [
@@ -145,6 +158,86 @@ void main() {
       await tester.pumpAndSettle();
       expect(native.argsOf('clearEvents'), hasLength(1));
       expect(find.text('还没有回执'), findsOneWidget);
+    });
+
+    testWidgets('quiet hours cycle through the presets and back off', (tester) async {
+      final native = FakeLoopNative()..install();
+      await pumpPhone(tester, const LoopTestPage());
+      expect(find.text('不限'), findsWidgets);
+
+      await tester.tap(find.text('免打扰时段'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'quietStartMinute': 1380, 'quietEndMinute': 480});
+      expect(find.text('23:00–08:00'), findsOneWidget);
+
+      await tester.tap(find.text('免打扰时段'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'quietStartMinute': 720, 'quietEndMinute': 840});
+      expect(find.text('12:00–14:00'), findsOneWidget);
+
+      await tester.tap(find.text('免打扰时段'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'quietStartMinute': null, 'quietEndMinute': null});
+    });
+
+    testWidgets('daily cap cycles and shows what is spent today', (tester) async {
+      final native = FakeLoopNative()..triggersToday = 2;
+      native.install();
+      await pumpPhone(tester, const LoopTestPage());
+
+      await tester.tap(find.text('每天上限'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'dailyCap': 3});
+      expect(find.text('今天 2/3 次'), findsOneWidget);
+
+      await tester.tap(find.text('每天上限'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, {'dailyCap': 5});
+    });
+
+    testWidgets('accessibility failures appear on the page and can be cleared', (tester) async {
+      final native = FakeLoopNative()
+        ..diagnostics = {
+          'faults': {'read_foreground': 3},
+          'streaks': {'read_foreground': 3},
+          'recent': [
+            {'kind': 'read_foreground', 'detail': 'IllegalStateException: windows', 'at': DateTime(2026, 10, 30, 9, 20).millisecondsSinceEpoch},
+          ],
+          'lastReadAt': DateTime(2026, 10, 30, 9, 18).millisecondsSinceEpoch,
+        }
+        ..install();
+      await pumpPhone(tester, const LoopTestPage());
+      expect(find.text('无障碍诊断'), findsOneWidget);
+      expect(find.text('读前台失败'), findsOneWidget);
+      expect(find.textContaining('IllegalStateException: windows'), findsOneWidget);
+      expect(find.textContaining('3 次失败'), findsOneWidget);
+
+      await tester.tap(find.text('清空诊断'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('clearDiagnostics'), hasLength(1));
+      expect(find.text('无障碍诊断'), findsNothing);
+    });
+
+    testWidgets('a receipt closed by the notification says so', (tester) async {
+      FakeLoopNative()
+        ..events = [
+          {
+            ...receipt('n', 'RETURNED'),
+            'surface': 'notification',
+          },
+        ]
+        ..install();
+      await pumpPhone(tester, const LoopTestPage());
+      expect(find.text('点了返回'), findsOneWidget);
+      expect(find.textContaining('通过通知'), findsOneWidget);
+    });
+
+    testWidgets('a damaged state file shows the backup recovery', (tester) async {
+      FakeLoopNative()
+        ..recoveredFrom = 'state.json.bak'
+        ..install();
+      await pumpPhone(tester, const LoopTestPage());
+      expect(find.textContaining('已从备份'), findsOneWidget);
     });
 
     testWidgets('phone control links to it', (tester) async {

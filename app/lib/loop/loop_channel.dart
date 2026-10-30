@@ -4,20 +4,107 @@
 import 'package:flutter/services.dart';
 
 class LoopConfig {
-  const LoopConfig({this.enabled = false, this.targetPackage, this.cooldownMs = 60000, this.timeoutMs = 60000});
+  const LoopConfig({
+    this.enabled = false,
+    this.targetPackage,
+    this.cooldownMs = 60000,
+    this.timeoutMs = 60000,
+    this.quietStartMinute,
+    this.quietEndMinute,
+    this.dailyCap = 0,
+  });
 
   final bool enabled;
   final String? targetPackage;
   final int cooldownMs;
   final int timeoutMs;
 
+  /// Quiet hours, minutes after midnight. [quietEndMinute] smaller than [quietStartMinute] crosses midnight.
+  final int? quietStartMinute;
+  final int? quietEndMinute;
+
+  /// Maximum triggers per day; 0 = unlimited.
+  final int dailyCap;
+
+  bool get quietHoursSet => quietStartMinute != null && quietEndMinute != null && quietStartMinute != quietEndMinute;
+
   static LoopConfig fromWire(Object? raw) {
     final m = raw is Map ? raw : const {};
+    int? n(Object? v) => v is num ? v.toInt() : null;
     return LoopConfig(
       enabled: m['enabled'] == true,
       targetPackage: m['targetPackage'] is String ? m['targetPackage'] as String : null,
       cooldownMs: m['cooldownMs'] is num ? (m['cooldownMs'] as num).toInt() : 60000,
       timeoutMs: m['timeoutMs'] is num ? (m['timeoutMs'] as num).toInt() : 60000,
+      quietStartMinute: n(m['quietStartMinute']),
+      quietEndMinute: n(m['quietEndMinute']),
+      dailyCap: n(m['dailyCap']) ?? 0,
+    );
+  }
+}
+
+/// One fault the native side kept: an accessibility handler, a foreground read, a surface.
+class LoopFault {
+  const LoopFault({required this.kind, required this.detail, required this.at});
+
+  final String kind;
+  final String detail;
+  final DateTime at;
+
+  static LoopFault? fromWire(Object? raw) {
+    if (raw is! Map) return null;
+    final kind = raw['kind'];
+    final at = raw['at'];
+    if (kind is! String || at is! num) return null;
+    return LoopFault(
+      kind: kind,
+      detail: raw['detail'] is String ? raw['detail'] as String : '',
+      at: DateTime.fromMillisecondsSinceEpoch(at.toInt()),
+    );
+  }
+}
+
+/// `status.diagnostics`: what the settings page needs to explain a silent loop.
+class LoopDiagnosticsView {
+  const LoopDiagnosticsView({
+    this.faults = const {},
+    this.streaks = const {},
+    this.recent = const [],
+    this.lastEventAt,
+    this.lastVerifyAt,
+    this.lastReadAt,
+  });
+
+  /// Total failures per kind since process start.
+  final Map<String, int> faults;
+
+  /// Failures in a row right now per kind.
+  final Map<String, int> streaks;
+  final List<LoopFault> recent;
+  final DateTime? lastEventAt;
+  final DateTime? lastVerifyAt;
+  final DateTime? lastReadAt;
+
+  bool get isEmpty => faults.isEmpty && lastEventAt == null && lastVerifyAt == null && lastReadAt == null;
+
+  static LoopDiagnosticsView fromWire(Object? raw) {
+    final m = raw is Map ? raw : const {};
+    Map<String, int> counts(Object? v) {
+      if (v is! Map) return const {};
+      return {
+        for (final e in v.entries)
+          if (e.key is String && e.value is num) e.key as String: (e.value as num).toInt(),
+      };
+    }
+
+    DateTime? ts(Object? v) => v is num ? DateTime.fromMillisecondsSinceEpoch(v.toInt()) : null;
+    return LoopDiagnosticsView(
+      faults: counts(m['faults']),
+      streaks: counts(m['streaks']),
+      recent: [for (final f in (m['recent'] is List ? m['recent'] as List : const [])) ?LoopFault.fromWire(f)],
+      lastEventAt: ts(m['lastEventAt']),
+      lastVerifyAt: ts(m['lastVerifyAt']),
+      lastReadAt: ts(m['lastReadAt']),
     );
   }
 }
@@ -31,7 +118,11 @@ class LoopStatus {
     this.readings = 0,
     this.lastForeground,
     this.storageError,
+    this.recoveredFrom,
     this.insideTarget = false,
+    this.triggersToday = 0,
+    this.triggerDay,
+    this.diagnostics = const LoopDiagnosticsView(),
   });
 
   final LoopConfig config;
@@ -41,7 +132,16 @@ class LoopStatus {
   final int readings;
   final String? lastForeground;
   final String? storageError;
+
+  /// Non-null when the state file was damaged and the backup was loaded instead.
+  final String? recoveredFrom;
   final bool insideTarget;
+
+  /// Triggers spent today, and which day that was.
+  final int triggersToday;
+  final String? triggerDay;
+
+  final LoopDiagnosticsView diagnostics;
 
   static LoopStatus fromWire(Object? raw) {
     final m = raw is Map ? raw : const {};
@@ -55,7 +155,11 @@ class LoopStatus {
       readings: n(m['readings']),
       lastForeground: s(m['lastForeground']),
       storageError: s(m['storageError']),
+      recoveredFrom: s(m['recoveredFrom']),
       insideTarget: m['insideTarget'] == true,
+      triggersToday: n(m['triggersToday']),
+      triggerDay: s(m['triggerDay']),
+      diagnostics: LoopDiagnosticsView.fromWire(m['diagnostics']),
     );
   }
 }
@@ -71,6 +175,7 @@ class LoopEvent {
     this.error,
     this.reason,
     this.packageName,
+    this.surface,
     this.updatedAt,
   });
 
@@ -86,6 +191,9 @@ class LoopEvent {
   final String? error;
   final String? reason;
   final String? packageName;
+
+  /// "activity" or "notification" (T3's fallback surface).
+  final String? surface;
   final DateTime? updatedAt;
 
   static LoopEvent? fromWire(Object? raw) {
@@ -104,6 +212,7 @@ class LoopEvent {
       error: s(raw['error']),
       reason: s(raw['reason']),
       packageName: s(raw['packageName']),
+      surface: s(raw['surface']),
       updatedAt: up is num ? DateTime.fromMillisecondsSinceEpoch(up.toInt()) : null,
     );
   }
@@ -130,13 +239,29 @@ class LoopChannel {
     }
   }
 
-  /// Only the given fields change. [clearTarget] sets the test app to none.
-  Future<LoopConfig?> setConfig({bool? enabled, String? targetPackage, bool clearTarget = false, int? cooldownMs}) async {
+  /// Only the given fields change. [clearTarget] sets the test app to none,
+  /// [clearQuietHours] removes the quiet window.
+  Future<LoopConfig?> setConfig({
+    bool? enabled,
+    String? targetPackage,
+    bool clearTarget = false,
+    int? cooldownMs,
+    int? quietStartMinute,
+    int? quietEndMinute,
+    bool clearQuietHours = false,
+    int? dailyCap,
+  }) async {
     try {
       final raw = await _methods.invokeMethod<Object?>('setConfig', {
         'enabled': ?enabled,
         if (targetPackage != null || clearTarget) 'targetPackage': targetPackage,
         'cooldownMs': ?cooldownMs,
+        if (clearQuietHours) ...{'quietStartMinute': null, 'quietEndMinute': null}
+        else if (quietStartMinute != null || quietEndMinute != null) ...{
+          'quietStartMinute': ?quietStartMinute,
+          'quietEndMinute': ?quietEndMinute,
+        },
+        'dailyCap': ?dailyCap,
       });
       return LoopConfig.fromWire(raw);
     } on Exception {
@@ -156,6 +281,14 @@ class LoopChannel {
   Future<bool> clearEvents() async {
     try {
       return await _methods.invokeMethod<bool>('clearEvents') ?? false;
+    } on Exception {
+      return false;
+    }
+  }
+
+  Future<bool> clearDiagnostics() async {
+    try {
+      return await _methods.invokeMethod<bool>('clearDiagnostics') ?? false;
     } on Exception {
       return false;
     }
