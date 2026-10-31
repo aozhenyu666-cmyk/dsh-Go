@@ -117,30 +117,73 @@ No issues found! (ran in 39.7s)
 ### 6.2 `flutter test test/phone/proactive_page_test.dart`
 
 ```
-00:00 +0: wire a receipt keeps the six moments apart
-00:00 +1: wire status survives missing and odd fields
-00:00 +2: page shows the state, the honest wake warning and the receipts
-00:02 +3: page the switch, gaps, quiet hours and daily limit write config
-00:03 +4: page a typed gap outside the range is refused, not sent
-00:04 +5: page the gaps can never cross
-00:04 +6: page a missing transport is stated instead of pretending
-00:04 +7: page the target session can be picked from the live ones
-00:05 +8: page the target can be cleared again
-00:05 +9: page an unreadable session list is explained, not hidden
-00:05 +10: page no live session is said plainly
-00:06 +11: page a damaged kernel state is surfaced
-00:06 +12: page phone control links to it
+00:00 +1: wire a receipt keeps the six moments apart
+00:00 +2: wire status survives missing and odd fields
+00:00 +3: page shows the state, the honest wake warning and the receipts
+00:02 +4: page the switch, gaps, quiet hours and daily limit write config
+00:03 +5: page a typed gap outside the range is refused, not sent
+00:04 +6: page the gaps can never cross
+00:04 +7: page a missing transport is stated instead of pretending
+00:04 +8: page the target session can be picked from the live ones
+00:04 +9: page the target can be cleared again
+00:04 +10: page an unreadable session list is explained, not hidden
+00:05 +11: page no live session is said plainly
+00:06 +12: page a damaged kernel state is surfaced
+00:06 +13: page phone control links to it
 00:07 +13: All tests passed!
 ```
 
-间隔输入与边界三条全在：`+3`（写入 config）、`+4`（`0`/`99999` 被拒且不下发）、
-`+5`（min 抬过 max 时一起抬）。
+**13 passed.** 间隔输入与边界三条都在：`+4`（打字写入 config）、`+5`（`0`/`99999` 被拒且不下发）、
+`+6`（min 抬过 max 时一起抬）。
+
+加上 `test/proactive_channel_test.dart` 一起跑：`00:07 +25: All tests passed!` —— **25 passed**。
+
+`test/phone` 全目录（21 个非 golden 测试文件）+ `proactive_channel_test.dart`：
+`00:33 +203: All tests passed!` —— **203 passed**。
+
+### 6.3 golden 失败：既有问题，与本次改动无关（已对照证明）
+
+```
+flutter test test/phone        → 01:14 +200 -36: Some tests failed.
+flutter test -r compact (全仓) → 08:58 +3102 ~265 -350: Some tests failed.
+```
+
+36 个失败**全部是 golden 像素比对**（`phone_golden_test.dart` 32 个、`phone_floating_bar_test.dart` 4 个），
+例：`Golden "goldens/phone_main_dark.png": Pixel test failed, 2.78%, 74530px diff detected.`。
+全仓 350 个失败同理（`*_golden_test.dart` 占绝大多数）。
+
+**证明是既有问题**：完全未改动的 `D:\code\R4\wt-m1`（`f1423dc1`，同一份 `app/`）上跑同样的文件：
+
+```
+flutter test test/phone/phone_golden_test.dart          → 01:30 +0 -32: Some tests failed.
+flutter test test/phone/phone_floating_bar_test.dart    → 00:18 +9 -4: Some tests failed.
+Golden "goldens/phone_floating_bar_light.png": Pixel test failed, 2.63%, 34641px diff detected.
+```
+
+同样的 32 + 4。且 `git diff f1423dc1 HEAD -- app/lib app/test` **输出为空** —— 本分支的
+`app/lib` 与 `app/test` 与 R3 基线逐字节相同，golden 失败不可能由本分支引入。
+根因大概率是本机字体（`C:\dev\fonts_extract` 里的 Noto CJK 与生成基线时那份不同字号/字重），
+按 `MAINTENANCE.md` §9「截图基线只有在干净官方版通过时才更新」，**本轮不动 golden、不 `--update-goldens`**。
 
 > 环境注记：本机 `flutter test` 需要 `DSH_TEST_FONT_DIR=C:\dev\fonts_extract\usr\share\fonts\noto-cjk`
 > （仓库默认找 Linux 的 `/usr/share/fonts/noto-cjk`），且 shell 环境缺 `LOCALAPPDATA`/`PUB_CACHE`，
 > 需显式设为 `C:\Users\<user>\AppData\Local\Pub\Cache`。二者都是环境问题，与代码无关。
 
-### 6.3 python 侧
+### 6.4 `r4-verify.ps1 -Target d-core`（loop 内核离线 JVM 基线）
+
+```
+=== loop kernel offline JVM: D:\code\R4\wt-m1
+  PASS  93 tests
+=== loop kernel offline JVM: D:\code\R4\wt-m2
+  PASS  93 tests
+=== loop kernel offline JVM: D:\code\R4\wt-dev
+  PASS  93 tests
+```
+
+注：`r4-verify.ps1` 读 `$env:USERPROFILE`，本会话的 shell 环境为空，需先
+`$env:USERPROFILE=[Environment]::GetFolderPath('UserProfile')` 再调用（否则全部 COMPILE FAIL）。
+
+### 6.5 python 侧
 
 ```
 python -I runtime/tests/test_proactive_packaging.py   → Ran 4 tests ... OK
@@ -150,8 +193,9 @@ python -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi arm64-v8
   → exit 1，G1' FAIL（本机确实没有 runtime/out，断言按预期报错）
 ```
 
-### 6.4 既有缺陷（本轮不修，已确认与改动无关）
+### 6.6 其它既有缺陷（本轮不修）
 
+- `r4-verify.ps1 -Target d-core`：`wt-m1 / wt-m2 / wt-dev` 三处 **PASS 93 tests**（本机实跑）。
 - `tooling/test_build_number.py` 的 2 个 `BuildApkDryRunTest` 在 Windows 上失败
   （`build-apk.sh` 经 cmd 调 bash 拿不到 stdout）。在**未改动的** `D:\code\R4\wt-m1`
   （f1423dc1）上同样 `Ran 12 tests ... FAILED (failures=2)` —— 既有缺陷。
