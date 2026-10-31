@@ -3,4 +3,6 @@
 <resources>
     <string name="proactive_reply">回应</string>
     <string name="proactive_later">稍后</string>
+    <string name="proactive_channel">主动搭话</string>
+    <string name="proactive_channel_description">页面弹不出来时，DSH 用通知问你一句</string>
 </resources>

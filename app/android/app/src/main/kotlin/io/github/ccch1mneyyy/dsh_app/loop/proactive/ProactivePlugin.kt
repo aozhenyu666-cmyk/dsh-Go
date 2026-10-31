@@ -35,7 +35,15 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
         context = binding.applicationContext
         methods = MethodChannel(binding.binaryMessenger, "dsh/proactive").also { it.setMethodCallHandler(this) }
         events = EventChannel(binding.binaryMessenger, "dsh/proactive/agent").also { it.setStreamHandler(this) }
-        main.post { ProactiveRuntime.ensure(context) }
+        // D2: the notification surface must exist before the kernel can pick it, or the gate would
+        // report "notifications not allowed" on a phone that has them.
+        main.post {
+            ProactiveRuntime.ensure(context)
+            if (ProactiveRuntime.notificationPort == null) {
+                ProactiveRuntime.notificationPort = NotificationPortImpl(context)
+                ProactiveRuntime.refreshGate("notification_port")
+            }
+        }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -50,6 +58,8 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
         sink = events
         ProactiveRuntime.agentPort = this
+        // Dart is now listening: replay whatever the coordinator asked for while it was starting.
+        ProactiveRuntime.onAgentPortReady()
     }
 
     override fun onCancel(arguments: Any?) {

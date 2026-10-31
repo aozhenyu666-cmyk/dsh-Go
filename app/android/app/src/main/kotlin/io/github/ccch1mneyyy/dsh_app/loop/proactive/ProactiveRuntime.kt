@@ -75,6 +75,13 @@ object ProactiveRuntime {
     private var listening: PhoneTasks? = null
     private var lastOpportunistic = 0L
 
+    /** Agent commands that arrived before Dart connected; see [holdAgent]. */
+    private data class HeldAgent(val requestId: String, val body: Map<String, Any?>?, val deadline: Long)
+    private val heldAgent = LinkedHashMap<String, HeldAgent>()
+
+    /** How often the adapter retries a held agent command while Flutter is still starting. */
+    private const val AGENT_RETRY_MS = 5_000L
+
     fun ensure(context: Context): Coordinator {
         coordinator?.let { return it }
         app = context.applicationContext
@@ -175,11 +182,21 @@ object ProactiveRuntime {
     private fun run(cmd: Command) {
         val c = coordinator!!
         when (cmd) {
-            is Command.RequestAgent -> agentPort?.request(cmd.requestId, AgentWire.requestBody(cmd, System.currentTimeMillis()))
-                ?: dispatch(c.onAgent(cmd.requestId, AgentReply.Failed("no_transport")))
+            // The Dart port is only wired once Flutter is up. At process start the coordinator's
+            // recovery emits ResumeAgent *before* that happens, so "no port yet" must not be turned
+            // into a failure: an agent turn that is still inside its deadline is kept and replayed
+            // when the port arrives. Only a port that is still missing after the deadline fails.
+            is Command.RequestAgent -> {
+                val port = agentPort
+                if (port == null) holdAgent(cmd, AgentWire.requestBody(cmd, System.currentTimeMillis()))
+                else port.request(cmd.requestId, AgentWire.requestBody(cmd, System.currentTimeMillis()))
+            }
             // The plugin answers a replayed requestId with its record and never sends twice.
-            is Command.ResumeAgent -> agentPort?.poll(cmd.requestId)
-                ?: dispatch(c.onAgent(cmd.requestId, AgentReply.Failed("no_transport")))
+            is Command.ResumeAgent -> {
+                val port = agentPort
+                if (port == null) holdAgent(Command.ResumeAgent(cmd.eventId, cmd.requestId, cmd.deadline), null)
+                else port.poll(cmd.requestId)
+            }
             is Command.CancelAgent -> agentPort?.cancel(cmd.requestId)
             is Command.Present -> when (cmd.surface) {
                 Surface.ACTIVITY -> ProactivePageActivity.start(app, cmd.token, cmd.content.text, cmd.deadline)
@@ -196,6 +213,55 @@ object ProactiveRuntime {
             Command.ClearLeftovers -> { ProactivePageActivity.withdrawAll(); notificationPort?.cancelAll() }
         }
     }
+
+    /** Dart started listening: replay agent commands held while Flutter was still coming up. */
+    fun onAgentPortReady() {
+        main.removeCallbacks(agentRetry)
+        flushHeldAgent()
+        // The gate depends on the port (notificationsAllowed), so the decision has to be revisited.
+        refreshGate("agent_port")
+    }
+
+    /**
+     * An agent command that arrived before the Dart port existed. [body] is non-null for a fresh
+     * request: replaying a fresh request is safe because the plugin answers a repeated requestId
+     * with its existing record and never sends the message twice.
+     */
+    private fun holdAgent(cmd: Command, body: Map<String, Any?>?) {
+        val requestId = when (cmd) {
+            is Command.RequestAgent -> cmd.requestId
+            is Command.ResumeAgent -> cmd.requestId
+            else -> return
+        }
+        val deadline = when (cmd) {
+            is Command.RequestAgent -> cmd.deadline
+            is Command.ResumeAgent -> cmd.deadline
+            else -> 0L
+        }
+        heldAgent[requestId] = HeldAgent(requestId, body, deadline)
+        Log.i(TAG, "agent port not ready, holding $requestId until Flutter connects")
+        main.removeCallbacks(agentRetry)
+        main.postDelayed(agentRetry, AGENT_RETRY_MS)
+    }
+
+    /** Replays what was held once the port exists; drops it only when its deadline has passed. */
+    private fun flushHeldAgent() {
+        val port = agentPort ?: return
+        if (heldAgent.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val pending = heldAgent.values.toList()
+        heldAgent.clear()
+        for (h in pending) {
+            if (now >= h.deadline) {
+                // The turn's window is gone: let the kernel fail it honestly.
+                dispatch(coordinator!!.onAgent(h.requestId, AgentReply.Failed("no_transport")))
+                continue
+            }
+            if (h.body != null) port.request(h.requestId, h.body!!) else port.poll(h.requestId)
+        }
+    }
+
+    private val agentRetry = Runnable { flushHeldAgent() }
 
     /** DSH's own state, read only. Never takes a PhoneTasks owner or a PromptArbiter slot. */
     fun gate(): Gate {

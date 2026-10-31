@@ -3,4 +3,6 @@
 <resources>
     <string name="proactive_reply">Reply</string>
     <string name="proactive_later">Later</string>
+    <string name="proactive_channel">Proactive messages</string>
+    <string name="proactive_channel_description">When the page cannot be shown, DSH asks you in a notification</string>
 </resources>
