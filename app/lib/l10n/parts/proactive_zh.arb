@@ -27,6 +27,18 @@
       }
     }
   },
+  "proactiveMinutesUnit": "分钟",
+  "proactiveMinutesRange": "填 {min}–{max} 之间的整数（分钟）",
+  "@proactiveMinutesRange": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "proactiveQuiet": "免打扰时段",
   "proactiveQuietHint": "这段时间里不主动搭话，可以跨零点，点一下切换",
   "proactiveQuietValue": "{start}–{end}",

@@ -11995,6 +11995,14 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get proactiveMinutesUnit => 'min';
+
+  @override
+  String proactiveMinutesRange(int min, int max) {
+    return 'Enter a whole number between $min and $max minutes';
+  }
+
+  @override
   String get proactiveQuiet => 'Quiet hours';
 
   @override

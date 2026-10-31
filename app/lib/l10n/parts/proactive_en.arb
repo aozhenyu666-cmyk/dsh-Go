@@ -27,6 +27,18 @@
       }
     }
   },
+  "proactiveMinutesUnit": "min",
+  "proactiveMinutesRange": "Enter a whole number between {min} and {max} minutes",
+  "@proactiveMinutesRange": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "proactiveQuiet": "Quiet hours",
   "proactiveQuietHint": "No proactive message during this window; may cross midnight. Tap to change.",
   "proactiveQuietValue": "{start}–{end}",

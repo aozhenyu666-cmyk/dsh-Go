@@ -3471,6 +3471,8 @@
   "proactiveGapMax": "Longest gap",
   "proactiveGapMaxHint": "Upper bound of the random gap; tap to change",
   "proactiveMinutes": "{minutes} min",
+  "proactiveMinutesUnit": "min",
+  "proactiveMinutesRange": "Enter a whole number between {min} and {max} minutes",
   "proactiveQuiet": "Quiet hours",
   "proactiveQuietHint": "No proactive message during this window; may cross midnight. Tap to change.",
   "proactiveQuietValue": "{start}–{end}",

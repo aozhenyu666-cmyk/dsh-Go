@@ -20918,6 +20918,18 @@ abstract class L10n {
   /// **'{minutes} 分钟'**
   String proactiveMinutes(int minutes);
 
+  /// No description provided for @proactiveMinutesUnit.
+  ///
+  /// In zh, this message translates to:
+  /// **'分钟'**
+  String get proactiveMinutesUnit;
+
+  /// No description provided for @proactiveMinutesRange.
+  ///
+  /// In zh, this message translates to:
+  /// **'填 {min}–{max} 之间的整数（分钟）'**
+  String proactiveMinutesRange(int min, int max);
+
   /// No description provided for @proactiveQuiet.
   ///
   /// In zh, this message translates to:

@@ -169,12 +169,19 @@ void main() {
 
       await tester.tap(find.text('最短间隔'));
       await tester.pumpAndSettle();
-      // 45 min is on the ladder, so the next tap goes to 60.
-      expect(native.argsOf('setConfig').last, containsPair('minIntervalMs', 60 * 60000));
+      // Both intervals are typed now: the dialog opens on the current value, and whatever is
+      // entered is sent as minutes x 60000. 1 is the lowest the kernel accepts.
+      await tester.enterText(find.byType(TextField), '1');
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, containsPair('minIntervalMs', 1 * 60000));
 
       await tester.tap(find.text('最长间隔'));
       await tester.pumpAndSettle();
-      expect(native.argsOf('setConfig').last, containsPair('maxIntervalMs', 240 * 60000));
+      await tester.enterText(find.byType(TextField), '45');
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig').last, containsPair('maxIntervalMs', 45 * 60000));
 
       await tester.tap(find.text('免打扰时段'));
       await tester.pumpAndSettle();
@@ -187,19 +194,43 @@ void main() {
       expect(native.argsOf('setConfig').last, containsPair('dailyMax', 10));
     });
 
+    testWidgets('a typed gap outside the range is refused, not sent', (tester) async {
+      final native = FakeProactiveNative()..install();
+      await pumpPhone(tester, const ProactivePage());
+      await tester.tap(find.text('最短间隔'));
+      await tester.pumpAndSettle();
+
+      final before = native.argsOf('setConfig').length;
+      await tester.enterText(find.byType(TextField), '0');
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      // The dialog stays open with an error; nothing reached the native side.
+      expect(native.argsOf('setConfig'), hasLength(before));
+      expect(find.textContaining('1–10080'), findsWidgets);
+
+      await tester.enterText(find.byType(TextField), '99999');
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('setConfig'), hasLength(before));
+    });
+
     testWidgets('the gaps can never cross', (tester) async {
       final native = FakeProactiveNative()
         ..config = {
           ...FakeProactiveNative().config,
-          'minIntervalMs': 60 * 60000,
-          'maxIntervalMs': 60 * 60000,
+          'minIntervalMs': 10 * 60000,
+          'maxIntervalMs': 20 * 60000,
         }
         ..install();
       await pumpPhone(tester, const ProactivePage());
-      // Growing the minimum past the maximum lifts the maximum with it.
+      // Raising the minimum past the maximum lifts the maximum with it.
       await tester.tap(find.text('最短间隔'));
       await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '60');
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
       final sent = native.argsOf('setConfig').last as Map;
+      expect(sent['minIntervalMs'], 60 * 60000);
       expect((sent['minIntervalMs'] as int) <= (sent['maxIntervalMs'] as int), isTrue);
     });
 

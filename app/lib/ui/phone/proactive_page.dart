@@ -23,10 +23,6 @@ class ProactivePage extends StatefulWidget {
 
   final ProactiveChannel? channel;
 
-  /// Random gap ladder, in minutes; the kernel clamps anything outside its own range.
-  static const minIntervalSteps = [15, 30, 45, 60];
-  static const maxIntervalSteps = [60, 120, 180, 240];
-
   /// Quiet-hours presets; the first entry turns them off.
   static const quietPresets = [
     (0, 0),
@@ -101,21 +97,31 @@ class _ProactivePageState extends State<ProactivePage> {
     await _save(config.copyWith(enabled: on));
   }
 
-  Future<void> _cycleMin(ProactiveConfig config) async {
-    const steps = ProactivePage.minIntervalSteps;
-    final i = steps.indexOf(config.minIntervalMs ~/ 60000);
-    final next = steps[(i + 1) % steps.length];
-    // Keep the window valid: min may never exceed max.
-    final max = config.maxIntervalMs < next * 60000 ? next * 60000 : config.maxIntervalMs;
-    await _save(config.copyWith(minIntervalMs: next * 60000, maxIntervalMs: max));
-  }
-
-  Future<void> _cycleMax(ProactiveConfig config) async {
-    const steps = ProactivePage.maxIntervalSteps;
-    final i = steps.indexOf(config.maxIntervalMs ~/ 60000);
-    final next = steps[(i + 1) % steps.length];
-    final min = config.minIntervalMs > next * 60000 ? next * 60000 : config.minIntervalMs;
-    await _save(config.copyWith(maxIntervalMs: next * 60000, minIntervalMs: min));
+  /// Lets the person type any number of minutes instead of cycling presets.
+  ///
+  /// The kernel clamps to its own range (60 s … 7 d) and keeps min <= max, so this only has to
+  /// reject nonsense before sending: a blank field cancels, a non-positive number is refused with
+  /// the range in the message.
+  Future<void> _editMinutes({
+    required String title,
+    required int currentMinutes,
+    required ProactiveConfig config,
+    required bool isMin,
+  }) async {
+    // The dialog owns its TextEditingController: disposing one from the caller right after
+    // `showDialog` resolves crashes, because the exit animation still reads it.
+    final value = await showDialog<int>(
+      context: context,
+      builder: (_) => _MinutesDialog(title: title, initial: currentMinutes),
+    );
+    if (value == null || !mounted) return;
+    final ms = value * 60000;
+    // Keep the window consistent: raising the minimum lifts the maximum, and vice versa.
+    await _save(
+      isMin
+          ? config.copyWith(minIntervalMs: ms, maxIntervalMs: config.maxIntervalMs < ms ? ms : config.maxIntervalMs)
+          : config.copyWith(maxIntervalMs: ms, minIntervalMs: config.minIntervalMs > ms ? ms : config.minIntervalMs),
+    );
   }
 
   Future<void> _cycleQuiet(ProactiveConfig config) async {
@@ -165,14 +171,28 @@ class _ProactivePageState extends State<ProactivePage> {
               title: l10n.proactiveGap,
               subtitle: l10n.proactiveGapHint,
               value: l10n.proactiveGapValue(config.minIntervalMs ~/ 60000, config.maxIntervalMs ~/ 60000),
-              onTap: status == null ? null : () => unawaited(_cycleMin(config)),
+              onTap: status == null
+                  ? null
+                  : () => unawaited(_editMinutes(
+                      title: l10n.proactiveGap,
+                      currentMinutes: config.minIntervalMs ~/ 60000,
+                      config: config,
+                      isMin: true,
+                    )),
             ),
             ListPageRow(
               icon: AppIcons.commandTimeout,
               title: l10n.proactiveGapMax,
               subtitle: l10n.proactiveGapMaxHint,
               value: l10n.proactiveMinutes(config.maxIntervalMs ~/ 60000),
-              onTap: status == null ? null : () => unawaited(_cycleMax(config)),
+              onTap: status == null
+                  ? null
+                  : () => unawaited(_editMinutes(
+                      title: l10n.proactiveGapMax,
+                      currentMinutes: config.maxIntervalMs ~/ 60000,
+                      config: config,
+                      isMin: false,
+                    )),
             ),
             ListPageRow(
               icon: AppIcons.notificationsOff,
@@ -283,6 +303,63 @@ String sessionsSubtitle(L10n l10n, ProactiveAgentSessions s) {
   if (!s.ready) return l10n.proactiveSessionUnavailable(s.error ?? '');
   if (s.sessionId != null) return l10n.proactiveSessionChosen(s.sessionId!);
   return l10n.proactiveSessionHint;
+}
+
+/// Asks for a number of minutes and returns it, or null when cancelled.
+///
+/// Stateful on purpose: it owns the [TextEditingController], so the controller outlives the exit
+/// animation. Disposing it in the caller right after `showDialog` resolves throws
+/// "A TextEditingController was used after being disposed".
+class _MinutesDialog extends StatefulWidget {
+  const _MinutesDialog({required this.title, required this.initial});
+
+  final String title;
+  final int initial;
+
+  @override
+  State<_MinutesDialog> createState() => _MinutesDialogState();
+}
+
+class _MinutesDialogState extends State<_MinutesDialog> {
+  late final TextEditingController _controller = TextEditingController(text: '${widget.initial}');
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final n = int.tryParse(_controller.text.trim());
+    if (n == null || n < 1 || n > 10080) {
+      setState(() => _error = context.l10n.proactiveMinutesRange(1, 10080));
+      return;
+    }
+    Navigator.pop(context, n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        autofocus: true,
+        decoration: InputDecoration(
+          suffixText: context.l10n.proactiveMinutesUnit,
+          helperText: context.l10n.proactiveMinutesRange(1, 10080),
+          errorText: _error,
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(context.l10n.commonCancel)),
+        FilledButton(onPressed: _submit, child: Text(context.l10n.commonSave)),
+      ],
+    );
+  }
 }
 
 /// The live sessions, plus an explicit "no target" row.

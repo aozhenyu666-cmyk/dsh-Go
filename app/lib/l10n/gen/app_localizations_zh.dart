@@ -11432,6 +11432,14 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get proactiveMinutesUnit => '分钟';
+
+  @override
+  String proactiveMinutesRange(int min, int max) {
+    return '填 $min–$max 之间的整数（分钟）';
+  }
+
+  @override
   String get proactiveQuiet => '免打扰时段';
 
   @override
