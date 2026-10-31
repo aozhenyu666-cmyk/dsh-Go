@@ -66,7 +66,7 @@ cd D:\code\dshgo\app\android;    gradlew.bat :app:assembleArm64Debug
 |---|---|
 | 路径 | `app/build/app/outputs/flutter-apk/app-arm64-debug.apk` |
 | 大小 | 125.9 MB（125,971,xxx 字节级） |
-| SHA-256 | `53d879bae229155548e40f770356e5e8efa92089512f087e8e4efa43de623f28` |
+| SHA-256 | `5ce608df245f419225f533bf3586e943b933e6e5a3a9704cb1d985c4ea7d58e4` |
 | 签名 | `CN=Android Debug, O=Android, C=US` |
 | 证书 SHA-256 | `10cdb677f36a1f5b5a9762c190736b9fd64016876a378b9bdc9297bb5724b758` |
 

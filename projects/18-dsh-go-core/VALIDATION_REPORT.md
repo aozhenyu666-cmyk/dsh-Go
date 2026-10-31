@@ -19,6 +19,7 @@ Windows 11（26H2）+ Flutter 3.47.7 + JDK 21 + Android SDK 36 + Gradle 9.3.1。
 | 5 | Dart 静态检查 | `flutter analyze` | **PASS，No issues found** |
 | 6 | 宿主插件纯逻辑 | `node --test test/core.test.mjs` | **PASS 10/10** |
 | 7 | APK 构建 | `gradlew :app:assembleArm64Debug` | **PASS** |
+| 8 | 真实引擎 + 假模型端到端 | `node test/e2e-live.mjs …` | **PASS 26/26**（见第 8 节） |
 
 ### JVM 96 项构成
 
@@ -100,3 +101,45 @@ Windows 11（26H2）+ Flutter 3.47.7 + JDK 21 + Android SDK 36 + Gradle 9.3.1。
 
 本机可验证的层次（Kotlin 逻辑、Dart 逻辑、编译、打包、APK 构建）**全部 PASS**；
 设备相关层次**全部 NOT_TESTED**，未做任何"模拟器等于真机"的推断。
+
+## 8. 真实 DSH 引擎 + 假模型端到端（新增，2026-10-31）
+
+按要求验证 D4 的"能通过真实 DSH 引擎 + 假模型进行端到端验证"。本机安装 `@deepseek-ai/dsh@0.2.1-rc.4`
+（`runtime/locks/dsh-0.2.1-rc.4`，556 个包），模型换成仓库自带的 `test/mock-messages.mjs` 假服务，
+全程只走 127.0.0.1。
+
+| 项 | 结果 |
+|---|---|
+| 命令 | `node test/e2e-live.mjs <dsh> 18951 18900 mockreq.jsonl` |
+| 结果 | **ALL PASS（26/26）** |
+| 证据 | `evidence/e2e-live-real-engine-2026-10-31.log` |
+
+覆盖到的关键检查（节选原样输出）：
+
+- `routes refuse requests without credentials (401)` —— **无凭据不能绕过鉴权**
+- `no configured session → 409 no-session` / `unknown session → 409 no-agent` ——
+  **从不新建、从不唤醒会话**
+- `request → 202 accepted` → `claimed into turn 1` → `turn ended → generated` ——
+  真的发起了一次 agent 回合
+- `text is the model's reply` —— 交给 App 的文字确实来自模型，不是本地模板
+- `replaying the requestId reports the record (200), does not resend` +
+  `no extra model call from the replay` —— **同一 requestId 不重复发**
+- `same requestId, other eventId → 409`、`same eventId with a new requestId → 409 event-in-flight`
+- `another event while a turn runs → 409 desk-busy`
+- `cancel while the turn runs → cancelled` + `late text was seen and dropped (lateText=1)` ——
+  **取消后迟到的文字永不交出**
+- `agent running the person's turn → 409 agent-busy` —— 用户自己在对话时让路
+- `deadline passed → failed/deadline`
+- `the model request carried the event facts` —— 事件事实确实到了模型侧
+
+### 这是否等于真机验证？
+
+**不等于。** 这一节证明的是「Android 侧要对接的那半边（宿主插件 + 协议 + 引擎）」在真实
+引擎上是通的；它没有碰过任何 Android 设备、无障碍服务、通知或闹钟。真机项仍全部 NOT_TESTED。
+
+### 为了让它在 Windows 上跑起来做了什么（不入库）
+
+仓库的 `test/e2e-live.mjs` 用 `spawn(dshBin, [...])` 直接起引擎，Windows 上 `.js` 不可直接
+spawn（`EFTYPE`/`EINVAL`）。我在仓库外生成了一份副本：只加 `shell: process.platform === 'win32'`
+和把 `here` 固定成插件目录。**Claude 的测试文件本体一字未改。** 另外需要一个 `dsh-bin.bat`
+把 node 和 `lib/bin.js` 串起来，以及给 mock 传 `LOG=` 指定请求日志路径。

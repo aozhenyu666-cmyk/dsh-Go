@@ -63,3 +63,29 @@
   自身 recovery 语义重复（当前实现只在适配层，不改内核）。
 - `NotificationPortImpl` 从不回报 Shown 的取舍。
 - ROUND2.md 第 7 节 Claude 自列的 8 个问题。
+
+## 2026-10-31 第二轮更新（任务更新后）
+
+- **D3 补齐目标会话选择**：`ProactiveAgentSessions` + `agentSessions`/`agentSessionSet` 通道；
+  Kotlin 侧 `ProactiveRuntime.fetchPluginRoute` 一次性转发插件 `/status` 与 `/config`（`status 0`
+  保持"没连上"与"插件拒绝"可区分）；页面列出活着的会话与空闲/忙状态，含"不指定"与三种失败说明。
+  测试：`proactive_page_test` 12/12（新增 4 例）。提交 `a67bf3b`。
+- **真实引擎 + 假模型端到端跑通**：本机装 `@deepseek-ai/dsh@0.2.1-rc.4`，跑
+  `test/e2e-live.mjs`，**ALL PASS 26/26**，证据 `evidence/e2e-live-real-engine-2026-10-31.log`。
+  这是"插件 + 协议 + 引擎"这半边，**不是真机验证**。
+- APK 重建：SHA-256 `5ce608df245f419225f533bf3586e943b933e6e5a3a9704cb1d985c4ea7d58e4`，
+  包名 `io.github.ccch1mneyyy.dsh_app`，debug 签名。
+
+### 本轮新增的环境阻塞与解法
+
+| 现象 | 根因 | 解法 |
+|---|---|---|
+| `spawn EFTYPE` / `spawn EINVAL` | Windows 上 `.js` 与 `.bat` 都不能被 `spawn` 直接执行 | 在仓库外复制一份 e2e，加 `shell: true` 并固定插件目录；另建 `dsh-bin.bat` 串 node + `lib/bin.js` |
+| mock 请求日志读不到 | mock 用 `LOG` 环境变量（默认 `requests.jsonl`） | 起 mock 时传 `LOG=D:\code\logs\mockreq.jsonl` |
+| `npm` 不存在（只有裸 `node.exe`） | 本机 node 是单文件发行 | 走 `D:\node_modules\corepack` 里的 npm 12.2.1 |
+
+### 下一步
+
+1. 等 Claude 审 `PATCHES/0004-d5-loop-to-kernel.patch`。
+2. 真机项（T0/D6）留待用户手动验收，未做任何设备操作。
+3. 如需把 D5 并入候选版：审阅后 `git am PATCHES/0004-*.patch` 到集成分支并重跑 96 项 + 34 项。

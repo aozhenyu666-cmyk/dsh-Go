@@ -46,8 +46,8 @@
 | T8 Agent 真实接入 | **REVIEW_REQUIRED** | Claude 实现（协议 + 插件）；D1 转发是我做的适配 |
 | D1 Dart Agent 转发 | **PASS** | 12 项 Flutter 测试：三种 op 的路径/方法/体、失败传 0、远程 404、原始应答不解释 |
 | D2 通知界面 | **PARTIAL** | 实现完整、不报 `Shown`；**实际投递 NOT_TESTED** |
-| D3 主动搭话设置页 | **PASS** | 7 项 Flutter 测试；含 `wakeMode` 诚实说明与 transport 状态 |
-| D4 打包宿主插件 | **PARTIAL** | `rtbuild.py`/`build-runtime.sh`/`test-host.sh` 已改并本地验证语法与裁剪规则；**完整 rootfs 与 bwrap e2e NOT_TESTED** |
+| D3 主动搭话设置页 | **PASS** | 12 项 Flutter 测试；开关、间隔范围、免打扰、每日上限、**目标会话选择**、`wakeMode` 诚实说明、transport 状态、回执六段时间戳 |
+| D4 打包宿主插件 | **PARTIAL** | `rtbuild.py`/`build-runtime.sh`/`test-host.sh` 已改并验证语法与裁剪规则；**插件 × 真实引擎 e2e PASS 26/26**（含 401 鉴权、不唤醒会话、requestId 不重发、agent-busy、取消后不交出迟到文字、deadline）；完整 rootfs 打包与 bwrap e2e 仍 NOT_TESTED |
 | D5 第一轮事件改走内核 | **REVIEW_REQUIRED** | 独立分支 `review/d5-loop-to-kernel` + `PATCHES/0004-d5-loop-to-kernel.patch`，**未并入候选版** |
 | D6 真机验证 | **NOT_TESTED** | 无设备，按要求不连接 |
 
