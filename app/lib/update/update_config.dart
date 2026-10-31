@@ -145,6 +145,14 @@ const _mirrorsDefine = String.fromEnvironment('DSH_UPDATE_MIRRORS', defaultValue
 const _betaTokenDefine = String.fromEnvironment('DSH_BETA_CHANNEL_TOKEN');
 const _betaOriginDefine = String.fromEnvironment('DSH_BETA_CHANNEL_ORIGIN', defaultValue: updateMirrorOrigin);
 
+/// A side-by-side test build sets this (`--dart-define=DSH_TEST_BUILD=true`). Its applicationId
+/// ends in `.test`, so a release update would install a *different* app rather than upgrade it —
+/// asking at all would only mislead, and the test build must never jump into the release flow.
+const testBuild = bool.fromEnvironment('DSH_TEST_BUILD');
+
+/// Whether the app looks for updates at all. False in a test build.
+const updatesEnabled = !testBuild;
+
 /// The configuration the app ships with (see the library comment for overrides).
 UpdateSources defaultUpdateSources() => buildUpdateSources(
   mirror: _mirrorDefine,

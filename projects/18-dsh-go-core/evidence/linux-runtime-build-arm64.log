@@ -1,0 +1,43 @@
+[1;34m[runtime 11:46:26][0m === arm64-v8a ===
+[1;34m[runtime 11:46:27][0m download https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages
+patched /build/dshgo/runtime/out/arm64-v8a/jniLibs/arm64-v8a/libproot.so: 'libtalloc.so.2' -> 'libtalloc.so' at .dynstr+0x6e8
+patched /build/dshgo/runtime/out/arm64-v8a/jniLibs/arm64-v8a/libtalloc.so: 'libtalloc.so.2' -> 'libtalloc.so' at .dynstr+0x720
+[1;34m[runtime 11:47:34][0m npm ci @deepseek-ai/dsh@0.2.1-rc.4 (cpu=arm64, pinned lock)
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 558 packages in 15s
+[1;34m[runtime 11:47:50][0m patching DSH (runtime/patches, pinned for 0.2.1-rc.4)
+fs-create-exclusive.diff: patched node_modules/@deepseek-ai/dsh-fs-local/lib/index.js (63fbb41d2c33 -> dc077d91a073)
+install-log-redaction.diff: patched node_modules/@deepseek-ai/dsh-plugin-manager/lib/index.js (1b8bf9eb266d -> 1cc0c2d7eff5)
+plugin-manager-active-run-guard.diff: patched node_modules/@deepseek-ai/dsh-plugin-manager/lib/index.js (1cc0c2d7eff5 -> 7a2c0b3e117e)
+plugin-manager-cancel-tree-confirmation.diff: patched node_modules/@deepseek-ai/dsh-plugin-manager/lib/index.js (7a2c0b3e117e -> 7978a5b16f40)
+route-guard.diff: patched node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js (08907285802f -> e7a14993a6d4)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-fs-local/lib/index.js (dc077d91a073 -> b275b221acdc)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-working-directory/lib/index.js (af5bb7f33c52 -> 3ff40ad465f0)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-home-paths/lib/index.js (9877a6117c5d -> b1ad9ebed6c9)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-app-boot/lib/index.js (5135179ac810 -> 73c2735941be)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-subprocess-local/lib/index.js (2964d94d6aa7 -> 4784084d8dd7)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-sandbox-policy/lib/index.js (772ca58f0f78 -> 9ca6bb783e09)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-sandbox/lib/index.js (b56373befbfc -> ea5f92f9a38c)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-skill-filesystem/lib/index.js (783214a95cc5 -> 6f125ead7b00)
+zz-direct-runtime.diff: patched node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js (a9801acb577b -> a745dd51bcb7)
+zzz-config-editor-path.diff: patched node_modules/@deepseek-ai/dsh-app-boot/lib/index.js (73c2735941be -> ab25eb3c66b4)
+zzz-config-editor-path.diff: patched node_modules/@deepseek-ai/dsh-config-editor/lib/index.js (373e05c8250d -> 2d05f943a25e)
+zzz-title-cache-refresh.diff: patched node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js (a745dd51bcb7 -> 6b0e64cd9b89)
+zzz-title-cache-refresh.diff: patched node_modules/@deepseek-ai/dsh-session-projection-cache/lib/index.js (faf307dce5db -> fef2e98522a6)
+zzz-title-cache-refresh.diff: patched node_modules/@deepseek-ai/dsh-storage-domain/lib/index.js (a54f7664d2f6 -> e6633fb0f4b9)
+zzz-title-cache-refresh.diff: patched node_modules/@deepseek-ai/dsh-storage-json/lib/index.js (0a6b75d5569d -> 07e123e2fbbc)
+zzzz-plugin-config-readability.diff: patched node_modules/@deepseek-ai/dsh-app-boot/lib/index.js (ab25eb3c66b4 -> 2b7cc756a42b)
+zzzz-plugin-config-readability.diff: patched node_modules/@deepseek-ai/dsh-config-editor/lib/index.js (2d05f943a25e -> 2439dc55dc7d)
+zzzz-plugin-config-readability.diff: patched node_modules/@deepseek-ai/dsh-host-webserver/lib/index.js (e7a14993a6d4 -> bf7c0fee7b63)
+zzzzz-plugin-config-bundles.diff: patched node_modules/@deepseek-ai/dsh-config-editor/lib/index.js (2439dc55dc7d -> 413c538d3c38)
+[1;34m[runtime 11:47:50][0m npm ci pnpm@11.28.5 (pinned lock)
+
+added 1 package in 1s
+pnpm lock: version=11.28.5 integrity=sha512-SEVj0wtMKtJ8t... installed=11.28.5 extra=[] -> ok
+[1;34m[runtime 11:47:52][0m assembling rootfs (xz)
+rootfs /build/dshgo/runtime/out/arm64-v8a/assets/runtime/rootfs-arm64-v8a.tar.xz: 25240 files, 5212 dirs, 1680 symlinks, 749.7 MiB unpacked, 151.0 MiB archive
+wrote /build/dshgo/runtime/out/arm64-v8a/assets/runtime/manifest.json
+rootfs ELF objects: 835, wrong-arch: 0, warnings: 0
+[1;34m[runtime 11:50:10][0m arm64-v8a done: 151M archive, version r14-dsh0.2.1-rc.4-node24.22.1-ubuntu24.04.5-632d1850aca5
+wrote /build/dshgo/runtime/out/manifest.json

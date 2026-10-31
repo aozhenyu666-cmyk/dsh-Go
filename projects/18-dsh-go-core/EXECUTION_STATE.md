@@ -89,3 +89,32 @@
 1. 等 Claude 审 `PATCHES/0004-d5-loop-to-kernel.patch`。
 2. 真机项（T0/D6）留待用户手动验收，未做任何设备操作。
 3. 如需把 D5 并入候选版：审阅后 `git am PATCHES/0004-*.patch` 到集成分支并重跑 96 项 + 34 项。
+## 2026-10-31 第四阶段（R3 集成）
+
+- 接管 Claude 的 `review/r3-core-fixes` @ `14616ad`（与基线快进 3 提交，无分叉），
+  建候选分支 `feat/r3-candidate`，用 `git am` 应用 `0005-r3-core-fixes.patch`（含 D5）。
+- **完整代码回归**：JVM 108/108、Flutter 38/38、插件 12/12、真实引擎 e2e 26/26、
+  APK 校验工具与打包配方 9/9、`flutter analyze` 无问题、Android 构建通过。
+- **真正构建了 arm64 运行时**（WSL2 Ubuntu 26.04）：rootfs 151.0 MiB，25,240 文件，
+  ELF 835 个 wrong-arch 0，manifest 实际生成，rootfs 哈希与 manifest 一致。
+- 构建中发现并修复真实缺陷：`rtbuild.add_tree()` 只按文件丢弃，**空目录仍进 rootfs**，
+  导致 `test/` 泄漏。修复后被丢弃目录整棵跳过（目录数 5,229 → 5,212）。
+- **旧 APK 被判不合格**：`verify_apk_runtime.py` 报 `assets/runtime/manifest.json missing`，
+  证明它不含运行时，不能当主动 Agent 测试版。
+- 新 APK：`08212f24…`（277 MB），`verify_apk_runtime.py` **exit 0 / 10 项全 PASS**。
+- 测试 APK：包名 `io.github.ccch1mneyyy.dsh_app.test`，`f8151973…`，同样 10 项全 PASS；
+  更新检查已用 `--dart-define=DSH_TEST_BUILD=true` 禁用。
+
+### 关键坑（务必记住）
+
+**不要改 `app/android/app/build.gradle.kts`。** 本工程在该文件加任何结构性内容
+（顶层 `val`、`project.hasProperty(...)`、注释里带 `*` 的短语）都会让 Kotlin DSL 全脚本
+退化为 `Unresolved reference 'apply'/'buildTypes'/'defaultConfig'…`。已用对照实验证实：
+干净文件 + 任意 `-P` → 成功；加上述任一改动 → 必失败。
+测试包改用 **Gradle init 脚本**（`D:\code\test-apk.init.gradle`）注入，仓库零改动。
+
+### 剩下的 NOT_TESTED
+
+模拟器启动/解包/插件加载/通知（本机无可用 AVD）、全部真机行为、远程主机。
+测试包应用名仍是 "DSH Go"（靠包名 `.test` + 版本 `-test` 区分），改显示名需动 manifest，
+会牵连上述 DSL 问题，已记录未做。
