@@ -40,8 +40,8 @@ PNG 基线。`git clone`（含 `--depth 1 --filter=blob:none`）在本网络下�
 | # | 现象 | 根因 | 解法 |
 |---|---|---|---|
 | 1 | `Your project path contains non-ASCII characters` | AGP 拒绝含中文的工程路径 | 工作副本放纯 ASCII 路径（`D:\code\dshgo`） |
-| 2 | 测试进程 `ClassNotFoundException: worker.org.gradle.process.internal.worker.GradleWorkerMain` | Gradle test worker 的 classpath argfile 落在 `C:\Users\敖震宇\.gradle\.tmp` | `GRADLE_USER_HOME` 指向 ASCII 路径 |
-| 3 | `buildCMakeDebug` ninja `FindFirstFileExA` 找不到 pub cache | pub cache 在 `C:\Users\敖震宇\AppData\Local\Pub` | `PUB_CACHE` 指向 ASCII 路径 |
+| 2 | 测试进程 `ClassNotFoundException: worker.org.gradle.process.internal.worker.GradleWorkerMain` | Gradle test worker 的 classpath argfile 落在 `C:\Users\<user>\.gradle\.tmp` | `GRADLE_USER_HOME` 指向 ASCII 路径 |
+| 3 | `buildCMakeDebug` ninja `FindFirstFileExA` 找不到 pub cache | pub cache 在 `C:\Users\<user>\AppData\Local\Pub` | `PUB_CACHE` 指向 ASCII 路径 |
 | 4 | `MergeNativeLibsTask ... 磁盘空间不足` | C 盘用尽（APK 125 MB + 中间产物数 GB） | 工作区与缓存迁到 D 盘（可用 160 GB） |
 | 5 | `pub get` `Rename failed ... errno = 17` | `PUB_CACHE` 用 junction 跨盘，rename 不能跨卷 | D 盘用**真实目录**，不用 junction |
 
