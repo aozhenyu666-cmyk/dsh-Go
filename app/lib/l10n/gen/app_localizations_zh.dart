@@ -11457,6 +11457,40 @@ class L10nZh extends L10n {
   String get proactiveState => '现在的状态';
 
   @override
+  String get proactiveSession => '目标会话';
+
+  @override
+  String get proactiveSessionHint => '还没选：主动搭话不会发出去。点一下选一个活着的会话。';
+
+  @override
+  String get proactiveSessionNone => '不指定';
+
+  @override
+  String get proactiveSessionNoneHint => '不指定目标会话，主动搭话就不会发出';
+
+  @override
+  String proactiveSessionChosen(String id) {
+    return '发到 $id';
+  }
+
+  @override
+  String proactiveSessionUnavailable(String error) {
+    return '读不到会话列表（$error），先确认本机引擎已连上、插件已加载';
+  }
+
+  @override
+  String get proactivePickSession => '选一个会话';
+
+  @override
+  String get proactiveSessionIdle => '空闲，可以发';
+
+  @override
+  String get proactiveSessionRunning => '正在忙，发了会被拒（不会打断它）';
+
+  @override
+  String get proactiveSessionEmpty => '没有活着的会话。先在 DSH 里开一个对话，再回来选。';
+
+  @override
   String get proactiveGateFree => '现在可以让路了：没有 DSH 任务，也不在黑名单页面上';
 
   @override

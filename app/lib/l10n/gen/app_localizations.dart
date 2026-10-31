@@ -20960,6 +20960,66 @@ abstract class L10n {
   /// **'现在的状态'**
   String get proactiveState;
 
+  /// No description provided for @proactiveSession.
+  ///
+  /// In zh, this message translates to:
+  /// **'目标会话'**
+  String get proactiveSession;
+
+  /// No description provided for @proactiveSessionHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没选：主动搭话不会发出去。点一下选一个活着的会话。'**
+  String get proactiveSessionHint;
+
+  /// No description provided for @proactiveSessionNone.
+  ///
+  /// In zh, this message translates to:
+  /// **'不指定'**
+  String get proactiveSessionNone;
+
+  /// No description provided for @proactiveSessionNoneHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'不指定目标会话，主动搭话就不会发出'**
+  String get proactiveSessionNoneHint;
+
+  /// No description provided for @proactiveSessionChosen.
+  ///
+  /// In zh, this message translates to:
+  /// **'发到 {id}'**
+  String proactiveSessionChosen(String id);
+
+  /// No description provided for @proactiveSessionUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'读不到会话列表（{error}），先确认本机引擎已连上、插件已加载'**
+  String proactiveSessionUnavailable(String error);
+
+  /// No description provided for @proactivePickSession.
+  ///
+  /// In zh, this message translates to:
+  /// **'选一个会话'**
+  String get proactivePickSession;
+
+  /// No description provided for @proactiveSessionIdle.
+  ///
+  /// In zh, this message translates to:
+  /// **'空闲，可以发'**
+  String get proactiveSessionIdle;
+
+  /// No description provided for @proactiveSessionRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在忙，发了会被拒（不会打断它）'**
+  String get proactiveSessionRunning;
+
+  /// No description provided for @proactiveSessionEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有活着的会话。先在 DSH 里开一个对话，再回来选。'**
+  String get proactiveSessionEmpty;
+
   /// No description provided for @proactiveGateFree.
   ///
   /// In zh, this message translates to:

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../proactive/proactive_state.dart';
+import '../common/app_sheet.dart';
 import '../common/list_page_row.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
@@ -11,7 +12,7 @@ import '../theme/theme.dart';
 import 'action_log_page.dart' show formatLogTime;
 import 'loop_test_page.dart' show loopClock;
 
-/// 设置 → 手机操控 → 主动搭话: the proactive kernel's own page.
+/// 璁剧疆 鈫?鎵嬫満鎿嶆帶 鈫?涓诲姩鎼瘽: the proactive kernel's own page.
 ///
 /// Everything it shows comes from `dsh/proactive` `status` and `receipts`; nothing is computed
 /// here. Two things it deliberately says out loud, because both are true on a locked-down phone:
@@ -44,6 +45,7 @@ class _ProactivePageState extends State<ProactivePage> {
   late final ProactiveChannel _channel = widget.channel ?? ProactiveChannel();
   ProactiveStatus? _status;
   List<ProactiveReceipt> _receipts = const [];
+  ProactiveAgentSessions _sessions = const ProactiveAgentSessions();
   Timer? _poll;
 
   @override
@@ -62,11 +64,31 @@ class _ProactivePageState extends State<ProactivePage> {
   Future<void> _refresh() async {
     final status = await _channel.status();
     final receipts = await _channel.receipts(limit: 50);
+    final sessions = await _channel.agentSessions();
     if (!mounted) return;
     setState(() {
       _status = status;
       _receipts = receipts;
+      _sessions = sessions;
     });
+  }
+
+  /// Picks the session proactive turns go to. Only live sessions are offered; the plugin refuses a
+  /// missing, archived or busy one itself, so this page never has to guess.
+  Future<void> _pickSession() async {
+    final sessions = await _channel.agentSessions();
+    if (!mounted) return;
+    setState(() => _sessions = sessions);
+    if (!sessions.ready) return;
+    final picked = await showAppSheet<String>(
+      context,
+      heightFactor: 0.6,
+      builder: (sheet) => _SessionList(sessions: sessions),
+    );
+    if (picked == null) return;
+    // An empty id means "no target", which the plugin stores as null.
+    await _channel.setAgentSession(picked.isEmpty ? null : picked);
+    await _refresh();
   }
 
   Future<void> _save(ProactiveConfig next) async {
@@ -168,6 +190,14 @@ class _ProactivePageState extends State<ProactivePage> {
               value: config.dailyMax <= 0 ? l10n.loopDailyCapOff : l10n.proactiveDailyValue(config.dailyMax),
               onTap: status == null ? null : () => unawaited(_cycleDaily(config)),
             ),
+            ListPageRow(
+              icon: AppIcons.chat,
+              title: l10n.proactiveSession,
+              subtitle: sessionsSubtitle(l10n, _sessions),
+              subtitleMaxLines: 2,
+              value: _sessions.sessionId == null && _sessions.ready ? l10n.proactiveSessionNone : null,
+              onTap: () => unawaited(_pickSession()),
+            ),
           ],
         ),
         const SizedBox(height: 24),
@@ -248,6 +278,62 @@ String proactiveHoldLabel(L10n l10n, String reason) => switch (reason) {
   _ => reason,
 };
 
+/// The session row's second line: the target, or why there is none.
+String sessionsSubtitle(L10n l10n, ProactiveAgentSessions s) {
+  if (!s.ready) return l10n.proactiveSessionUnavailable(s.error ?? '');
+  if (s.sessionId != null) return l10n.proactiveSessionChosen(s.sessionId!);
+  return l10n.proactiveSessionHint;
+}
+
+/// The live sessions, plus an explicit "no target" row.
+class _SessionList extends StatelessWidget {
+  const _SessionList({required this.sessions});
+
+  final ProactiveAgentSessions sessions;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Text(l10n.proactivePickSession, style: theme.textTheme.titleMedium),
+        ),
+        Expanded(
+          child: ListView(
+            children: [
+              ListTile(
+                leading: const Icon(AppIcons.blocked),
+                title: Text(l10n.proactiveSessionNone),
+                subtitle: Text(l10n.proactiveSessionNoneHint),
+                trailing: sessions.sessionId == null ? const Icon(AppIcons.selected) : null,
+                onTap: () => Navigator.pop(context, ''),
+              ),
+              for (final a in sessions.agents)
+                ListTile(
+                  leading: Icon(a.idle ? AppIcons.chat : AppIcons.queued),
+                  title: Text(a.id),
+                  subtitle: Text(a.idle ? l10n.proactiveSessionIdle : l10n.proactiveSessionRunning),
+                  trailing: a.id == sessions.sessionId ? const Icon(AppIcons.selected) : null,
+                  // A running agent is still selectable: the plugin answers 409 while it is busy
+                  // and the page then shows that honestly, rather than hiding the row.
+                  onTap: () => Navigator.pop(context, a.id),
+                ),
+              if (sessions.agents.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                  child: Text(l10n.proactiveSessionEmpty, style: theme.textTheme.bodySmall),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// The outcome of one receipt, in the person's words.
 String proactiveOutcomeLabel(L10n l10n, String? outcome) => switch (outcome) {
   'RESPONDED' => l10n.proactiveOutcomeResponded,
@@ -287,7 +373,7 @@ class _ReceiptRow extends StatelessWidget {
       'notification' => l10n.loopSurfaceNotification,
       _ => null,
     };
-    final detail = [?surface, if (marks.isNotEmpty) marks.join(' → '), ?receipt.reason].join(' · ');
+    final detail = [?surface, if (marks.isNotEmpty) marks.join(' 鈫?'), ?receipt.reason].join(' 路 ');
     return ListPageRow(
       icon: icon,
       iconColor: color,
@@ -298,3 +384,4 @@ class _ReceiptRow extends StatelessWidget {
     );
   }
 }
+

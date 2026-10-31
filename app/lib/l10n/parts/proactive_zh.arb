@@ -51,6 +51,30 @@
     }
   },
   "proactiveState": "现在的状态",
+  "proactiveSession": "目标会话",
+  "proactiveSessionHint": "还没选：主动搭话不会发出去。点一下选一个活着的会话。",
+  "proactiveSessionNone": "不指定",
+  "proactiveSessionNoneHint": "不指定目标会话，主动搭话就不会发出",
+  "proactiveSessionChosen": "发到 {id}",
+  "@proactiveSessionChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveSessionUnavailable": "读不到会话列表（{error}），先确认本机引擎已连上、插件已加载",
+  "@proactiveSessionUnavailable": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "proactivePickSession": "选一个会话",
+  "proactiveSessionIdle": "空闲，可以发",
+  "proactiveSessionRunning": "正在忙，发了会被拒（不会打断它）",
+  "proactiveSessionEmpty": "没有活着的会话。先在 DSH 里开一个对话，再回来选。",
   "proactiveGateFree": "现在可以让路了：没有 DSH 任务，也不在黑名单页面上",
   "proactiveGateHold": "正在让路：{reason}",
   "@proactiveGateHold": {

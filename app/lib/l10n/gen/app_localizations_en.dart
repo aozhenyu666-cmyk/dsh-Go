@@ -12020,6 +12020,40 @@ class L10nEn extends L10n {
   String get proactiveState => 'Right now';
 
   @override
+  String get proactiveSession => 'Target session';
+
+  @override
+  String get proactiveSessionHint => 'Not chosen yet: nothing is sent. Tap to pick a live session.';
+
+  @override
+  String get proactiveSessionNone => 'None';
+
+  @override
+  String get proactiveSessionNoneHint => 'With no target session, no proactive message is sent';
+
+  @override
+  String proactiveSessionChosen(String id) {
+    return 'Sent to $id';
+  }
+
+  @override
+  String proactiveSessionUnavailable(String error) {
+    return 'Couldn\'t read the session list ($error); check that the local engine is connected and the plugin is loaded';
+  }
+
+  @override
+  String get proactivePickSession => 'Pick a session';
+
+  @override
+  String get proactiveSessionIdle => 'Idle, ready to receive';
+
+  @override
+  String get proactiveSessionRunning => 'Busy; it will be refused, not interrupted';
+
+  @override
+  String get proactiveSessionEmpty => 'No live session. Open a chat in DSH first, then come back.';
+
+  @override
   String get proactiveGateFree => 'Clear: no DSH task running and no protected page in front';
 
   @override

@@ -240,4 +240,76 @@ class ProactiveChannel {
       return false;
     }
   }
+
+  /// The plugin's live sessions and the configured target (`GET /dsh-go-proactive/v1/status`).
+  ///
+  /// Carried over the same authenticated connection D1 uses. The answer is parsed here only to
+  /// display it; nothing in this class decides whether a session may be used — the plugin refuses
+  /// missing, archived and busy agents itself, and this page never creates one.
+  Future<ProactiveAgentSessions> agentSessions() async {
+    try {
+      final raw = await _methods.invokeMethod<Object?>('agentSessions');
+      return ProactiveAgentSessions.fromWire(raw);
+    } on Exception catch (e) {
+      return ProactiveAgentSessions(error: e.runtimeType.toString());
+    }
+  }
+
+  /// Chooses the target session (`POST /dsh-go-proactive/v1/config`). Null clears it.
+  Future<ProactiveAgentSessions> setAgentSession(String? sessionId) async {
+    try {
+      final raw = await _methods.invokeMethod<Object?>('agentSessionSet', {'sessionId': sessionId});
+      return ProactiveAgentSessions.fromWire(raw);
+    } on Exception catch (e) {
+      return ProactiveAgentSessions(error: e.runtimeType.toString());
+    }
+  }
+}
+
+/// The host plugin's own view: which session proactive turns go to, and which agents are alive.
+///
+/// Read over the same authenticated connection D1 uses, because only the plugin knows which
+/// sessions exist and which are idle. Nothing here creates a session: the plugin refuses to, by
+/// design (AGENT_PROTOCOL.md), and the page only picks among live ones.
+class ProactiveAgentSessions {
+  const ProactiveAgentSessions({this.sessionId, this.agents = const [], this.error});
+
+  /// The configured target; null means "not chosen yet", and then no proactive turn happens.
+  final String? sessionId;
+
+  /// Live root agents: id and status (`idle` / `running`).
+  final List<ProactiveAgentRef> agents;
+
+  /// Why the list could not be read (no plugin, no connection, unparseable answer).
+  final String? error;
+
+  bool get ready => error == null;
+
+  static ProactiveAgentSessions fromWire(Object? raw) {
+    if (raw is! Map) return const ProactiveAgentSessions(error: 'no_answer');
+    final error = raw['error'];
+    if (error is Map && error['code'] != null) {
+      return ProactiveAgentSessions(error: '${error['code']}');
+    }
+    final agents = raw['agents'];
+    return ProactiveAgentSessions(
+      sessionId: raw['sessionId'] is String ? raw['sessionId'] as String : null,
+      agents: [
+        for (final a in (agents is List ? agents : const []))
+          if (a is Map && a['id'] is String)
+            ProactiveAgentRef(a['id'] as String, a['status'] is String ? a['status'] as String : 'unknown'),
+      ],
+    );
+  }
+}
+
+class ProactiveAgentRef {
+  const ProactiveAgentRef(this.id, this.status);
+
+  final String id;
+
+  /// `idle` or `running`; a running agent is refused by the plugin (409 agent-busy).
+  final String status;
+
+  bool get idle => status == 'idle';
 }

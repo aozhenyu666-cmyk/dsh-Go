@@ -28,6 +28,14 @@ class FakeProactiveNative {
   String? recoveryIssue;
   String? activeStage;
   List<Map<String, Object?>> receipts = [];
+  /// What the plugin's /status answers: the configured target and the live agents.
+  String? sessionId;
+  List<Map<String, Object?>> agents = [
+    {'id': 'session-a', 'status': 'idle'},
+    {'id': 'session-b', 'status': 'running'},
+  ];
+  /// Set to make `agentSessions` answer an error map instead.
+  String? sessionsError;
   final calls = <MethodCall>[];
 
   void install() {
@@ -53,6 +61,16 @@ class FakeProactiveNative {
             return config;
           case 'receipts':
             return receipts;
+          case 'agentSessions':
+            if (sessionsError != null) {
+              return {
+                'error': {'code': sessionsError},
+              };
+            }
+            return {'sessionId': sessionId, 'agents': agents};
+          case 'agentSessionSet':
+            sessionId = (call.arguments as Map)['sessionId'] as String?;
+            return {'sessionId': sessionId, 'agents': agents};
         }
         return null;
       },
@@ -191,6 +209,58 @@ void main() {
         ..install();
       await pumpPhone(tester, const ProactivePage());
       expect(find.textContaining('还没连上引擎'), findsOneWidget);
+    });
+
+    testWidgets('the target session can be picked from the live ones', (tester) async {
+      final native = FakeProactiveNative()..install();
+      await pumpPhone(tester, const ProactivePage());
+      // Nothing chosen yet: the row says so instead of showing a fake target.
+      expect(find.text('不指定'), findsWidgets);
+
+      await tester.tap(find.text('目标会话'));
+      await tester.pumpAndSettle();
+      expect(find.text('session-a'), findsOneWidget);
+      expect(find.text('session-b'), findsOneWidget);
+      expect(find.text('空闲，可以发'), findsOneWidget);
+      expect(find.textContaining('正在忙'), findsOneWidget);
+
+      await tester.tap(find.text('session-a'));
+      await tester.pumpAndSettle();
+      expect(native.argsOf('agentSessionSet').last, {'sessionId': 'session-a'});
+      expect(find.textContaining('发到 session-a'), findsOneWidget);
+    });
+
+    testWidgets('the target can be cleared again', (tester) async {
+      final native = FakeProactiveNative()
+        ..sessionId = 'session-a'
+        ..install();
+      await pumpPhone(tester, const ProactivePage());
+      expect(find.textContaining('发到 session-a'), findsOneWidget);
+
+      await tester.tap(find.text('目标会话'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('不指定').last);
+      await tester.pumpAndSettle();
+      expect(native.argsOf('agentSessionSet').last, {'sessionId': null});
+    });
+
+    testWidgets('an unreadable session list is explained, not hidden', (tester) async {
+      FakeProactiveNative()
+        ..sessionsError = 'no_transport'
+        ..install();
+      await pumpPhone(tester, const ProactivePage());
+      expect(find.textContaining('读不到会话列表'), findsOneWidget);
+      expect(find.textContaining('no_transport'), findsOneWidget);
+    });
+
+    testWidgets('no live session is said plainly', (tester) async {
+      FakeProactiveNative()
+        ..agents = []
+        ..install();
+      await pumpPhone(tester, const ProactivePage());
+      await tester.tap(find.text('目标会话'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('没有活着的会话'), findsOneWidget);
     });
 
     testWidgets('a damaged kernel state is surfaced', (tester) async {

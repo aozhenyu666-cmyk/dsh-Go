@@ -51,6 +51,30 @@
     }
   },
   "proactiveState": "Right now",
+  "proactiveSession": "Target session",
+  "proactiveSessionHint": "Not chosen yet: nothing is sent. Tap to pick a live session.",
+  "proactiveSessionNone": "None",
+  "proactiveSessionNoneHint": "With no target session, no proactive message is sent",
+  "proactiveSessionChosen": "Sent to {id}",
+  "@proactiveSessionChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveSessionUnavailable": "Couldn't read the session list ({error}); check that the local engine is connected and the plugin is loaded",
+  "@proactiveSessionUnavailable": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "proactivePickSession": "Pick a session",
+  "proactiveSessionIdle": "Idle, ready to receive",
+  "proactiveSessionRunning": "Busy; it will be refused, not interrupted",
+  "proactiveSessionEmpty": "No live session. Open a chat in DSH first, then come back.",
   "proactiveGateFree": "Clear: no DSH task running and no protected page in front",
   "proactiveGateHold": "Holding back: {reason}",
   "@proactiveGateHold": {

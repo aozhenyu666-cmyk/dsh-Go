@@ -45,6 +45,14 @@ interface AgentPort {
     /** GET /result long poll for [requestId]; answer through [ProactiveRuntime.onAgentHttp]. */
     fun poll(requestId: String)
     fun cancel(requestId: String)
+
+    /**
+     * One arbitrary plugin route, for the settings page's session read/config write. Separate from
+     * the three agent ops so the agent pipeline's semantics cannot be confused with a one-off
+     * read; both still go through the same authenticated Dart connection.
+     */
+    fun requestVia(requestId: String, path: String, body: Map<String, Any?>) = request(requestId, body)
+    fun pollVia(requestId: String, path: String) = poll(requestId)
 }
 
 /** A notification surface (DeepSeek T3). Must report through [ProactiveRuntime.onSurface] with the token. */
@@ -81,6 +89,9 @@ object ProactiveRuntime {
 
     /** How often the adapter retries a held agent command while Flutter is still starting. */
     private const val AGENT_RETRY_MS = 5_000L
+
+    /** How long a one-off plugin route may take before the page is told it timed out. */
+    private const val ROUTE_TIMEOUT_MS = 12_000L
 
     fun ensure(context: Context): Coordinator {
         coordinator?.let { return it }
@@ -153,6 +164,13 @@ object ProactiveRuntime {
 
     /** Dart reports one HTTP answer from the plugin; status 0 = no answer. */
     fun onAgentHttp(requestId: String, status: Int, body: Any?) {
+        // A one-off plugin route (sessions / config) rather than a kernel agent request: hand the
+        // raw answer to whoever asked, and keep it away from the coordinator, which would otherwise
+        // see an unknown request id.
+        routeAnswers.remove(requestId)?.let { deliver ->
+            main.post { deliver(status, body) }
+            return
+        }
         val c = coordinator ?: return
         when (val d = AgentWire.decode(status, body)) {
             is AgentWire.Decoded.Reply -> {
@@ -163,6 +181,49 @@ object ProactiveRuntime {
                 if (c.active()?.agentRequestId == requestId) agentPort?.poll(requestId)
             }, d.afterMs)
         }
+    }
+
+    /** One pending one-off plugin route: `requestId -> answer handler`. */
+    private val routeAnswers = LinkedHashMap<String, (Int, Any?) -> Unit>()
+
+    /**
+     * Fetches one plugin route over the same Dart transport the agent uses, and answers the
+     * MethodChannel call with the plugin's own JSON (or an error map when there is no transport).
+     *
+     * Deliberately one-shot: this serves the settings page's session read/config write, not a
+     * second agent pipeline. `GET` goes out through the transport's poll op (which is the GET one),
+     * `POST` through its request op; both are ops the plugin contract already defines.
+     */
+    fun fetchPluginRoute(
+        result: io.flutter.plugin.common.MethodChannel.Result,
+        method: String,
+        route: String,
+        body: Map<String, Any?>?,
+    ) {
+        val port = agentPort
+        if (port == null) {
+            result.success(linkedMapOf("error" to linkedMapOf("code" to "no_transport")))
+            return
+        }
+        val requestId = "route-${UUID.randomUUID().toString().take(8)}"
+        val path = "${AgentWire.PREFIX}$route"
+        routeAnswers[requestId] = { status, raw ->
+            result.success(
+                when {
+                    // status 0 = the transport never got an answer. Kept distinct from an HTTP
+                    // error so the page can say "not connected" rather than "plugin refused".
+                    status == 0 -> linkedMapOf("error" to linkedMapOf("code" to "no_answer"))
+                    raw is Map<*, *> -> raw
+                    else -> linkedMapOf("error" to linkedMapOf("code" to "bad-answer", "status" to status))
+                },
+            )
+        }
+        main.postDelayed({
+            if (routeAnswers.remove(requestId) != null) {
+                result.success(linkedMapOf("error" to linkedMapOf("code" to "timeout")))
+            }
+        }, ROUTE_TIMEOUT_MS)
+        if (method == "GET") port.pollVia(requestId, path) else port.requestVia(requestId, path, body ?: emptyMap())
     }
 
     /** The person used DSH (sent a message): keep proactive attempts out of the way for a while. */

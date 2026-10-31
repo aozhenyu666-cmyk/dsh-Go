@@ -77,6 +77,13 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
         emit(mapOf("op" to "cancel", "requestId" to requestId, "path" to "${io.github.ccch1mneyyy.dsh_app.loop.core.AgentWire.PREFIX}/cancel",
             "body" to io.github.ccch1mneyyy.dsh_app.loop.core.AgentWire.cancelBody(requestId)))
 
+    /** A one-off plugin route: the caller supplies the path (sessions read / config write). */
+    override fun requestVia(requestId: String, path: String, body: Map<String, Any?>) =
+        emit(mapOf("op" to "request", "requestId" to requestId, "path" to path, "body" to body))
+
+    override fun pollVia(requestId: String, path: String) =
+        emit(mapOf("op" to "poll", "requestId" to requestId, "path" to path))
+
     private fun emit(m: Map<String, Any?>) { main.post { sink?.success(m) } }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -98,6 +105,13 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
             }
             "userActivity" -> { ProactiveRuntime.onUserActivity(); result.success(true) }
             "tick" -> { ProactiveRuntime.tick("app"); result.success(true) }
+            // The plugin's own /status and /config, carried over the authenticated connection by
+            // Dart. The answer is returned raw: this page only displays sessions, it never decides
+            // that one may be used (the plugin refuses missing, archived and busy agents itself).
+            "agentSessions" -> ProactiveRuntime.fetchPluginRoute(result, "GET", "/status", null)
+            "agentSessionSet" -> ProactiveRuntime.fetchPluginRoute(
+                result, "POST", "/config", linkedMapOf("sessionId" to call.argument<String>("sessionId")),
+            )
             else -> result.notImplemented()
         }
     }
