@@ -16,7 +16,8 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
 import io.github.ccch1mneyyy.dsh_app.loop.core.EventRequest
-import io.github.ccch1mneyyy.dsh_app.loop.core.Submit
+import io.github.ccch1mneyyy.dsh_app.loop.core.ProactiveEvent
+import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
 import io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.Box
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.ProtectedPages
@@ -44,6 +45,8 @@ object LoopRuntime {
     private const val TAG = "DshLoop"
     /** Quiet gap before reading the foreground: one app switch fires several window events. */
     private const val SETTLE_MS = 350L
+    /** How long an app-enter event may wait in the kernel before it is no longer worth showing. */
+    const val APP_ENTER_TTL_MS = 120_000L
 
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var engine: LoopEngine? = null
@@ -83,6 +86,8 @@ object LoopRuntime {
             ).also {
                 val abandoned = it.recover()
                 if (abandoned.isNotEmpty()) Log.i(TAG, "recovered: closed ${abandoned.size} open event(s)")
+                // Delegated twins stay open through recover(); the kernel's record settles them.
+                ProactiveRuntime.kernelOrNull()?.let { k -> KernelMirror.reconcile(it, k::find) }
                 it.recoveredFrom?.let { b -> Log.w(TAG, "state file damaged, loaded backup $b") }
                 localBridge = LocalTemplateBridge(
                     labels = { p -> p?.let { pkg -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull() } },
@@ -105,6 +110,8 @@ object LoopRuntime {
     fun detach(s: AccessibilityService) {
         if (service?.get() === s) service = null
         main.removeCallbacks(verify)
+        // No more readings: a stale "protected page in front" must not hold the kernel forever.
+        lastForeground = null
         // Pages can no longer start from the background: the kernel falls back to notifications.
         main.post { runCatching { ProactiveRuntime.refreshGate("a11y_gone") } }
     }
@@ -113,8 +120,10 @@ object LoopRuntime {
         proactive(event)
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
-        val e = engine ?: return
-        if (!e.config().enabled) return
+        if (engine == null) return
+        // Observation runs for either feature (review r3, C): protected-page detection must not
+        // depend on the trigger-test switch.
+        if (!switches().observeForeground) return
         if (service?.get() !== s) service = WeakReference(s)
         eventsSeen++
         diagnostics.success(LoopDiagnostics.KIND_EVENT)
@@ -151,7 +160,9 @@ object LoopRuntime {
             kind = "app_enter",
             dedupeKey = "app_enter:$pkg",
             createdAt = show.event.timestamp,
-            ttlMs = show.timeoutMs.coerceAtLeast(60_000L),
+            // "You just opened X" is stale after a couple of minutes; the round-1 timeout is how long
+            // the page waits for an answer, which the kernel's own interaction timeout governs.
+            ttlMs = APP_ENTER_TTL_MS,
             needsAgent = false,
             fallbackText = fallback,
             payload = linkedMapOf(
@@ -160,21 +171,38 @@ object LoopRuntime {
                 "localTime" to SimpleDateFormat("HH:mm", Locale.US).format(Date()),
             ),
         )
-        when (val r = ProactiveRuntime.submit(request)) {
-            // Queued: it will be presented by the kernel's arbiter. Merged: the same intent was
-            // already waiting, so the kernel folded this one into it — also accepted.
-            is Submit.Queued, is Submit.Merged -> Log.i(TAG, "handed ${show.event.eventId} to the kernel: $r")
-            // Refused (queue full, duplicate, feature off): close the round-1 event honestly
-            // instead of leaving it open with no surface that will ever appear.
-            is Submit.Rejected -> {
-                Log.i(TAG, "kernel refused ${show.event.eventId}: ${r.reason}")
-                engine.answer(show.event.eventId, EventResult.UNAVAILABLE, reason = "kernel_${r.reason}")
-            }
-        }
+        // Review r3, A: the kernel is the only owner of how this event ends. Queued → the twin is
+        // delegated and the kernel's verdict is written back (KernelMirror); merged / refused → the
+        // twin closes now. Either way nothing stays open without an owner.
+        val r = ProactiveRuntime.submit(request)
+        KernelMirror.onSubmit(engine, show.event.eventId, r)
+        Log.i(TAG, "handed ${show.event.eventId} to the kernel: $r")
     }
 
+    /** Whether 触发测试 is on (it may be on while 主动搭话 is off, and the other way round). */
+    fun triggerEnabled(): Boolean = engine?.config()?.enabled == true
+
+    fun triggerTarget(): String? = engine?.config()?.targetPackage
+
+    private fun switches() = Switches(triggerEnabled(), ProactiveRuntime.proactiveEnabled())
+
+    /** The kernel closed an event: write its verdict onto the round-1 twin (no-op for other sources). */
+    fun onKernelClosed(closed: ProactiveEvent) { engine?.let { KernelMirror.onClosed(it, closed) } }
+
+    fun onKernelShown(event: ProactiveEvent?) { engine?.let { KernelMirror.onShown(it, event) } }
+
+    /** After the kernel recovered: settle round-1 twins it may have closed meanwhile. */
+    fun reconcileWithKernel(kernelFind: (String) -> ProactiveEvent?) { engine?.let { KernelMirror.reconcile(it, kernelFind) } }
+
+    /** Settings / system pages in front, by package name only (no page content is read). */
+    fun protectedForeground(): Boolean = ProtectedForeground.isProtected(lastForeground)
+
     /** Settings changed: read the foreground again so the new target is judged from now on. */
-    fun configChanged() = schedule()
+    fun configChanged() {
+        schedule()
+        // Turning 触发测试 off cancels only its own kernel events (review r3, B).
+        main.post { runCatching { ProactiveRuntime.refreshGate("trigger_config") } }
+    }
 
     private fun schedule() {
         main.removeCallbacks(verify)
@@ -184,7 +212,8 @@ object LoopRuntime {
     private fun verifyNow() {
         val s = service?.get() ?: return
         val e = engine ?: return
-        if (!e.config().enabled) return
+        val sw = switches()
+        if (!sw.observeForeground) return
         val previousForeground = lastForeground
         val pkg = try {
             foreground(s).also {
@@ -201,9 +230,11 @@ object LoopRuntime {
         try {
             // The proactive gate cares whether a permission/security page took the foreground:
             // it must yield while one is up, and reopen once it is gone.
-            if ((pkg in ProtectedPages.packages) != (previousForeground in ProtectedPages.packages)) {
+            if (ProtectedForeground.isProtected(pkg) != ProtectedForeground.isProtected(previousForeground)) {
                 runCatching { ProactiveRuntime.refreshGate("protected_page") }
             }
+            // Observation may be running only for 主动搭话: then there is no app-enter trigger.
+            if (!sw.triggerTest) { diagnostics.success(LoopDiagnostics.KIND_VERIFY); return }
             when (val out = e.onForeground(pkg, environment(s))) {
                 // D5 (review): the trigger itself is handed to the proactive kernel, so one
                 // arbiter decides about every surface. The first round's fixed test sentence is

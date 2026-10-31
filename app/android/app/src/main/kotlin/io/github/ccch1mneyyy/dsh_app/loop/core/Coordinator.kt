@@ -212,6 +212,19 @@ class Coordinator(
         times.filter { it > 0 }.minOrNull()
     }
 
+    /**
+     * One producer was switched off: cancel its queued and active events, leave the others alone.
+     * Unlike [Gate.featureEnabled] (everything off), this keeps the other feature working.
+     */
+    fun cancelSource(source: String, reason: String): Step = synchronized(lock) {
+        val now = clock()
+        val out = Out()
+        queue.filter { it.request.source == source }.forEach { queue.remove(it); close(it, Outcome.CANCELLED, reason, now, out) }
+        active?.takeIf { it.request.source == source }?.let { abortActive(it, Outcome.CANCELLED, reason, now, out) }
+        if (out.closed.isNotEmpty()) reconcile(now, out)
+        out.step()
+    }
+
     fun active(): ProactiveEvent? = synchronized(lock) { active }
     fun queued(): List<ProactiveEvent> = synchronized(lock) { queue.toList() }
     /** Closed events, newest first. */

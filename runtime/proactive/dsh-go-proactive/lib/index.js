@@ -83,6 +83,14 @@ export function apply(ctx) {
   ctx.on('session/event', (session, event) => {
     try { desk.onSessionEvent(session?.id, event) } catch { /* never disturb the session */ }
   })
+  // Hard limit at the tool layer (review r3, E): the prompt asks for no tools; this makes sure.
+  // global: the registry dispatches with the agent as carrier, which would otherwise filter us out.
+  // prepend: run before any other policy, so nothing can approve a call we deny.
+  ctx.on('tools/pre-execute', (exec, next) => {
+    let denied
+    try { denied = desk.guardTool(exec?.agent?.id ?? exec?.agent?.session?.id) } catch { denied = undefined }
+    return denied ?? next()
+  }, { global: true, prepend: true })
   ctx.on('agent/disposed', (agent) => {
     try { if (agent?.id) desk.onAgentGone(agent.id) } catch { /* ignore */ }
   })

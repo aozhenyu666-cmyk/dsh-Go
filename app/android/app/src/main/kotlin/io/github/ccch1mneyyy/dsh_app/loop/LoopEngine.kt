@@ -78,7 +78,8 @@ class LoopEngine(
                 val now = clock()
                 for (i in events.indices) {
                     val e = events[i]
-                    if (!e.open) continue
+                    // Delegated to the kernel: the kernel decides how it ended (KernelMirror.reconcile).
+                    if (!e.open || e.surface == KernelMirror.DELEGATED) continue
                     val c = e.copy(state = EventState.CLOSED, result = EventResult.ABANDONED, reason = "process_restart", updatedAt = now)
                     events[i] = c
                     closed += c
@@ -142,6 +143,20 @@ class LoopEngine(
         true
     }
 
+    /**
+     * The kernel took this event (KernelMirror): it stays open here until the kernel's verdict is
+     * written back, so the one-open-interaction rule keeps holding. Null when already closed.
+     */
+    fun delegate(eventId: String): LoopEvent? = synchronized(lock) {
+        val e = find(eventId)?.takeIf { it.open } ?: return null
+        replace(e.copy(surface = KernelMirror.DELEGATED, updatedAt = clock()))
+    }
+
+    /** Open events whose outcome belongs to the kernel. */
+    fun openDelegated(): List<String> = synchronized(lock) {
+        events.filter { it.open && it.surface == KernelMirror.DELEGATED }.map { it.eventId }
+    }
+
     /** Where [eventId] stands now; null when unknown (evicted or never existed). */
     fun stateOf(eventId: String): EventState? = synchronized(lock) { find(eventId)?.state }
 
@@ -191,7 +206,8 @@ class LoopEngine(
 
     private fun closeOpenLocked(result: EventResult, reason: String) {
         val now = clock()
-        for (i in events.indices) if (events[i].open) {
+        // Delegated twins are closed by the kernel's verdict only (KernelMirror), never here.
+        for (i in events.indices) if (events[i].open && events[i].surface != KernelMirror.DELEGATED) {
             events[i] = events[i].copy(state = EventState.CLOSED, result = result, reason = reason, updatedAt = now)
         }
     }
