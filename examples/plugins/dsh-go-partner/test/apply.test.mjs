@@ -469,12 +469,17 @@ test('系统提示：人格进 section，心情进 context，且都关掉 interp
   apply(ctx)
   const personaSec = sections.find((s) => s.name === 'partner:persona')
   const moodCtx = contexts.find((c) => c.name === 'partner:mood')
+  const hintSec = sections.find((s) => s.name === 'partner:hint')
   assert.ok(personaSec, '人格必须挂到 systemPrompt.section')
   assert.ok(moodCtx, '心情必须挂到 systemPrompt.context（不是 section，否则缓存全废）')
+  assert.ok(hintSec, '必须告诉模型有这些工具，否则它不会主动调')
   assert.equal(personaSec.interpolate, false, '人设里带 {{ }} 会让整轮失败')
   assert.equal(moodCtx.interpolate, false)
+  assert.equal(hintSec.interpolate, false)
   assert.match(personaSec.text(), /大肥鱼/)
   assert.match(moodCtx.text(), /这会儿的心情/)
+  assert.match(hintSec.text(), /partner_recall/)
+  assert.match(hintSec.text(), /不联网/, '必须写明本地只读，否则用户不知道该不该放心')
 })
 
 test('系统提示：模块关掉后回调返回空串（每轮现查配置）', () => {
