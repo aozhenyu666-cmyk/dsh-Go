@@ -21,8 +21,6 @@ import 'dart:convert';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/services.dart';
 
-import '../state/connection_state.dart';
-
 /// One command from the kernel: `{op, requestId, path, body?}`.
 class ProactiveAgentOp {
   const ProactiveAgentOp({required this.op, required this.requestId, required this.path, this.body});

@@ -11398,6 +11398,159 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get proactiveTitle => '主动搭话';
+
+  @override
+  String get proactiveSubtitle => 'DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。';
+
+  @override
+  String get proactiveEnabled => '开启主动搭话';
+
+  @override
+  String get proactiveEnabledHint => '默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。';
+
+  @override
+  String get proactiveGap => '最短间隔';
+
+  @override
+  String get proactiveGapHint => '两次主动搭话之间至少隔这么久，实际间隔在这个范围和「最长间隔」之间随机';
+
+  @override
+  String proactiveGapValue(int min, int max) {
+    return '$min–$max 分钟';
+  }
+
+  @override
+  String get proactiveGapMax => '最长间隔';
+
+  @override
+  String get proactiveGapMaxHint => '随机间隔的上限，点一下切换';
+
+  @override
+  String proactiveMinutes(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get proactiveQuiet => '免打扰时段';
+
+  @override
+  String get proactiveQuietHint => '这段时间里不主动搭话，可以跨零点，点一下切换';
+
+  @override
+  String proactiveQuietValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get proactiveDaily => '每天上限';
+
+  @override
+  String get proactiveDailyHint => '一天最多几次，过零点重新算；没送达的不算';
+
+  @override
+  String proactiveDailyValue(int count) {
+    return '$count 次';
+  }
+
+  @override
+  String get proactiveState => '现在的状态';
+
+  @override
+  String get proactiveGateFree => '现在可以让路了：没有 DSH 任务，也不在黑名单页面上';
+
+  @override
+  String proactiveGateHold(String reason) {
+    return '正在让路：$reason';
+  }
+
+  @override
+  String get proactiveHoldDshTask => 'DSH 正在操作手机';
+
+  @override
+  String get proactiveHoldDshPrompt => '有确认在等你回应';
+
+  @override
+  String get proactiveHoldLocked => '锁屏了';
+
+  @override
+  String get proactiveHoldScreenOff => '屏幕关着';
+
+  @override
+  String get proactiveHoldProtected => '前台是权限/安全页面';
+
+  @override
+  String get proactiveHoldA11y => '无障碍没连上';
+
+  @override
+  String proactiveActiveStage(String stage) {
+    return '正在处理：$stage';
+  }
+
+  @override
+  String get proactiveWakeRestricted => '这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。';
+
+  @override
+  String proactiveWakeMode(String mode) {
+    return '唤醒方式：$mode';
+  }
+
+  @override
+  String get proactiveTransportReady => '已经连上本机引擎，可以真的问模型';
+
+  @override
+  String get proactiveTransportMissing => '还没连上引擎，现在只会用本地文案，不会调用模型';
+
+  @override
+  String proactiveQueued(int count) {
+    return '排队中：$count 条';
+  }
+
+  @override
+  String proactiveRecoveryIssue(String issue) {
+    return '上次的状态读不出来：$issue';
+  }
+
+  @override
+  String get proactiveReceipts => '回执';
+
+  @override
+  String get proactiveReceiptsEmpty => '还没有记录';
+
+  @override
+  String get proactiveOutcomeResponded => '你回应了';
+
+  @override
+  String get proactiveOutcomeDismissed => '你划掉了';
+
+  @override
+  String get proactiveOutcomeIgnoredSeen => '显示了但没回应';
+
+  @override
+  String get proactiveOutcomeUnconfirmed => '通知发了，不知道你看没看';
+
+  @override
+  String get proactiveOutcomeNotDelivered => '没能送到';
+
+  @override
+  String get proactiveOutcomeOpen => '进行中';
+
+  @override
+  String get proactiveMarkAccepted => '已交给 Agent';
+
+  @override
+  String get proactiveMarkGenerated => '模型已生成';
+
+  @override
+  String get proactiveMarkDelivered => '已送出';
+
+  @override
+  String get proactiveMarkShown => '界面显示了';
+
+  @override
+  String get proactiveMarkResponded => '你回应了';
+
+  @override
   String get readListUpdating => '更新中 · 上次结果';
 
   @override

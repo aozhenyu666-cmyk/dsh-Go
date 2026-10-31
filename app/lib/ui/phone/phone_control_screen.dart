@@ -30,6 +30,7 @@ import 'action_log_page.dart';
 import 'app_rules_page.dart';
 import 'dnd_mode_page.dart';
 import 'loop_test_page.dart';
+import 'proactive_page.dart';
 import 'phone_disclosure_sheet.dart';
 import 'phone_background_guide.dart';
 import 'phone_unlock_page.dart';
@@ -355,8 +356,8 @@ class _PhoneControlScreenState extends ConsumerState<PhoneControlScreen> {
             ),
           ],
           gap,
-          // 触发测试: the first event loop (open a test app → page → receipt). Experimental;
-          // last on the page so nothing above it moves.
+          // 触发测试 / 主动搭话: the first event loop, then the proactive kernel beside it.
+          // Experimental; last on the page so nothing above it moves.
           ListPageCard(
             children: [
               ListPageRow(
@@ -364,6 +365,13 @@ class _PhoneControlScreenState extends ConsumerState<PhoneControlScreen> {
                 title: l10n.loopEntryTitle,
                 subtitle: l10n.loopEntrySubtitle,
                 onTap: () => _push(const LoopTestPage()),
+              ),
+              ListPageRow(
+                icon: AppIcons.notificationsOff,
+                title: l10n.proactiveTitle,
+                subtitle: l10n.proactiveSubtitle,
+                subtitleMaxLines: 2,
+                onTap: () => _push(const ProactivePage()),
               ),
             ],
           ),

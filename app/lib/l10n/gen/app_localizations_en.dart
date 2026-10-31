@@ -11958,6 +11958,163 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get proactiveTitle => 'Proactive messages';
+
+  @override
+  String get proactiveSubtitle =>
+      'DSH says something on its own every so often, or after you open a chosen app. Every rule runs on this phone; when the model is not available it says nothing at all.';
+
+  @override
+  String get proactiveEnabled => 'Turn on proactive messages';
+
+  @override
+  String get proactiveEnabledHint =>
+      'Off by default. When on, it finds you at random intervals; it steps back while DSH is operating the phone, while a confirmation is waiting, when the screen is locked, and during quiet hours.';
+
+  @override
+  String get proactiveGap => 'Shortest gap';
+
+  @override
+  String get proactiveGapHint =>
+      'At least this long between two messages; the real gap is random between this and the longest gap';
+
+  @override
+  String proactiveGapValue(int min, int max) {
+    return '$min–$max min';
+  }
+
+  @override
+  String get proactiveGapMax => 'Longest gap';
+
+  @override
+  String get proactiveGapMaxHint => 'Upper bound of the random gap; tap to change';
+
+  @override
+  String proactiveMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get proactiveQuiet => 'Quiet hours';
+
+  @override
+  String get proactiveQuietHint => 'No proactive message during this window; may cross midnight. Tap to change.';
+
+  @override
+  String proactiveQuietValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get proactiveDaily => 'Daily limit';
+
+  @override
+  String get proactiveDailyHint => 'At most this many a day, recounted after midnight; undelivered ones do not count';
+
+  @override
+  String proactiveDailyValue(int count) {
+    return '$count times';
+  }
+
+  @override
+  String get proactiveState => 'Right now';
+
+  @override
+  String get proactiveGateFree => 'Clear: no DSH task running and no protected page in front';
+
+  @override
+  String proactiveGateHold(String reason) {
+    return 'Holding back: $reason';
+  }
+
+  @override
+  String get proactiveHoldDshTask => 'DSH is operating the phone';
+
+  @override
+  String get proactiveHoldDshPrompt => 'A confirmation is waiting for you';
+
+  @override
+  String get proactiveHoldLocked => 'the screen is locked';
+
+  @override
+  String get proactiveHoldScreenOff => 'the screen is off';
+
+  @override
+  String get proactiveHoldProtected => 'a permission or security page is in front';
+
+  @override
+  String get proactiveHoldA11y => 'accessibility is not connected';
+
+  @override
+  String proactiveActiveStage(String stage) {
+    return 'Working on: $stage';
+  }
+
+  @override
+  String get proactiveWakeRestricted =>
+      'This phone restricts background wakeups, so a proactive message is only attempted while DSH is open or the screen changes. For more reliable timing, allow DSH to run in the background and to autostart in system settings.';
+
+  @override
+  String proactiveWakeMode(String mode) {
+    return 'Wake mode: $mode';
+  }
+
+  @override
+  String get proactiveTransportReady => 'Connected to the engine on this machine, so it can really ask the model';
+
+  @override
+  String get proactiveTransportMissing => 'Not connected to the engine yet: local text only, the model is not called';
+
+  @override
+  String proactiveQueued(int count) {
+    return 'Queued: $count';
+  }
+
+  @override
+  String proactiveRecoveryIssue(String issue) {
+    return 'The last state could not be read: $issue';
+  }
+
+  @override
+  String get proactiveReceipts => 'Receipts';
+
+  @override
+  String get proactiveReceiptsEmpty => 'Nothing yet';
+
+  @override
+  String get proactiveOutcomeResponded => 'You responded';
+
+  @override
+  String get proactiveOutcomeDismissed => 'You dismissed it';
+
+  @override
+  String get proactiveOutcomeIgnoredSeen => 'Shown, not answered';
+
+  @override
+  String get proactiveOutcomeUnconfirmed => 'Notification sent; whether you saw it is unknown';
+
+  @override
+  String get proactiveOutcomeNotDelivered => 'Never delivered';
+
+  @override
+  String get proactiveOutcomeOpen => 'In progress';
+
+  @override
+  String get proactiveMarkAccepted => 'handed to the agent';
+
+  @override
+  String get proactiveMarkGenerated => 'model answered';
+
+  @override
+  String get proactiveMarkDelivered => 'sent out';
+
+  @override
+  String get proactiveMarkShown => 'shown on screen';
+
+  @override
+  String get proactiveMarkResponded => 'you responded';
+
+  @override
   String get readListUpdating => 'Updating · previous results';
 
   @override
