@@ -299,6 +299,7 @@ APK 内置的 Linux 运行时由 `runtime/build-runtime.sh` 构建，以下组�
 | 组件 | 版本 | 来源 | 许可 |
 |---|---|---|---|
 | proot | 5.1.107.98 | Termux（源码 https://github.com/termux/proot） | GPL-2.0（`licenses/proot-COPYING.txt`） |
+| proot（备选） | 5.1.107.101 | Termux（源码 https://github.com/termux/proot） | GPL-2.0（同上）；Termux 索引已不再提供 5.1.107.98，构建需 `PROOT_VERSION=5.1.107.101`，三个哈希已在 `runtime/build-runtime.sh` 的 `PIN` 里 |
 | libtalloc | 2.5.0 | Termux | LGPL-3.0-or-later（`licenses/libtalloc-notice.txt`） |
 | libandroid-shmem | 0.7 | Termux | BSD-3-Clause（`licenses/libandroid-shmem-copyright.txt`） |
 | Ubuntu Base 与软件包（tzdata、ca-certificates、git 及依赖） | 24.04.5 | Canonical / Ubuntu | 各包自带，见 `/usr/share/doc/` |
