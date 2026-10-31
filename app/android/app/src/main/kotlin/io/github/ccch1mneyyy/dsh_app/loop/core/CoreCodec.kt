@@ -28,7 +28,8 @@ internal object CoreCodec {
         "content" to e.content?.let { linkedMapOf("text" to it.text, "source" to it.source.name, "agentTurnId" to it.agentTurnId) },
         "surface" to e.surface?.name, "token" to e.token, "presentDeadline" to e.presentDeadline,
         "presentedAt" to e.presentedAt, "deliveredAt" to e.deliveredAt, "shownAt" to e.shownAt,
-        "interactionDeadline" to e.interactionDeadline, "respondedAt" to e.respondedAt, "answer" to e.answer,
+        "interactionDeadline" to e.interactionDeadline, "acknowledgedAt" to e.acknowledgedAt,
+        "replyDeadline" to e.replyDeadline, "respondedAt" to e.respondedAt, "answer" to e.answer,
         "closedAt" to e.closedAt, "avoidActivity" to e.avoidActivity,
     )
 
@@ -48,6 +49,7 @@ internal object CoreCodec {
             surface = M.enum<Surface>(m, "surface"), token = M.str(m, "token"), presentDeadline = M.long(m, "presentDeadline"),
             presentedAt = M.longOrNull(m, "presentedAt"), deliveredAt = M.longOrNull(m, "deliveredAt"),
             shownAt = M.longOrNull(m, "shownAt"), interactionDeadline = M.long(m, "interactionDeadline"),
+            acknowledgedAt = M.longOrNull(m, "acknowledgedAt"), replyDeadline = M.long(m, "replyDeadline"),
             respondedAt = M.longOrNull(m, "respondedAt"), answer = M.str(m, "answer"), closedAt = M.longOrNull(m, "closedAt"),
             avoidActivity = M.bool(m, "avoidActivity"),
         )

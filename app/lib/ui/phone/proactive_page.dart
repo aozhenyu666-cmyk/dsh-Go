@@ -415,6 +415,7 @@ class _SessionList extends StatelessWidget {
 String proactiveOutcomeLabel(L10n l10n, String? outcome) => switch (outcome) {
   'RESPONDED' => l10n.proactiveOutcomeResponded,
   'DISMISSED' => l10n.proactiveOutcomeDismissed,
+  'ACKED' => l10n.proactiveOutcomeAcked,
   'IGNORED_SEEN' => l10n.proactiveOutcomeIgnoredSeen,
   'UNCONFIRMED' => l10n.proactiveOutcomeUnconfirmed,
   'NOT_DELIVERED' => l10n.proactiveOutcomeNotDelivered,

@@ -50,9 +50,32 @@ enum class Outcome {
 
 /**
  * What the person's side of an event amounted to — the only thing the scheduler learns from.
- * A posted notification that timed out is [UNCONFIRMED]: posting is not reading.
+ *
+ * | value            | meaning                                                              |
+ * |------------------|----------------------------------------------------------------------|
+ * | [RESPONDED]      | the person tapped an answer                                          |
+ * | [DISMISSED]      | the person closed the surface on purpose (back, 稍后, swipe away)     |
+ * | [ACKED]          | the person pressed 「我看到了」 and has not answered *yet*             |
+ * | [IGNORED_SEEN]   | acknowledged, and the whole reply window passed without an answer    |
+ * | [UNCONFIRMED]    | shown / posted, but never acknowledged: no penalty, no reward        |
+ * | [NOT_DELIVERED]  | never reached a surface at all                                       |
+ *
+ * The difference between [ACKED], [IGNORED_SEEN] and [UNCONFIRMED] is the whole point: a page that
+ * merely appeared on screen proves nothing about attention, so only an explicit acknowledgement
+ * starts the clock. Ignoring is therefore *never* inferred from visibility alone — it takes an ACK
+ * plus [ProactiveEvent.replyWindowMs] of silence.
  */
-enum class Engagement { RESPONDED, DISMISSED, IGNORED_SEEN, UNCONFIRMED, NOT_DELIVERED }
+enum class Engagement { RESPONDED, DISMISSED, ACKED, IGNORED_SEEN, UNCONFIRMED, NOT_DELIVERED }
+
+/**
+ * How long the person has after an explicit acknowledgement to still answer, before the message
+ * counts as ignored. Read by the kernel only: no page ever holds this policy.
+ */
+object ReplyWindow {
+    const val DEFAULT_MS: Long = 20 * 60_000L
+    /** Debug builds use a short window so the ACK → ignored → pause chain can be walked by hand. */
+    const val DEBUG_MS: Long = 60_000L
+}
 
 /** What a producer (window observer, scheduler, …) asks for. */
 data class EventRequest(
@@ -110,6 +133,10 @@ data class ProactiveEvent(
     val deliveredAt: Long? = null,
     val shownAt: Long? = null,
     val interactionDeadline: Long = 0,
+    /** The person pressed 「我看到了」: attention is confirmed, an answer may still come. */
+    val acknowledgedAt: Long? = null,
+    /** Wall time the acknowledgement's reply window ends; 0 while never acknowledged. */
+    val replyDeadline: Long = 0,
     val respondedAt: Long? = null,
     val answer: String? = null,
     val closedAt: Long? = null,
@@ -119,13 +146,31 @@ data class ProactiveEvent(
     val eventId: String get() = request.eventId
     val open: Boolean get() = stage != Stage.CLOSED
 
+    /**
+     * The single place where the person's side is summarised, from recorded facts only — never
+     * from "the page came up". Reading it in this order is what makes the chain honest:
+     *
+     *   answered → RESPONDED | closed by the person → DISMISSED
+     *   acknowledged and the reply window has not run out → ACKED
+     *   acknowledged and the reply window ran out unanswered → IGNORED_SEEN
+     *   reached a surface but never acknowledged → UNCONFIRMED
+     *   never reached a surface → NOT_DELIVERED
+     *
+     * [replyDeadline] is stamped by the coordinator when the acknowledgement arrives, so this
+     * stays a pure function of the record and survives a restart unchanged.
+     */
     val engagement: Engagement get() = when {
         outcome == Outcome.RESPONDED -> Engagement.RESPONDED
         outcome == Outcome.DISMISSED -> Engagement.DISMISSED
-        shownAt != null -> Engagement.IGNORED_SEEN
-        deliveredAt != null -> Engagement.UNCONFIRMED
-        else -> Engagement.NOT_DELIVERED
+        acknowledgedAt == null ->
+            if (deliveredAt != null || shownAt != null) Engagement.UNCONFIRMED else Engagement.NOT_DELIVERED
+        // Still inside the reply window (or still open): seen, not yet ignored.
+        closedAt == null || (replyDeadline > 0 && closedAt < replyDeadline) -> Engagement.ACKED
+        else -> Engagement.IGNORED_SEEN
     }
+
+    /** True once the person's attention is confirmed (they pressed 「我看到了」). */
+    val acknowledged: Boolean get() = acknowledgedAt != null
 }
 
 /**
@@ -208,6 +253,12 @@ sealed interface SurfaceReport {
     data object Posted : SurfaceReport
     /** The surface is confirmed on screen (activity resumed). Notifications never send this. */
     data object Shown : SurfaceReport
+    /**
+     * The person pressed 「我看到了」: an explicit acknowledgement, not an answer. The surface sends
+     * only the token; the coordinator stamps the acknowledgement time and the reply-window
+     * deadline, so no page ever carries or computes that policy itself.
+     */
+    data object Acked : SurfaceReport
     data class Answered(val choice: String) : SurfaceReport
     data object Dismissed : SurfaceReport
     /** The system refused it (start blocked, notifications off). */

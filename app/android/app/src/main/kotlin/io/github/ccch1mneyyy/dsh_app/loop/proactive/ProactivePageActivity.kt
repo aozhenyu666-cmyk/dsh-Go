@@ -21,8 +21,14 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.SurfaceReport
  * any token that is not the current presentation, so a page left over from a withdrawn, restarted
  * or replaced presentation can never answer a newer event.
  *
- * Reports: page really visible → Shown; 回应 → Answered("reply"); 稍后 / back / leaving → Dismissed.
+ * Reports: page really visible → Shown; 回应 → Answered("reply"); 我看到了 → Acked;
+ * 稍后 / back / leaving → Dismissed.
  * Screen off is not an answer: the page stays and the coordinator's deadline decides.
+ *
+ * 「我看到了」 is an *acknowledgement*, not an answer: the person confirms they read the message, and
+ * the kernel's reply window (20 min, 60 s in a debug build) is what turns that into "answered" or
+ * "ignored". The page never holds that policy and never sends a timestamp of its own — only the
+ * token. That is why the third button reports a bare [SurfaceReport.Acked].
  *
  * **`onResume` alone is not "Shown".** The coordinator treats Shown as "the person had this on
  * screen" and feeds it into the scheduler's ignored-message backoff, so claiming it for a page
@@ -39,6 +45,9 @@ class ProactivePageActivity : Activity() {
 
     /** Shown was reported: the page is proven on screen, not merely resumed. */
     private var shown = false
+
+    /** The ack was sent; the page stays open so an answer is still possible. */
+    private var acked = false
     private var attempts = 0
     private val proof = Runnable { proveVisible() }
 
@@ -55,6 +64,7 @@ class ProactivePageActivity : Activity() {
         unregister()
         reported = false
         shown = false
+        acked = false
         setIntent(next)
         bind(next)
     }
@@ -130,6 +140,18 @@ class ProactivePageActivity : Activity() {
         if (!isFinishing) finish()
     }
 
+    /**
+     * 「我看到了」 is the one report that does **not** close the page: the person confirmed they read
+     * it, and may still answer within the kernel's reply window. The page stays up, the ack is sent
+     * once, and a later 回应 / 稍后 / back still closes the event normally.
+     */
+    private fun acknowledge() {
+        val t = token ?: return
+        if (reported || acked) return
+        acked = true
+        ProactiveRuntime.onSurface(t, SurfaceReport.Acked)
+    }
+
     private fun unregister() { token?.let { if (live[it] === this) live.remove(it) } }
 
     private fun content(text: String): LinearLayout {
@@ -145,6 +167,12 @@ class ProactivePageActivity : Activity() {
                 addView(Button(ctx).apply {
                     this.text = AppStrings.get(ctx, R.string.proactive_later)
                     setOnClickListener { report(SurfaceReport.Dismissed) }
+                })
+                // 「我看到了」: confirms attention without answering. The kernel's reply window then
+                // decides whether silence becomes "ignored"; this page knows nothing about that.
+                addView(Button(ctx).apply {
+                    this.text = AppStrings.get(ctx, R.string.proactive_ack)
+                    setOnClickListener { acknowledge() }
                 })
                 addView(Button(ctx).apply {
                     this.text = AppStrings.get(ctx, R.string.proactive_reply)

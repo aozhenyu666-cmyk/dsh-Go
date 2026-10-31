@@ -8,6 +8,11 @@ data class CoordinatorConfig(
     val presentAckMs: Long = 3_000,
     /** How long a confirmed page waits for an answer. */
     val interactionTimeoutMs: Long = 60_000,
+    /**
+     * After an explicit 「我看到了」, how long the person still has to answer before the message
+     * counts as ignored. The kernel owns this policy; pages only report that they were acked.
+     */
+    val replyWindowMs: Long = ReplyWindow.DEFAULT_MS,
     /** How long a posted notification waits for an answer (it may never be seen). */
     val notificationTimeoutMs: Long = 10 * 60_000,
     /** An agent reply older than this is not shown any more. */
@@ -172,6 +177,20 @@ class Coordinator(
                     shownAt = now, interactionDeadline = now + config.interactionTimeoutMs,
                 )
             }
+            // 「我看到了」: attention is confirmed, an answer may still come. The reply window is the
+            // kernel's own policy and is stamped here, once; a repeated report moves nothing.
+            // Only a page can be acknowledged: a posted notification proves nothing about attention.
+            SurfaceReport.Acked -> active = if (a.surface != Surface.ACTIVITY || a.acknowledgedAt != null) {
+                a
+            } else {
+                val window = now + config.replyWindowMs
+                a.copy(
+                    stage = Stage.SHOWN, presentedAt = a.presentedAt ?: now, deliveredAt = a.deliveredAt ?: now,
+                    shownAt = a.shownAt ?: now, acknowledgedAt = now, replyDeadline = window,
+                    // The person asked for more time than the page's own deadline allows.
+                    interactionDeadline = maxOf(a.interactionDeadline, window),
+                )
+            }
             is SurfaceReport.Answered -> close(
                 a.copy(respondedAt = now, answer = report.choice.take(64), shownAt = a.shownAt ?: now, deliveredAt = a.deliveredAt ?: now),
                 Outcome.RESPONDED, null, now, out,
@@ -206,7 +225,10 @@ class Coordinator(
             Stage.AWAITING_AGENT -> times += a.agentDeadline
             Stage.READY -> { times += a.expiresAt; a.generatedAt?.let { times += it + config.replyFreshMs } }
             Stage.PRESENTING -> times += a.presentDeadline
-            Stage.DELIVERED, Stage.SHOWN -> times += a.interactionDeadline
+            Stage.DELIVERED, Stage.SHOWN -> {
+                times += a.interactionDeadline
+                if (a.acknowledgedAt != null && a.replyDeadline > 0) times += a.replyDeadline
+            }
             else -> Unit
         }
         times.filter { it > 0 }.minOrNull()
@@ -428,6 +450,8 @@ class Coordinator(
                 expiresAt = expiresAt + d, agentDeadline = if (agentDeadline > 0) agentDeadline + d else 0,
                 presentDeadline = if (presentDeadline > 0) presentDeadline + d else 0,
                 interactionDeadline = if (interactionDeadline > 0) interactionDeadline + d else 0,
+                replyDeadline = if (replyDeadline > 0) replyDeadline + d else 0,
+                acknowledgedAt = acknowledgedAt?.plus(d),
                 generatedAt = generatedAt?.plus(d),
             )
             for (i in queue.indices) queue[i] = queue[i].shift()

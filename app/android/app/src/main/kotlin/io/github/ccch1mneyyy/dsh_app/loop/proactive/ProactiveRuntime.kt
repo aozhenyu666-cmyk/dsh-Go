@@ -2,6 +2,7 @@ package io.github.ccch1mneyyy.dsh_app.loop.proactive
 
 import android.app.ActivityManager
 import android.app.AlarmManager
+import android.content.pm.ApplicationInfo
 import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.Context
@@ -20,9 +21,12 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.BackgroundCaps
 import io.github.ccch1mneyyy.dsh_app.loop.core.Clocks
 import io.github.ccch1mneyyy.dsh_app.loop.core.Command
 import io.github.ccch1mneyyy.dsh_app.loop.core.Coordinator
+import io.github.ccch1mneyyy.dsh_app.loop.core.CoordinatorConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.EventRequest
 import io.github.ccch1mneyyy.dsh_app.loop.core.Gate
+import io.github.ccch1mneyyy.dsh_app.loop.core.ProactiveLedgerBook
 import io.github.ccch1mneyyy.dsh_app.loop.core.ProactiveScheduler
+import io.github.ccch1mneyyy.dsh_app.loop.core.ReplyWindow
 import io.github.ccch1mneyyy.dsh_app.loop.core.SchedulerConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.Step
 import io.github.ccch1mneyyy.dsh_app.loop.core.Submit
@@ -76,6 +80,8 @@ object ProactiveRuntime {
     private lateinit var app: Context
     private var coordinator: Coordinator? = null
     private var scheduler: ProactiveScheduler? = null
+    /** A. 主动交流账: its own file, its own counters; 行为拦截账 lives in InterceptRuntime. */
+    private var ledger: ProactiveLedgerBook? = null
     @Volatile var agentPort: AgentPort? = null
     @Volatile var notificationPort: NotificationPort? = null
     private val deadlineTick = Runnable { tick("deadline") }
@@ -101,8 +107,20 @@ object ProactiveRuntime {
         // app-enter events with the wrong reason (review r3, startup race).
         runCatching { LoopRuntime.engine(app) }
         val dir = File(File(app.filesDir, "loop"), "proactive")
-        val c = Coordinator(AtomicJsonFile(File(dir, "coordinator.json")), clock = System::currentTimeMillis, ids = { UUID.randomUUID().toString() })
-        val s = ProactiveScheduler(AtomicJsonFile(File(dir, "scheduler.json")), ::minuteOfDay, ::dayOf)
+        // The reply window is kernel policy: 20 minutes, 60 seconds in a debug build so the
+        // ACK → ignored → pause chain can be walked by hand on a phone. Read from the manifest
+        // flag rather than BuildConfig, which this build does not generate.
+        val debuggable = (app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val replyWindow = if (debuggable) ReplyWindow.DEBUG_MS else ReplyWindow.DEFAULT_MS
+        val c = Coordinator(
+            AtomicJsonFile(File(dir, "coordinator.json")),
+            CoordinatorConfig(replyWindowMs = replyWindow),
+            clock = System::currentTimeMillis, ids = { UUID.randomUUID().toString() },
+        )
+        val book = ProactiveLedgerBook(AtomicJsonFile(File(dir, "ledger.json")))
+        book.recover()
+        val s = ProactiveScheduler(AtomicJsonFile(File(dir, "scheduler.json")), ::minuteOfDay, ::dayOf, ledger = book)
+        ledger = book
         coordinator = c
         scheduler = s
         s.recover(clocks())
@@ -191,6 +209,11 @@ object ProactiveRuntime {
         val before = c.active()?.takeIf { it.token == token }
         dispatch(c.onSurface(token, report))
         if (report == SurfaceReport.Shown && before != null) runCatching { LoopRuntime.onKernelShown(c.find(before.eventId)) }
+        // 「我看到了」: the scheduler learns about the confirmation (and book A records it) at once,
+        // but the attempt stays pending until the reply window decides answered vs ignored. It is
+        // deliberately *not* user activity: acknowledging is not answering, so it must not defer
+        // the next attempt the way an answer does.
+        if (report == SurfaceReport.Acked && before != null) scheduler?.onAcked(before.eventId, clocks())
         if (report is SurfaceReport.Answered || report == SurfaceReport.Dismissed) scheduler?.onUserActivity(clocks())
     }
 

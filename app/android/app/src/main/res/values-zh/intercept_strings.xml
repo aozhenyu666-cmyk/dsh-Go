@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 娱乐 APP 拦截页（loop/intercept/InterceptPageActivity.kt）。英文在 values/intercept_strings.xml。 -->
+<resources>
+    <string name="intercept_title">「%1$s」现在不能开</string>
+    <string name="intercept_body">你打开了「%1$s」。先停一下：不选下面任何一条放行方式，它会一直挡在这里。</string>
+    <string name="intercept_training">训练中（%1$d 秒）</string>
+    <string name="intercept_training_done">训练通过，放行</string>
+    <string name="intercept_rule">授权规则：放行 %1$d 分钟</string>
+    <string name="intercept_whitelist">加入白名单</string>
+    <string name="intercept_pause">暂停拦截</string>
+    <string name="intercept_exit">紧急退出</string>
+    <string name="intercept_channel">拦截</string>
+</resources>

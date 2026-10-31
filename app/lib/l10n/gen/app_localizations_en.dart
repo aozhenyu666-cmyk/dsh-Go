@@ -12349,6 +12349,8 @@ class L10nEn extends L10n {
   String get proactiveOutcomeDismissed => 'You dismissed it';
 
   @override
+  String get proactiveOutcomeAcked => 'You said you saw it';
+
   String get proactiveOutcomeIgnoredSeen => 'Shown, not answered';
 
   @override

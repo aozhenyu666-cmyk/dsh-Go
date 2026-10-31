@@ -76,6 +76,8 @@ data class SchedulerState(
     val dayKey: Long = Long.MIN_VALUE,
     val countToday: Int = 0,
     val ignoredStreak: Int = 0,
+    /** Acknowledgements that are still inside their reply window: seen, not yet ignored. */
+    val ackedStreak: Int = 0,
     val pausedForIgnored: Boolean = false,
     val lastUserActivityWall: Long = 0,
     val lastUserActivityElapsed: Long = 0,
@@ -104,6 +106,12 @@ class ProactiveScheduler(
     private val dayOf: (Long) -> Long,
     private val rng: Random = Random.Default,
     private val ids: () -> String = { java.util.UUID.randomUUID().toString() },
+    /**
+     * A. 主动交流账. The scheduler is its only writer, because it is the only place that knows what
+     * an engagement means for the schedule; the book is a separate file with its own counters and
+     * cannot affect 行为拦截账 (see [InterceptLedgerBook]).
+     */
+    private val ledger: ProactiveLedgerBook? = null,
 ) {
     sealed interface Decision {
         data class Fire(val request: EventRequest) : Decision
@@ -194,6 +202,28 @@ class ProactiveScheduler(
         persist()
     }
 
+    /**
+     * The person pressed 「我看到了」 on the pending attempt. Attention is confirmed but nothing is
+     * answered yet, so the gap is *not* widened and nothing is paused: the attempt stays pending
+     * until the coordinator's reply window runs out ([Engagement.IGNORED_SEEN]) or an answer comes.
+     *
+     * A. 主动交流账 is told at once, so a crash inside the reply window still keeps the
+     * confirmation; [onOutcome] will not count it twice.
+     */
+    fun onAcked(eventId: String, now: Clocks): Boolean = synchronized(lock) {
+        if (eventId != state.pendingEventId) {
+            // Not this scheduler's attempt, but still a confirmation worth keeping in the book.
+            ledger?.onAcked(eventId, now.wall)
+            return@synchronized false
+        }
+        // The streak is driven by the receipt (ACKED / IGNORED_SEEN), so a crash between the ack and
+        // the close still ends up counted exactly once, from the record. Here only the book is told.
+        state = state.copy(lastReason = "acked")
+        ledger?.onAcked(eventId, now.wall)
+        persist()
+        true
+    }
+
     /** A receipt from the coordinator. Only the pending attempt's receipt counts; repeats are ignored. */
     fun onOutcome(eventId: String, engagement: Engagement, now: Clocks): Boolean = synchronized(lock) {
         if (eventId != state.pendingEventId) return@synchronized false
@@ -201,16 +231,22 @@ class ProactiveScheduler(
         val s = state.copy(pendingEventId = null)
         val delivered = engagement != Engagement.NOT_DELIVERED
         state = when (engagement) {
-            Engagement.RESPONDED, Engagement.DISMISSED -> s.copy(ignoredStreak = 0, pausedForIgnored = false, notDeliveredStreak = 0)
+            Engagement.RESPONDED, Engagement.DISMISSED ->
+                s.copy(ignoredStreak = 0, ackedStreak = 0, pausedForIgnored = false, notDeliveredStreak = 0)
+            // 「我看到了」 but no answer yet: the person is engaged, so no backoff, no pause. Only the
+            // reply window running out unanswered (IGNORED_SEEN) may widen the gap or pause.
+            Engagement.ACKED -> s.copy(ackedStreak = s.ackedStreak + 1, notDeliveredStreak = 0)
             Engagement.IGNORED_SEEN -> {
                 val streak = s.ignoredStreak + 1
-                s.copy(ignoredStreak = streak, notDeliveredStreak = 0,
+                s.copy(ignoredStreak = streak, ackedStreak = 0, notDeliveredStreak = 0,
                     pausedForIgnored = config.pauseAfterIgnored in 1..streak)
             }
             // Posted but never confirmed seen: no penalty, no reward.
             Engagement.UNCONFIRMED -> s.copy(notDeliveredStreak = 0)
             Engagement.NOT_DELIVERED -> s.copy(notDeliveredStreak = s.notDeliveredStreak + 1)
         }.let { if (delivered) it.copy(countToday = it.countToday + 1) else it }
+        // A. 主动交流账: the same receipt, recorded once, in its own book.
+        ledger?.onClosed(eventId, engagement, now.wall)
         if (engagement == Engagement.NOT_DELIVERED && state.notDeliveredStreak <= MAX_QUICK_RETRIES) retrySoon(now, "not_delivered")
         else plan(now, "after_${engagement.name.lowercase()}")
         persist()
@@ -220,7 +256,7 @@ class ProactiveScheduler(
     /** The person used DSH (chat, an answer): reset the ignore streak and keep out of their way for a while. */
     fun onUserActivity(now: Clocks) = synchronized(lock) {
         state = state.copy(lastUserActivityWall = now.wall, lastUserActivityElapsed = now.elapsed, lastUserActivityBoot = now.boot,
-            ignoredStreak = 0, pausedForIgnored = false)
+            ignoredStreak = 0, ackedStreak = 0, pausedForIgnored = false)
         if (config.enabled && dueWall(now) < now.wall + config.userActiveDeferMs) {
             setDue(now, config.userActiveDeferMs + (rng.nextDouble() * config.minIntervalMs / 2).toLong(), "user_active")
         }
@@ -353,6 +389,7 @@ class ProactiveScheduler(
         fun stateMap(s: SchedulerState): Map<String, Any?> = linkedMapOf(
             "nextDueWall" to s.nextDueWall, "nextDueElapsed" to s.nextDueElapsed, "planBoot" to s.planBoot, "planWall" to s.planWall,
             "planElapsed" to s.planElapsed, "dayKey" to s.dayKey, "countToday" to s.countToday, "ignoredStreak" to s.ignoredStreak,
+            "ackedStreak" to s.ackedStreak,
             "pausedForIgnored" to s.pausedForIgnored, "lastUserActivityWall" to s.lastUserActivityWall,
             "lastUserActivityElapsed" to s.lastUserActivityElapsed, "lastUserActivityBoot" to s.lastUserActivityBoot,
             "pendingEventId" to s.pendingEventId, "pendingSinceWall" to s.pendingSinceWall,
@@ -362,7 +399,8 @@ class ProactiveScheduler(
         fun stateFrom(m: Map<*, *>) = SchedulerState(
             nextDueWall = M.long(m, "nextDueWall"), nextDueElapsed = M.long(m, "nextDueElapsed"), planBoot = M.int(m, "planBoot"),
             planWall = M.long(m, "planWall"), planElapsed = M.long(m, "planElapsed"), dayKey = M.long(m, "dayKey", Long.MIN_VALUE),
-            countToday = M.int(m, "countToday"), ignoredStreak = M.int(m, "ignoredStreak"), pausedForIgnored = M.bool(m, "pausedForIgnored"),
+            countToday = M.int(m, "countToday"), ignoredStreak = M.int(m, "ignoredStreak"),
+            ackedStreak = M.int(m, "ackedStreak"), pausedForIgnored = M.bool(m, "pausedForIgnored"),
             lastUserActivityWall = M.long(m, "lastUserActivityWall"), lastUserActivityElapsed = M.long(m, "lastUserActivityElapsed"),
             lastUserActivityBoot = M.int(m, "lastUserActivityBoot"), pendingEventId = M.str(m, "pendingEventId"),
             pendingSinceWall = M.long(m, "pendingSinceWall"), notDeliveredStreak = M.int(m, "notDeliveredStreak"),

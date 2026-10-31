@@ -3577,6 +3577,7 @@
   "proactiveOutcomeResponded": "You responded",
   "proactiveOutcomeDismissed": "You dismissed it",
   "proactiveOutcomeIgnoredSeen": "Shown, not answered",
+  "proactiveOutcomeAcked": "You said you saw it",
   "proactiveOutcomeUnconfirmed": "Notification sent; whether you saw it is unknown",
   "proactiveOutcomeNotDelivered": "Never delivered",
   "proactiveOutcomeOpen": "In progress",

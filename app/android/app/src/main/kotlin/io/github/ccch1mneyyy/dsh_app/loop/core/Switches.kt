@@ -1,21 +1,25 @@
 package io.github.ccch1mneyyy.dsh_app.loop.core
 
 /**
- * Who each switch is for. Two switches the person sees, four jobs:
+ * Who each switch is for. Three switches the person sees, five jobs:
  *
  * | job                     | runs when                         | owner                          |
  * |-------------------------|-----------------------------------|--------------------------------|
- * | foreground observation  | either feature is on              | LoopRuntime (package name only)|
+ * | foreground observation  | any feature is on                 | LoopRuntime (package name only)|
  * | app-enter trigger       | 触发测试 is on                     | LoopEngine visit + TriggerRules|
  * | random attempts         | 主动搭话 is on                     | ProactiveScheduler             |
- * | interaction arbitration | either feature is on              | Coordinator (sole result owner)|
+ * | interaction arbitration | any feature is on                 | Coordinator (sole result owner)|
+ * | entertainment intercept | 娱乐拦截 is on                     | InterceptGuard (own book)      |
  *
- * Turning one feature off cancels only that feature's events in the coordinator; the other
- * feature keeps working. Protected-page detection depends on observation only, never on
- * which feature asked for it.
+ * Turning one feature off cancels only that feature's events in the coordinator; the other features
+ * keep working. Protected-page detection depends on observation only, never on which feature asked.
+ *
+ * Round 4: the intercept feature has its *own* ledger and its own decision path. It appears here only
+ * so that "observe the foreground" has one owner — it never routes through the coordinator, and no
+ * counter is shared.
  */
-data class Switches(val triggerTest: Boolean, val proactive: Boolean) {
-    val observeForeground: Boolean get() = triggerTest || proactive
+data class Switches(val triggerTest: Boolean, val proactive: Boolean, val intercept: Boolean = false) {
+    val observeForeground: Boolean get() = triggerTest || proactive || intercept
     val arbitrate: Boolean get() = triggerTest || proactive
 
     /** Whether events from [source] may be accepted / kept. */
