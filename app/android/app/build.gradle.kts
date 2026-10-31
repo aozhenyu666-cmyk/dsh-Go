@@ -69,6 +69,47 @@ android {
         }
     }
 
+    // Gradle silently ignores a sourceSets srcDir that does not exist, so a build whose
+    // runtime/out/<abi> was never produced (runtime/build-runtime.sh only runs on an x86_64 Linux
+    // host) still ends in BUILD SUCCESSFUL -- and ships an APK with no rootfs and no proot.
+    //
+    // :app:checkRuntime<Flavor> fails instead, and the flavor's asset merge depends on it. The
+    // full G1' criterion (both ABIs present, hashes matching) is
+    //   python3 -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi arm64-v8a x86_64
+    val runtimeAbis = mapOf("arm64" to "arm64-v8a", "x64" to "x86_64")
+    val runtimeJni = listOf("libproot.so", "libproot-loader.so", "libtalloc.so", "libandroid-shmem.so")
+    val runtimeChecks = runtimeAbis.mapValues { (flavor, abi) ->
+        tasks.register("checkRuntime" + flavor.replaceFirstChar { it.uppercase() }) {
+            group = "verification"
+            description = "Fails unless runtime/out/" + abi + " holds a complete runtime bundle"
+            val manifest = File(runtimeOut, abi + "/assets/runtime/manifest.json")
+            val jni = File(runtimeOut, abi + "/jniLibs/" + abi)
+            doLast {
+                if (!manifest.isFile) {
+                    throw GradleException(
+                        "no runtime for " + abi + ": " + manifest + " is missing." +
+                            " The " + flavor + " flavor would ship an APK with no rootfs (and no proot)," +
+                            " and Gradle ignores a sourceSets srcDir that does not exist, so this" +
+                            " would otherwise still print BUILD SUCCESSFUL." +
+                            " Build the runtime on an x86_64 Linux host first:" +
+                            " bash runtime/build-runtime.sh (or ... " + abi + "), then check it with" +
+                            " python3 -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi " + abi)
+                }
+                val absent = runtimeJni.filterNot { File(jni, it).isFile }
+                if (absent.isNotEmpty()) {
+                    throw GradleException(
+                        "runtime/out/" + abi + "/jniLibs/" + abi + " is missing " + absent.joinToString() +
+                            "; proot cannot start without them (rebuild the runtime)")
+                }
+            }
+        }
+    }
+    tasks.matching { it.name.matches(Regex("merge(Arm64|X64)(Debug|Profile|Release)Assets")) }
+        .configureEach {
+            val flavor = Regex("^merge(Arm64|X64)").find(name)!!.groupValues[1].lowercase()
+            runtimeChecks[flavor]?.let { dependsOn(it) }
+        }
+
     packaging {
         // proot and friends ship as lib*.so; they must be extracted to
         // nativeLibraryDir so they can be executed.
