@@ -7551,6 +7551,7 @@
   "proactiveOutcomeResponded": "你回应了",
   "proactiveOutcomeDismissed": "你划掉了",
   "proactiveOutcomeIgnoredSeen": "显示了但没回应",
+  "proactiveOutcomeAcked": "你点了「我看到了」",
   "proactiveOutcomeUnconfirmed": "通知发了，不知道你看没看",
   "proactiveOutcomeNotDelivered": "没能送到",
   "proactiveOutcomeOpen": "进行中",

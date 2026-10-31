@@ -198,7 +198,9 @@ class CoordinatorTest {
         val r3 = c3.recover(Gate())
         val dead = r3.closed.first()
         assertEquals("a" to Outcome.ABANDONED, dead.eventId to dead.outcome)
-        assertEquals(Engagement.IGNORED_SEEN, dead.engagement)
+        // Round 4: being on screen is not being ignored. Only an explicit 「我看到了」 followed by a
+        // whole reply window of silence is IGNORED_SEEN; a page nobody acknowledged is UNCONFIRMED.
+        assertEquals(Engagement.UNCONFIRMED, dead.engagement)
         assertTrue("old page's buttons are dead", c3.onSurface(token, SurfaceReport.Answered("x")).closed.isEmpty())
         assertEquals("b", r3.present().eventId)
     }

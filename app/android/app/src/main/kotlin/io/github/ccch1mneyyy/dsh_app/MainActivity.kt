@@ -64,6 +64,7 @@ class MainActivity : FlutterActivity() {
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.usage.UsagePlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.loop.LoopPlugin())
             engine.plugins.add(io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactivePlugin())
+            engine.plugins.add(io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptPlugin())
             engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
             cache.put(ENGINE_ID, engine)
         }

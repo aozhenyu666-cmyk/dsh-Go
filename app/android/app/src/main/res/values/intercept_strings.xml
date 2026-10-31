@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Entertainment-app intercept page (loop/intercept/InterceptPageActivity.kt). Chinese in values-zh/intercept_strings.xml. -->
+<resources>
+    <string name="intercept_title">%1$s is off-limits for now</string>
+    <string name="intercept_body">You opened %1$s. Take a breath: the app stays closed unless you choose a way through below.</string>
+    <string name="intercept_training">Training (%1$ds)</string>
+    <string name="intercept_training_done">Training passed: open it</string>
+    <string name="intercept_rule">Authorization rule: open it for %1$d min</string>
+    <string name="intercept_whitelist">Add to whitelist</string>
+    <string name="intercept_pause">Pause interception</string>
+    <string name="intercept_exit">Emergency exit</string>
+    <string name="intercept_channel">Interception</string>
+</resources>

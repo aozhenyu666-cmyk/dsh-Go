@@ -100,6 +100,9 @@ object LoopRuntime {
 
     fun attach(s: AccessibilityService) {
         runCatching { engine(s) }.onFailure { diagnostics.fault(LoopDiagnostics.KIND_ATTACH, it, "engine") }
+        // 娱乐 APP 拦截 recovers its own guard and its own ledger here, before the first window event.
+        runCatching { io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptRuntime.ensure(s) }
+            .onFailure { diagnostics.fault(LoopDiagnostics.KIND_ATTACH, it, "intercept") }
         runCatching { ProactiveRuntime.ensure(s); ProactiveRuntime.refreshGate("a11y_connected") }
         service = WeakReference(s)
         runCatching { InteractionHub.ensureChannel(s) }
@@ -184,7 +187,11 @@ object LoopRuntime {
 
     fun triggerTarget(): String? = engine?.config()?.targetPackage
 
-    private fun switches() = Switches(triggerEnabled(), ProactiveRuntime.proactiveEnabled())
+    private fun switches() = Switches(
+        triggerEnabled(), ProactiveRuntime.proactiveEnabled(),
+        // 娱乐拦截 is its own feature with its own book; it only needs the foreground reading.
+        runCatching { io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptRuntime.enabled() }.getOrDefault(false),
+    )
 
     /** The kernel closed an event: write its verdict onto the round-1 twin (no-op for other sources). */
     fun onKernelClosed(closed: ProactiveEvent) { engine?.let { KernelMirror.onClosed(it, closed) } }
@@ -211,7 +218,7 @@ object LoopRuntime {
 
     private fun verifyNow() {
         val s = service?.get() ?: return
-        val e = engine ?: return
+        val e = engine
         val sw = switches()
         if (!sw.observeForeground) return
         val previousForeground = lastForeground
@@ -233,13 +240,20 @@ object LoopRuntime {
             if (ProtectedForeground.isProtected(pkg) != ProtectedForeground.isProtected(previousForeground)) {
                 runCatching { ProactiveRuntime.refreshGate("protected_page") }
             }
-            // Observation may be running only for 主动搭话: then there is no app-enter trigger.
+            // 娱乐 APP 拦截 (round 4): decided from this same verified reading, with its own ledger
+            // and its own page. It never goes through the coordinator, so one feature's silence can
+            // never pause the other.
+            if (sw.intercept) runCatching {
+                io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptRuntime.onForeground(pkg)
+            }.onFailure { Log.w(TAG, "intercept", it) }
+            // Observation may be running only for 主动搭话 / 娱乐拦截: then there is no app-enter trigger.
             if (!sw.triggerTest) { diagnostics.success(LoopDiagnostics.KIND_VERIFY); return }
-            when (val out = e.onForeground(pkg, environment(s))) {
+            val eng = e ?: run { diagnostics.success(LoopDiagnostics.KIND_VERIFY); return }
+            when (val out = eng.onForeground(pkg, environment(s))) {
                 // D5 (review): the trigger itself is handed to the proactive kernel, so one
                 // arbiter decides about every surface. The first round's fixed test sentence is
                 // the only fallback allowed here (integration guide §4: no fabricated agent text).
-                is LoopEngine.Outcome.Show -> submitToKernel(s, e, out, pkg)
+                is LoopEngine.Outcome.Show -> submitToKernel(s, eng, out, pkg)
                 is LoopEngine.Outcome.Suppressed -> Log.i(TAG, "suppressed ${out.event.packageName}: ${out.event.reason}")
                 is LoopEngine.Outcome.Ignored -> Unit
             }

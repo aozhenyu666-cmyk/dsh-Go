@@ -274,6 +274,17 @@
             android:launchMode="singleInstance"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
             android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+        <!-- 娱乐 APP 拦截页 (loop/intercept/InterceptPageActivity.kt): bound to the intercept eventId,
+             own task, its own affinity so leaving it returns to whatever was in front before. -->
+        <activity
+            android:name=".loop.intercept.InterceptPageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.intercept"
+            android:launchMode="singleInstance"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+
         <!-- Proactive scheduler wake-ups: its own alarm (explicit intent), boot and app update. -->
         <receiver
             android:name=".loop.proactive.ProactiveWakeReceiver"
