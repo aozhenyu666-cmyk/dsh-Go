@@ -28,6 +28,10 @@ NPMJS = "https://registry.npmjs.org/"
 DSH_WEB_PATCH = "/etc/dsh-app/dsh-web.patch.yml"
 # Where runtime/bridge/dsh-go-bridge lands in the rootfs (loaded by absolute path from the overlay).
 DSH_GO_BRIDGE = "/opt/dsh-go/dsh-go-bridge"
+# Where runtime/proactive/dsh-go-proactive lands: the DSH host plugin that turns one Android
+# proactive event into a real `followup` turn (docs/AGENT_PROTOCOL.md). Only lib/ and package.json
+# ship; test/ and its fixture sessions must never reach a phone.
+DSH_GO_PROACTIVE = "/opt/dsh-go/dsh-go-proactive"
 # runtime/boot/boot-cache.mjs: path cache for `dsh web` while it boots, preloaded by the dsh shim.
 BOOT_CACHE = "/opt/dsh-go/boot-cache.mjs"
 BOOT_CACHE_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boot", "boot-cache.mjs")
@@ -745,6 +749,15 @@ def pnpm_drop_reason(rel, abi, prune_dev):
     return dsh_drop_reason(rel, abi, prune_dev)
 
 
+def proactive_drop_reason(rel, abi, prune_dev):
+    """The proactive plugin ships code only: its test/ tree starts mock services and creates
+    sessions, which must never run on a phone."""
+    parts = rel.split("/")
+    if parts and parts[0] == "test":
+        return "test-only"
+    return dsh_drop_reason(rel, abi, prune_dev)
+
+
 PY_DROP_DIRS = ("test", "idlelib", "tkinter", "turtledemo", "lib2to3/tests")
 
 
@@ -797,7 +810,7 @@ def install_ca_bundle(entries, report):
                                 "bundleBytes": len(bundle)}
 
 
-def overlay_entries(runtime_info, with_python=False, with_pnpm=False, with_bridge=False):
+def overlay_entries(runtime_info, with_python=False, with_pnpm=False, with_bridge=False, with_proactive=False):
     """Files dsh-app adds to the rootfs. Kept here so the recipe lives in one place."""
     E = {}
 
@@ -866,7 +879,7 @@ def overlay_entries(runtime_info, with_python=False, with_pnpm=False, with_bridg
         # what `npm i -g pnpm` creates under npm's global prefix (/usr/local)
         for name, target in PNPM_BINS.items():
             s("usr/local/bin/" + name, "../lib/node_modules/pnpm/bin/" + target)
-    if with_pnpm or with_bridge:
+    if with_pnpm or with_bridge or with_proactive:
         patch = ("# dsh-app: overlay for `dsh web`, passed with --patch by the app's launch command and\n"
                  "# replaced on every runtime upgrade (edits here do not survive one).\n")
         if with_pnpm:
@@ -890,6 +903,14 @@ def overlay_entries(runtime_info, with_python=False, with_pnpm=False, with_bridg
                       "- insert:\n"
                       "    - id: dsh-go-bridge\n"
                       "      name: %s/lib/index.js\n" % DSH_GO_BRIDGE)
+        if with_proactive:
+            patch += ("#\n"
+                      "# dsh-go-proactive: turns one Android proactive event into a real agent turn\n"
+                      "# (POST /dsh-go-proactive/v1/request) and reports the text back. Loaded by path;\n"
+                      "# do not also add it to a profile, or the same plugin would be mounted twice.\n"
+                      "- insert:\n"
+                      "    - id: dsh-go-proactive\n"
+                      "      name: %s/lib/index.js\n" % DSH_GO_PROACTIVE)
         f(DSH_WEB_PATCH.lstrip("/"), patch)
     d("root/.dsh", 0o700)
     d("root/.l2s", 0o700)          # PROOT_L2S_DIR: hard-link backing files (kept with /root on upgrade)
@@ -1130,11 +1151,15 @@ def cmd_assemble(args):
                  "pnpm", pnpm_drop_reason)
     if args.bridge:
         add_tree(args.bridge, DSH_GO_BRIDGE.lstrip("/"), "bridge", lambda rel, abi, prune: None)
+    if args.proactive:
+        # Only lib/ and package.json: the plugin's test/ tree (mock servers, fixture sessions) is
+        # for the build machine, not for a phone.
+        add_tree(args.proactive, DSH_GO_PROACTIVE.lstrip("/"), "proactive", proactive_drop_reason)
 
     # 4. dsh-app overlay (wins over everything above)
     runtime_info = json.loads(args.runtime_info)
     for p, e in overlay_entries(runtime_info, with_python=bool(args.python), with_pnpm=bool(args.pnpm_prefix),
-                                with_bridge=bool(args.bridge)).items():
+                                with_bridge=bool(args.bridge), with_proactive=bool(args.proactive)).items():
         entries[p] = e
 
     # 5. ELF audit + arch/libc pruning; Termux-style fixes for node-pty helpers
@@ -1412,6 +1437,7 @@ def cmd_manifest(args):
         "prootVersion": v["prootVersion"],
         "dshPatches": v.get("dshPatches", []),
         "dshGoBridge": {"version": v["dshGoBridge"], "path": DSH_GO_BRIDGE} if v.get("dshGoBridge") else None,
+        "dshGoProactive": {"version": v["dshGoProactive"], "path": DSH_GO_PROACTIVE} if v.get("dshGoProactive") else None,
         "tallocVersion": v["tallocVersion"],
         "androidShmemVersion": v["androidShmemVersion"],
         "npmRegistry": "https://registry.npmmirror.com",
@@ -1503,6 +1529,7 @@ def main():
     p.add_argument("--deb", action="append", help="extra .deb to unpack and register (no maintainer scripts)")
     p.add_argument("--python", help="python-build-standalone install_only tarball -> /opt/python")
     p.add_argument("--bridge", help="dsh-go-bridge package dir -> " + DSH_GO_BRIDGE + " (+ overlay row)")
+    p.add_argument("--proactive", help="dsh-go-proactive package dir -> " + DSH_GO_PROACTIVE + " (+ overlay row)")
     p.set_defaults(fn=cmd_assemble)
 
     p = sub.add_parser("manifest")
