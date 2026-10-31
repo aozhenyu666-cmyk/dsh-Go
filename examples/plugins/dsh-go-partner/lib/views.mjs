@@ -141,7 +141,11 @@ export function moodBand(v) {
   return { label: '难过', icon: 'warning', tone: 'bad' }
 }
 
-const DIM_LABEL = { happy: '开心', steady: '踏实', sweet: '甜蜜', tender: '心疼', worry: '担心', sad: '难过', jealous: '吃醋' }
+// ⚠️ 2026-11-01 修正（对着真实 state.json 复核）：上游 dsh-feiyu-mood 的七维是
+//   happy / calm / sweet / heartache / worry / sad / jealous。
+//   这里原来写成 steady / tender —— 那两个键上游**从来不发**，于是「踏实」永远 0、
+//   「心疼」被安到 tender 上，真机上表现为「明明心疼 7，面板一根柱子都没有」。
+const DIM_LABEL = { happy: '开心', calm: '安稳', sweet: '甜蜜', heartache: '心疼', worry: '担心', sad: '难过', jealous: '吃醋' }
 
 function relTime(ts, now = Date.now()) {
   const t = Number(ts)
@@ -453,6 +457,13 @@ function selftest() {
     ['目的面板', purposePanel(fakePurpose), 'panel'],
     ['状态条视图', moodStrip(fakeMood, fakeCfg), 'strip'],
     ['remember 工具卡', rememberCard({ text: '我最怕吵，写代码时别打断我', importance: 0.8, tags: ['偏好', '工作'], 事实键: '她.工作习惯' }, { ok: true }), 'toolCard'],
+    ['recall 工具卡', recallCard({ query: '散热' }, { ok: true, query: '散热', count: 1, total: 4, reason: '', items: [{ id: 'a', text: '今天想试试新的散热硅脂', score: 0.83, clarity: 'vivid', origin: 'fish-memory', at: new Date(now).toISOString() }] }), 'toolCard'],
+    ['mood 工具卡', moodCard({}, { ok: true, reason: '', mood: 69.9, stored: 69.8, band: '开心', dims: [{ key: 'heartache', label: '心疼', value: 7 }, { key: 'worry', label: '担心', value: 5 }], changes: [{ at: new Date(now).toISOString(), delta: -2, reason: '他说被领导骂了' }] }), 'toolCard'],
+    ['correct 工具卡', correctCard({ action: 'hide' }, { ok: true, message: '这条藏起来了。' }), 'toolCard'],
+    ['人格面板', personaPanel({ ok: true, from: 'surfcore', file: 'C:/x/.dsh/surfcore/characters/c1/persona.md', text: '你是「大肥鱼」。\n\n【形象与性格】\n贪吃。\n\n【聊天节奏】\n短句。', body: '…', identity: '## 自我身份\n', identityFrom: 'surfcore', names: { selfName: '大肥鱼', ownerName: '鱼片' }, style: '短句为主', topics: ['吃了什么', '在追的番'] }, { daysTogether: 21, memoryCount: 4, facts: 2, firstMetAt: now - 21 * 86400000, mood: { value: 70, label: '开心', tone: 'good' } }), 'panel'],
+    ['记忆分段面板', memorySectionsPanel({ primary: { file: 'C:/x/.dsh/fish-memory/session-s1.json', shape: 'fish-memory', records: new Array(4).fill({}), problems: [] }, card: { file: 'C:/x/.dsh/surfcore/characters/c1/memory/memory-card.json', shape: 'surfcore-card', count: 1, problems: [] }, own: { count: 0, file: 'C:/x/.dsh/partner/memory-own.json' }, all: fakeMem.records.concat([{ id: 'x', text: '今天想试试新的散热硅脂', clarity: 'vivid', importance: 30, at: now - 3600000, origin: 'fish-memory', tags: [], pinned: false }]), shortTerm: [{ id: 'x', text: '今天想试试新的散热硅脂', clarity: 'vivid', importance: 30, at: now - 3600000, origin: 'fish-memory', tags: [], pinned: false }], facts: fakeMem.records.slice(0, 2), hiddenCount: 1, corrections: { count: 2, file: 'C:/x/.dsh/partner/memory-corrections.json' } }, { memory: { shortTermHours: 24, panelLimit: 40 } }), 'panel'],
+    ['记忆单条面板', memoryRowPanel({ ...fakeMem.records[0], origin: 'fish-memory', note: '她说过两次', rewritten: false }, null), 'panel'],
+    ['情绪状态面板', moodStatePanel({ ok: true, reason: '', slot: { id: '__default__' }, matched: true, keys: ['__default__'], mood: { mood: 69.8, saidAt: [now] }, current: { value: 70, from: 69.8, hours: 2, applied: true }, dims: [{ key: 'heartache', label: '心疼', value: 7 }, { key: 'worry', label: '担心', value: 5 }, { key: 'sad', label: '难过', value: 4 }], timeline: [{ at: now - 60000, mood: 68, delta: -2, reason: '他说被领导当众骂了', conf: 88 }], cfg: { moodBase: 70, decayHalfHours: 12, injectMode: 'event', injectConfidence: 55 } }, { mood: { timelineLimit: 8 } }), 'panel'],
   ]
 
   let failed = 0
@@ -475,3 +486,361 @@ function selftest() {
 }
 
 if (process.argv[1] && process.argv[1].endsWith('views.mjs')) selftest()
+
+// ═══════════════════════════════════════════════════════════════════════════
+// R4 追加：人格面板 + 四张工具卡 + 记忆面板的「短期/长期/事实」分段
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function relTimeOf(ts, now) {
+  return relTime(ts, now)
+}
+
+/** 人格面板：真实读到的文件 / 身份 / 风格 / 话题 / 角色状态。读不到就明说读不到。 */
+export function personaPanel(p, state) {
+  const s = state || {}
+  const children = []
+  if (!p || (!p.ok && !p.identity)) {
+    children.push({
+      type: 'callout',
+      tone: 'warn',
+      text: '没找到人格卡。找过这些位置：' + ((p && p.tried) || []).slice(0, 3).join(' · ') + '。放一份 persona.md 到 ~/.dsh/partner/ 就会出现在这里。',
+    })
+    children.push({ type: 'text', text: '**不会**用默认人设顶上 —— 编一个性格给你看，比空白更糟。', tone: 'muted' })
+    return { v: 1, type: 'stack', title: '人格 · 没有卡', children }
+  }
+  const name = (p.names && p.names.selfName) || ''
+  const owner = (p.names && p.names.ownerName) || ''
+  const kv = []
+  if (name) kv.push(['她叫', name])
+  if (owner) kv.push(['你叫', owner])
+  kv.push(['人格卡', shortPath(p.file)])
+  kv.push(['来源', p.from === 'partner' ? '~/.dsh/partner/persona.md' : p.from === 'surfcore' ? 'surfcore 当前角色' : '配置指定'])
+  if (p.identityFrom) kv.push(['身份卡', p.identityFrom])
+  kv.push(['字数', String((p.text || '').length)])
+  children.push({ type: 'keyValue', items: kv })
+
+  if (!p.ok) {
+    children.push({ type: 'callout', tone: 'warn', text: p.reason === 'empty-persona' ? '人格卡是空文件。' : '人格卡读不出来。' })
+  }
+
+  // 角色状态：全部从记忆和心情派生，不另存一份
+  const bits = []
+  if (s.daysTogether !== null && s.daysTogether !== undefined) bits.push({ type: 'metric', label: '认识', value: s.daysTogether + ' 天', caption: s.firstMetAt ? relTime(s.firstMetAt).replace('前', '前第一次') : '' })
+  if (s.memoryCount !== undefined) bits.push({ type: 'metric', label: '记得', value: s.memoryCount + ' 条', caption: s.facts ? '其中 ' + s.facts + ' 条重要' : '' })
+  if (s.mood) bits.push({ type: 'metric', label: '此刻', value: Math.round(s.mood.value), tone: s.mood.tone, caption: s.mood.label })
+  if (bits.length) children.push({ type: 'row', children: bits })
+
+  if (p.style && p.style.trim()) {
+    children.push({ type: 'text', text: '**表达风格**', tone: 'muted' })
+    children.push({ type: 'text', text: p.style.trim().slice(0, 600) })
+  }
+  if (p.topics && p.topics.length) {
+    children.push({ type: 'text', text: '**主动开口时偏爱**', tone: 'muted' })
+    children.push({ type: 'list', items: p.topics.slice(0, 8).map((t) => ({ title: String(t).slice(0, 40), icon: 'chat' })) })
+  }
+  // 正文摘录：只给前几节标题 + 一小段，全文去网页/文件里看
+  if (p.text) {
+    const heads = (p.text.match(/^【[^】]{1,16}】|^##\s+.{1,20}/gm) || []).slice(0, 8).map((h) => h.replace(/^##\s+/, ''))
+    if (heads.length) {
+      children.push({ type: 'text', text: '**人格卡分节**', tone: 'muted' })
+      children.push({ type: 'list', items: heads.map((h) => ({ title: h, icon: 'document' })) })
+    }
+    children.push({ type: 'text', text: p.text.replace(/\s+/g, ' ').slice(0, 300) + '…', tone: 'muted' })
+  }
+
+  children.push({
+    type: 'actions',
+    items: [
+      { label: '刷新', action: 'persona.refresh', icon: 'refresh', style: 'primary' },
+      { label: '看全文', action: 'persona.open', icon: 'document' },
+    ],
+  })
+  return { v: 1, type: 'stack', title: '人格 · ' + (name || '未命名'), children }
+}
+
+function shortPath(p) {
+  const s = String(p || '')
+  const i = s.indexOf('.dsh')
+  return i >= 0 ? '~' + s.slice(i + 4).replace(/\\/g, '/') : s
+}
+
+// ── 四张工具卡（只用工具卡白名单的 8 个组件）────────────────────────────────
+
+/** partner_recall 的结果卡 */
+export function recallCard(args, value) {
+  const v = value || {}
+  const q = String((args && args.query) || v.query || '').slice(0, 40)
+  if (v.ok === false) {
+    return { v: 1, type: 'stack', title: '没查到', children: [{ type: 'callout', tone: 'warn', text: String(v.reason || '原因不明').slice(0, 200) }] }
+  }
+  const items = Array.isArray(v.items) ? v.items : []
+  const children = []
+  if (!items.length) {
+    children.push({ type: 'callout', tone: 'info', text: '记忆里没有关于「' + q + '」的内容。本地一共 ' + (v.total || 0) + ' 条。' })
+  } else {
+    children.push({ type: 'text', text: '找到 ' + items.length + ' 条（本地共 ' + (v.total || 0) + ' 条）', tone: 'muted' })
+    for (const it of items.slice(0, 5)) {
+      children.push({ type: 'text', text: '· ' + String(it.text || '').slice(0, 120) })
+      const bits = ['匹配 ' + Math.round((Number(it.score) || 0) * 100) + '%']
+      if (it.clarity) bits.push(CLARITY_LABEL[it.clarity] || it.clarity)
+      if (it.origin) bits.push(String(it.origin).split(':')[0])
+      children.push({ type: 'text', text: bits.join(' · '), tone: 'muted' })
+    }
+  }
+  return { v: 1, type: 'stack', title: '记忆检索 · ' + (q || '（空）'), children }
+}
+
+/** partner_correct 的结果卡 */
+export function correctCard(args, value) {
+  const v = value || {}
+  const act = String((args && args.action) || v.action || '')
+  const label = { hide: '藏起来', show: '放回来', pin: '钉住', unpin: '取消钉住', rewrite: '改写', note: '写备注' }[act] || act
+  return {
+    v: 1,
+    type: 'stack',
+    title: '记忆 · ' + label,
+    children: [
+      { type: 'callout', tone: v.ok === false ? 'warn' : 'good', text: String(v.message || '').slice(0, 200) },
+      { type: 'text', text: '只改了 partner 自己的纠正层；上游记忆文件一个字没动。', tone: 'muted' },
+    ],
+  }
+}
+
+/** partner_mood 的结果卡 */
+export function moodCard(args, value) {
+  const v = value || {}
+  if (v.ok === false) {
+    return { v: 1, type: 'stack', title: '心情 · 读不到', children: [{ type: 'callout', tone: 'warn', text: '原因：' + String(v.reason || '未知') }] }
+  }
+  const dims = (Array.isArray(v.dims) ? v.dims : []).filter((d) => Number(d.value) > 0).slice(0, 7)
+  const children = [
+    { type: 'metric', label: '此刻', value: Math.round(Number(v.mood) || 0), caption: String(v.band || ''), tone: moodBand(v.mood).tone },
+  ]
+  if (dims.length) {
+    children.push({
+      type: 'chart',
+      kind: 'bar',
+      categories: dims.map((d) => String(d.label)),
+      series: [{ name: '强度', values: dims.map((d) => Math.round(Number(d.value) * 10) / 10) }],
+    })
+  }
+  const changes = Array.isArray(v.changes) ? v.changes : []
+  for (const c of changes.slice(0, 3)) {
+    children.push({ type: 'text', text: (Number(c.delta) >= 0 ? '+' : '') + Number(c.delta) + ' ' + String(c.reason || '').slice(0, 80), tone: 'muted' })
+  }
+  if (v.reason) children.push({ type: 'callout', tone: 'warn', text: String(v.reason).slice(0, 200) })
+  return { v: 1, type: 'stack', title: '心情 · ' + String(v.band || '') + ' ' + Math.round(Number(v.mood) || 0), children }
+}
+
+/** 通用失败卡：工具没干活时也得说人话，不能空白。 */
+export function errorCard(title, message) {
+  return { v: 1, type: 'stack', title: String(title || '出错了').slice(0, 30), children: [{ type: 'callout', tone: 'warn', text: String(message || '原因不明').slice(0, 200) }] }
+}
+
+// ── 记忆面板（真实数据版）：短期 / 长期 / 重要事实 / 纠正 ────────────────────
+/**
+ * @param {object} lt   loadLongTermFull(...) 的返回值
+ * @param {object} cfg  partner 配置
+ */
+export function memorySectionsPanel(lt, cfg) {
+  const all = (lt && lt.all) || []
+  const children = []
+  const primary = (lt && lt.primary) || {}
+
+  // 数据来源必须写在最上面：出问题时第一件事就是「这数字是从哪个文件来的」
+  const src = []
+  if (primary.file) src.push(shortPath(primary.file) + '（' + (primary.shape || '?') + '，' + (primary.records || []).length + ' 条）')
+  if (lt && lt.card && lt.card.file) src.push(shortPath(lt.card.file) + '（' + lt.card.shape + '，' + lt.card.count + ' 条）')
+  if (lt && lt.own && lt.own.count) src.push(shortPath(lt.own.file) + '（partner 自己 ' + lt.own.count + ' 条）')
+  if (!src.length) {
+    children.push({
+      type: 'callout',
+      tone: 'warn',
+      text: '没有找到任何记忆文件。装上 dsh-fish-memory 并聊几句，或让模型调 partner_remember 记一条，这里就会有东西。',
+    })
+    children.push({ type: 'text', text: '找过：~/.dsh/fish-memory/session-*.json。不会去读屏幕、窗口标题或剪贴板。', tone: 'muted' })
+    return { v: 1, type: 'stack', title: '记忆 · 空', children }
+  }
+  children.push({ type: 'keyValue', items: [['数据来自', src.join('\n')]] })
+  if (primary.problems && primary.problems.length) {
+    children.push({ type: 'callout', tone: 'warn', text: primary.problems.join('；').slice(0, 300) })
+  }
+  if (primary.fellBackTo) {
+    children.push({ type: 'callout', tone: 'info', text: '这个会话还没有自己的记忆文件，显示的是最近改过的 ' + String(primary.fellBackTo).slice(0, 8) + '…。' })
+  }
+
+  const shortHours = Number(cfg && cfg.memory ? cfg.memory.shortTermHours : 24) || 24
+  const short = (lt && lt.shortTerm) || []
+  const facts = ((lt && lt.facts) || []).filter((r) => r.fact || (r.importance !== null && r.importance >= 70) || r.pinned || r.firstMet).slice(0, 8)
+  const limit = Math.max(5, Number(cfg && cfg.memory ? cfg.memory.panelLimit : 40) || 40)
+
+  const rowOf = (r) => ({
+    title: String(r.text || r.title || '').replace(/\s+/g, ' ').slice(0, 44),
+    subtitle: [CLARITY_LABEL[r.clarity] || '清楚', r.importance === null ? null : '重要 ' + r.importance, r.origin ? String(r.origin).split(':')[0] : null, r.pinned ? '钉住' : null, r.rewritten ? '你改过' : null].filter(Boolean).join(' · '),
+    trailing: relTime(r.at || 0),
+    icon: r.pinned ? 'pin' : r.fact ? 'bookmark' : 'note',
+    tone: CLARITY_TONE[r.clarity],
+    action: { id: 'memory.row', args: { id: String(r.id).slice(0, 60) } },
+  })
+
+  if (short.length) {
+    children.push({ type: 'text', text: '**短期（' + shortHours + ' 小时内，' + short.length + ' 条）**', tone: 'muted' })
+    children.push({ type: 'list', items: short.slice(0, 8).map(rowOf) })
+  }
+  if (facts.length) {
+    children.push({ type: 'text', text: '**重要事实（' + facts.length + ' 条）**', tone: 'muted' })
+    children.push({ type: 'list', items: facts.map((r) => ({ ...rowOf(r), subtitle: (r.why || r.fact || '重要') + ' · ' + (CLARITY_LABEL[r.clarity] || '') })) })
+  }
+  const rest = all.filter((r) => !short.includes(r) && !facts.includes(r)).slice(0, limit)
+  if (rest.length) {
+    children.push({ type: 'text', text: '**长期（' + (all.length - short.length) + ' 条，下面是最久的 ' + rest.length + ' 条）**', tone: 'muted' })
+    children.push({ type: 'list', items: rest.map(rowOf) })
+  }
+
+  const corr = (lt && lt.corrections) || {}
+  const kv = []
+  kv.push(['短期窗口', shortHours + ' 小时'])
+  kv.push(['清晰度', '按上游 policy 的半衰期算，只看不改'])
+  if (corr.count) kv.push(['你的纠正', corr.count + ' 处（' + shortPath(corr.file) + '）'])
+  if (lt && lt.hiddenCount) kv.push(['已藏起', lt.hiddenCount + ' 条'])
+  children.push({ type: 'keyValue', items: kv })
+
+  children.push({
+    type: 'actions',
+    items: [
+      { label: '刷新', action: 'memory.refresh', icon: 'refresh', style: 'primary' },
+      { label: '藏起的', action: 'memory.hidden', icon: 'archive' },
+      { label: '来源', action: 'memory.sources', icon: 'folder' },
+    ],
+  })
+  return { v: 1, type: 'stack', title: '记忆 ' + all.length + ' 条 · 短期 ' + short.length, children }
+}
+
+/** 单条记忆详情（点列表行进来的） */
+export function memoryRowPanel(rec, lt) {
+  if (!rec) {
+    return { v: 1, type: 'stack', title: '记忆 · 找不到', children: [{ type: 'callout', tone: 'warn', text: '这条记忆可能已经被上游删掉了，刷新一下。' }] }
+  }
+  const kv = [
+    ['清晰度', CLARITY_LABEL[rec.clarity] || rec.clarity || '未知'],
+    ['重要度', rec.importance === null ? '上游没给' : String(rec.importance)],
+    ['来源', String(rec.origin || '')],
+    ['记住于', relTime(rec.at || 0)],
+  ]
+  if (rec.fact) kv.push(['事实键', rec.fact])
+  if (rec.tags && rec.tags.length) kv.push(['标签', rec.tags.join('、')])
+  if (rec.note) kv.push(['你的备注', rec.note])
+  if (rec.rewritten) kv.push(['被改写过', '是（原文仍在上游文件里）'])
+  return {
+    v: 1,
+    type: 'stack',
+    title: '记忆 · ' + String(rec.text).slice(0, 16),
+    children: [
+      { type: 'text', text: String(rec.text).slice(0, 1500) },
+      { type: 'keyValue', items: kv },
+      {
+        type: 'actions',
+        items: [
+          { label: rec.pinned ? '取消钉住' : '钉住', action: rec.pinned ? 'memory.unpin' : 'memory.pin', icon: 'pin', style: 'primary' },
+          { label: '藏起来', action: 'memory.hide', icon: 'archive' },
+          { label: '返回', action: 'memory.refresh', icon: 'refresh' },
+        ],
+      },
+      { type: 'text', text: '改这里是改 partner 的纠正层，上游文件不动 —— 想彻底删，去网页版设置里操作。', tone: 'muted' },
+    ],
+  }
+}
+
+// ── 情绪面板（真实数据版）：接 readMood() 的快照 ────────────────────────────
+/**
+ * @param {object} snap readMood() 的返回
+ * @param {object} cfg  partner 配置
+ */
+export function moodStatePanel(snap, cfg) {
+  if (!snap || !snap.ok) {
+    const why = {
+      'no-feiyu-mood': '没装 dsh-feiyu-mood，或者它的目录不在 ~/.dsh/feiyu-mood。',
+      'no-state': '装是装了，但一次都没判过。确认「每轮判断心情」开着，并且真的聊过一轮。',
+      'no-moods': 'state.json 里一份记录都没有：同上，聊一轮就会有。',
+      'slot-mismatch': '设置里的 slot id 与 state.json 的键对不上，而且不止一份记录 —— 不猜，直说。到「鱼的心情」设置页重选一次会话。',
+      'no-slot': '设置里没有任何一份心情配置。',
+    }[snap && snap.reason] || '心情读不出来。'
+    return {
+      v: 1,
+      type: 'stack',
+      title: '心情 · 没有数据',
+      children: [
+        { type: 'callout', tone: 'warn', text: why },
+        { type: 'text', text: '数据源：~/.dsh/feiyu-mood/state.json。本插件只读，不改它。', tone: 'muted' },
+      ],
+    }
+  }
+  const now = snap.current.value
+  const band = moodBand(now)
+  const children = []
+  if (snap.matched === false) {
+    children.push({
+      type: 'callout',
+      tone: 'warn',
+      text: '设置里的会话与 state.json 的键对不上（设置：' + String(snap.slot && snap.slot.id) + '，记录：' + String((snap.keys || [])[0] || '').slice(0, 8) + '…）。现在显示的是唯一那份记录 —— 新对话可能不会进这一份。到「鱼的心情」设置页重选一次会话。',
+    })
+  }
+  children.push({
+    type: 'row',
+    children: [
+      { type: 'metric', label: '此刻', value: Math.round(now), tone: band.tone, caption: band.label },
+      {
+        type: 'metric',
+        label: '记的值',
+        value: Math.round(Number(snap.mood.mood) || 0),
+        caption: snap.current.applied ? '已按 ' + snap.current.halfHours + ' 小时衰减' : '还没到衰减点',
+      },
+    ],
+  })
+  // 门槛 1（不是 >0）：上游的衰减残渣是 1.7e-7，用 >0 会画出七根 0 长的柱子。
+  const dims = (snap.dims || []).filter((d) => d.value >= 1)
+  if (dims.length) {
+    children.push({
+      type: 'chart',
+      kind: 'bar',
+      categories: dims.map((d) => d.label),
+      series: [{ name: '强度', values: dims.map((d) => d.value) }],
+      caption: '七根情绪各自还剩多少（上游自己会衰减回 0）',
+    })
+  } else {
+    children.push({ type: 'callout', tone: 'info', text: '这几轮没有情绪波动 —— 无变化不记账，是设计不是坏。' })
+  }
+  const tl = (snap.timeline || []).slice(0, Number(cfg && cfg.mood ? cfg.mood.timelineLimit : 8) || 8)
+  if (tl.length) {
+    children.push({ type: 'text', text: '**最近几次**', tone: 'muted' })
+    children.push({
+      type: 'list',
+      items: tl.map((e) => ({
+        title: String(e.reason || '（没写理由）').slice(0, 60),
+        subtitle: [relTime(e.at), e.conf === null ? null : '可信 ' + e.conf, e.mood ? '值 ' + e.mood : null].filter(Boolean).join(' · '),
+        trailing: (e.delta >= 0 ? '+' : '') + e.delta,
+        tone: e.delta > 0 ? 'good' : e.delta < 0 ? 'warn' : undefined,
+      })),
+    })
+  }
+  const c = snap.cfg || {}
+  children.push({
+    type: 'keyValue',
+    items: [
+      ['基线', String(c.moodBase === undefined ? 70 : c.moodBase)],
+      ['衰减半衰期', (c.decayHalfHours === undefined ? 12 : c.decayHalfHours) + ' 小时'],
+      ['告诉她吗', c.injectMode === 'off' ? '不告诉' : c.injectMode === 'state' ? '只说心情' : '说她刚才那件事'],
+      ['可信度门槛', String(c.injectConfidence === undefined ? 60 : c.injectConfidence)],
+      ['今天提过', ((snap.mood.saidAt || []).length ? (snap.mood.saidAt || []).length + ' 次（累计）' : '还没提')],
+      ['数据源', '~/.dsh/feiyu-mood/state.json（只读）'],
+    ],
+  })
+  children.push({
+    type: 'actions',
+    items: [
+      { label: '刷新', action: 'mood.refresh', icon: 'refresh', style: 'primary' },
+      { label: '来源', action: 'mood.sources', icon: 'folder' },
+    ],
+  })
+  return { v: 1, type: 'stack', title: '心情 ' + Math.round(now) + ' · ' + band.label, children }
+}

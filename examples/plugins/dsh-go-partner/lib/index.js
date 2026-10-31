@@ -1,258 +1,362 @@
 /**
- * dsh-go-partner —— R4 的原生界面层（只读，不写任何数据）
+ * dsh-go-partner —— R4 的人格 / 记忆 / 情绪层（原生界面 + 真实数据 + 工具注册）
  *
- * 定位（这点必须守住，否则会和两个现有插件打架）：
+ * 定位（守住，否则会和两个上游插件打架）：
  *   · dsh-fish-memory 负责「记」和「想」，dsh-feiyu-mood 负责「判」；
- *   · 本插件**只负责「看得见」**：把它们的 JSON 读出来，画成 DSH Go 的原生插槽。
- *   · 所以它**不注册 remember、不调模型、不改 state.json** —— 一个写者原则。
+ *   · 本插件**读**它们的文件，**只写自己**的（~/.dsh/partner/*.json），
+ *     一个写者原则：不替上游改 state.json / session-*.json。
+ *   · 界面之外还做三件事：注册记忆/情绪工具、把人格与心情作为上下文交给 Agent、
+ *     把「用户能查看和纠正记忆」做成真实动作。
  *
- * 为什么需要它（三方仓库都没有这件事）：
- *   fish-memory / feiyu-mood 的界面都在 `client.js`（web 半端，React）。
- *   DSH Go 的原生界面**不执行插件的任何 JS**，只认 `package.json` 的 `dshGo` 清单
- *   + 宿主用 `ctx.dshGo` 推的 JSON 视图。所以不写这一层，App 里就只看得到网页模式。
+ * 三个模块独立开关（~/.dsh/partner/config.json）：
+ *   persona / memory / mood —— 任何一个关掉，它那一块的**数据读取、系统提示、工具**全停，
+ *   面板改成一句「已在配置里关掉」，而不是静默空白。
  *
- * 三条硬约束（照 docs/plugins/slots.md）：
- *   1. `ctx.inject(['dshGo'], …)` —— 写 `['dshGo']`，**不要**写 `['dshGo?']`（回调永远不执行），
- *      也**不要**放进插件顶层 `inject`（没有桥接的主机上整个插件起不来）。
- *   2. 状态条 `emit` 的数据 ≤ 32KiB / 4Hz，每次给**完整**一份，`null` 等于缺失。
+ * 三条照 docs/plugins/slots.md 的硬约束：
+ *   1. `ctx.inject(['dshGo'], …)` —— 写 `['dshGo']`，不要 `['dshGo?']`，也别放插件顶层 inject。
+ *   2. 状态条 emit ≤ 32KiB / 4Hz，每次给**完整**一份，`null` 等于缺失。
  *   3. 回调抛错/超时(3s)/返回不合格 → 记一次违规；连续 5 次本次运行降级成网页版。
+ *
+ * 隐私边界：只读下文列出的那几个 JSON。**不读屏幕、窗口标题、剪贴板。**
  */
 
 import fs from 'node:fs'
 import path from 'node:path'
-import os from 'node:os'
 
-import { moodPanel, memoryPanel, purposePanel, stripData, validate } from './views.mjs'
+import { loadConfig } from './config.mjs'
+import { loadPersona, personaPromptText, roleState } from './persona.mjs'
+import { loadLongTermFull, memoryStats, correct, loadCorrections } from './memory.mjs'
+import { readMood, moodBand, moodContextText } from './mood.mjs'
+import { buildTools } from './tools.mjs'
+import {
+  moodStatePanel,
+  memorySectionsPanel,
+  memoryRowPanel,
+  personaPanel,
+  purposePanel,
+} from './views.mjs'
 
-// ── 配置（插件导出的 Config 会画成 App 原生设置表单）────────────────────────
-// 只放「本包自己的」开关；记忆/心情的参数在各自插件里改，这里不重复一套。
-export const Config = undefined // 见 §为什么不用 schemastery —— 见 README「已知取舍」
+// 旧的 Config 取舍：本包坚持零第三方依赖，画不出原生设置表单，只认 JSON 文件。
+// 见 README「已知取舍」。这里保留导出（值为 undefined）以免老宿主读到 undefined 就报错。
+export const Config = undefined
 
-// ⚠️ 必须**延迟读**：写成模块级 const 就等于在 import 那一刻定死，
-//    之后改 process.env.DSH_HOME 不生效（测试里直接踩到），换主机/换 profile 也接不住。
-const dshHome = () => process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+export { loadConfig } from './config.mjs'
 
-function readJson(p) {
+/** 同步/异步两版异常保护：一个返回视图，一个返回取消函数，混用会把返回值变成 Promise。 */
+function guards(prefix) {
+  const sync = (name, fn) => (...args) => {
+    try {
+      return fn(...args)
+    } catch (error) {
+      console.error('[' + prefix + '] ' + name + ' 失败：' + (error && error.message))
+      return undefined
+    }
+  }
+  const async = (name, fn) => async (...args) => {
+    try {
+      return await fn(...args)
+    } catch (error) {
+      console.error('[' + prefix + '] ' + name + ' 失败：' + (error && error.message))
+      return null
+    }
+  }
+  return { sync, async }
+}
+
+const DISABLED = (what) => ({
+  v: 1,
+  type: 'stack',
+  title: what + ' · 已关闭',
+  children: [
+    { type: 'callout', tone: 'info', text: '这个模块已经在 partner 的配置里关掉了，所以不读任何数据、也不参与对话。' },
+    { type: 'text', text: '要打开：编辑 ~/.dsh/partner/config.json，把 ' + what + ' 那一项的 enabled 改成 true，然后回来刷新。', tone: 'muted' },
+  ],
+})
+
+/**
+ * 注册四个工具。单独导出是为了让测试能直接注入 defineTool —— 不必去解析真包名。
+ * @returns {Promise<{registered: string[], reason: string}>}
+ */
+export async function registerTools(ctx, cfg, defineToolIn) {
+  if (!ctx || !ctx.tools || typeof ctx.tools.register !== 'function') {
+    return { registered: [], reason: 'no-tools-service' }
+  }
+  let defineTool = defineToolIn
+  if (typeof defineTool !== 'function') {
+    const mod = await import('@deepseek-ai/dsh-tools')
+    defineTool = mod.defineTool
+  }
+  if (typeof defineTool !== 'function') return { registered: [], reason: 'no-defineTool' }
+  const registered = []
+  const disposers = []
+  for (const def of buildTools(defineTool)) {
+    const off = ctx.tools.register(def)
+    registered.push(def.name)
+    if (off !== undefined) disposers.push(off)
+  }
+  return { registered, reason: '', disposers }
+}
+/** 找到当前 agent（只为挂系统提示用；拿不到就只做插件级，不影响界面）。 */
+function anyAgent(ctx) {
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''))
-  } catch {
+    if (ctx.agents && typeof ctx.agents.list === 'function') {
+      const list = ctx.agents.list() || []
+      return list[0] || null
+    }
+  } catch {}
+  return null
+}
+
+function agentOf(ctx, sessionId) {
+  try {
+    if (!ctx.agents) return null
+    if (sessionId && typeof ctx.agents.get === 'function') {
+      const a = ctx.agents.get(String(sessionId))
+      if (a) return a
+    }
+  } catch {}
+  return anyAgent(ctx)
+}
+
+/** Cordis 的 effect disposer 就是**函数**本身，不是 { off() }。这里统一兜住两种。 */
+function disposeOf(off) {
+  if (typeof off === 'function') {
+    try { off() } catch {}
+  } else if (off && typeof off.off === 'function') {
+    try { off.off() } catch {}
+  }
+}
+
+/** 系统提示 / 上下文里放文本时一律 interpolate:false —— 记忆内容里带 {{ }} 会让整轮失败。 */
+function addSection(prompt, kind, entry) {
+  try {
+    if (kind === 'section') return prompt.section({ interpolate: false, ...entry })
+    return prompt.context({ interpolate: false, ...entry })
+  } catch (error) {
+    console.error('[partner] 挂系统提示失败（' + entry.name + '）：' + (error && error.message))
     return null
   }
 }
 
-function statSig(p) {
-  try {
-    const s = fs.statSync(p)
-    return `${s.mtimeMs}:${s.size}`
-  } catch {
-    return 'missing'
-  }
-}
+export function apply(ctx, options) {
+  const cfg = loadConfig()
+  // 测试/嵌入场景可以把自己那份 defineTool 传进来，省掉一次必然失败的动态 import。
+  const defineToolOverride = options && options.defineTool
+  const g = guards('partner')
+  const offs = []
 
-// ── 数据源：只读 ────────────────────────────────────────────────────────────
-function moodStatePath() { return path.join(dshHome(), 'feiyu-mood', 'state.json') }
-function moodConfigPath() { return path.join(dshHome(), 'feiyu-mood', 'config.json') }
-
-/**
- * 心情：state.json 的结构是 { moods: { <slotId>: { mood, dims, timeline } } }。
- * 取哪一份：① 有 sessionId 就从 config 的 slots 里找绑了这个会话的那份；② 否则取第一份。
- * ⚠️ 两个 id 对不上时**不要猜**，把「绑没绑对」这件事显示出来 —— 这是最常见的排障点。
- */
-function readMood(sessionId) {
-  const state = readJson(moodStatePath())
-  const cfg = readJson(moodConfigPath()) || {}
-  if (!state) return { ok: false, reason: 'no-state', cfg }
-  const moods = state.moods || {}
-  const keys = Object.keys(moods)
-  if (!keys.length) return { ok: false, reason: 'no-moods', cfg, state }
-
-  const slots = Array.isArray(cfg.slots) ? cfg.slots : []
-  let slot = null
-  if (sessionId) {
-    slot = slots.find((s) => Array.isArray(s.sessions) && s.sessions.includes(sessionId)) || null
-  }
-  if (!slot) slot = slots[0] || { id: keys[0] }
-  // slot.id 与 moods 的 key 可能对不上（0.7.0 修过这个 bug，老数据仍可能错乱）
-  let mood = moods[slot.id]
-  let matched = Boolean(mood)
-  if (!mood && keys.length === 1) { mood = moods[keys[0]]; matched = false }
-  if (!mood) return { ok: false, reason: 'slot-mismatch', cfg, slot, keys }
-  return { ok: true, mood, cfg, slot, matched, selfName: cfg.selfName || slot.selfName, ownerName: cfg.ownerName }
-}
-
-/**
- * 记忆：fish-memory 一个会话一个 json 文件（%USERPROFILE%\.dsh\fish-memory\<sid>.json）。
- * 形状在不同版本间有差异（memories / records / items），这里都兜住。
- */
-function readMemory(sessionId) {
-  const dir = path.join(dshHome(), 'fish-memory')
-  let files = []
-  try {
-    files = fs.readdirSync(dir).filter((n) => n.endsWith('.json') && !n.endsWith('.bak'))
-  } catch {
-    return { ok: false, reason: 'no-dir' }
-  }
-  if (!files.length) return { ok: false, reason: 'empty' }
-
-  let file = null
-  if (sessionId) file = files.find((n) => n === `${sessionId}.json`) || null
-  if (!file) file = files.sort((a, b) => statSig(path.join(dir, b)).localeCompare(statSig(path.join(dir, a))))[0]
-
-  const raw = readJson(path.join(dir, file))
-  if (!raw) return { ok: false, reason: 'unreadable', file }
-  const list = raw.memories || raw.records || raw.items || []
-  const records = (Array.isArray(list) ? list : []).map((m, i) => ({
-    id: m.id || `m${i}`,
-    text: m.text || m.content || '',
-    title: m.title || '',
-    // fish-memory 是「鲜活度」，surfcore 是「清晰度」：两者都映射到同一套显示词
-    clarity: m.clarity || (typeof m.vitality === 'number'
-      ? (m.vitality >= 0.66 ? 'vivid' : m.vitality >= 0.4 ? 'clear' : m.vitality >= 0.18 ? 'fuzzy' : 'trace')
-      : 'clear'),
-    importance: typeof m.importance === 'number' ? Math.round(m.importance * (m.importance <= 1 ? 100 : 1)) : undefined,
-    createdAt: m.createdAt || m.at || m.time || '',
-    tags: Array.isArray(m.tags) ? m.tags : [],
-    pinned: Boolean(m.pinned || m.superseded === false),
-    isInitial: Boolean(m.isInitial),
-    firstMet: Boolean(m.firstMet),
-  }))
-  return { ok: true, file, records, raw }
-}
-
-/**
- * 目的：P2 之前不存在这个文件；面板要能优雅地「说还没做」而不是空白。
- */
-function readPurpose(sessionId) {
-  const candidates = [
-    path.join(dshHome(), 'partner', 'purpose-outreach.json'),
-    path.join(dshHome(), 'surfcore', 'state', 'purpose-outreach.json'),
-  ]
-  try {
-    const cur = readJson(path.join(dshHome(), 'surfcore', 'characters', 'current.json'))
-    if (cur?.id) candidates.unshift(path.join(dshHome(), 'surfcore', 'characters', cur.id, 'purpose-outreach.json'))
-  } catch {}
-  for (const p of candidates) {
-    const j = readJson(p)
-    if (j) return { ok: true, state: j, file: p }
-  }
-  return { ok: false, reason: 'not-implemented' }
-}
-
-// ── 插件本体 ────────────────────────────────────────────────────────────────
-export function apply(ctx) {
-  // ⚠️ 必须写 ['dshGo']；写成 ['dshGo?'] 回调永远不执行，写在顶层 inject 会在无桥接主机上整体挂掉
-  ctx.inject(['dshGo'], (ctx) => {
-    // ⚠️⚠️ 这里有个**很容易踩的坑**，我第一版就踩了：
-    //   `view(scope, caps)` 必须是**同步**返回视图；`strip(id, dataFn)` 的 dataFn 必须是
-    //   **同步**返回取消函数。用 async 包一层「保护异常」会把返回值变成 Promise ——
-    //   于是 view 拿到 Promise（App 报「插件界面有误」），strip 拿到 Promise
-    //   （取消函数永远调不到，定时器泄漏）。所以异常保护必须**分同步/异步两版**。
-    const syncGuard = (name, fn) => (...args) => {
-      try {
-        return fn(...args)
-      } catch (error) {
-        console.error(`[partner] ${name} 失败：${error && error.message}`)
-        return undefined
+  // ── 工具注册（不依赖 dshGo 桥接：没有 App 的地方也照样能记/能查）──────
+  // defineTool 在 @deepseek-ai/dsh-tools 里；没有 DSH 的主机上 import 会失败，
+  // 所以**动态 import + 失败就记下来**，绝不让它把整个插件带崩。
+  // 用一个 promise 接住：注册是异步的（要动态 import），但 apply 必须同步返回 disposer。
+  // 卸载时如果注册还没回来，等它回来再卸 —— 否则就是泄漏一个还在跑的工具。
+  const pendingToolDisposers = []
+  let toolsDisposed = false
+  const toolsReady = (cfg.tools.enabled && (cfg.memory.enabled || cfg.mood.enabled)
+    ? registerTools(ctx, cfg, defineToolOverride)
+    : Promise.resolve({ registered: [], reason: cfg.tools.enabled ? 'modules-off' : 'tools-off' })
+  ).then((r) => {
+    if (r && Array.isArray(r.disposers)) {
+      if (toolsDisposed) for (const off of r.disposers) disposeOf(off)
+      else pendingToolDisposers.push(...r.disposers)
+    }
+    return { registered: (r && r.registered) || [], reason: (r && r.reason) || '' }
+  }, (error) => {
+    console.error('[partner] 工具注册失败：' + (error && error.message))
+    return { registered: [], reason: 'threw: ' + (error && error.message) }
+  })
+  // 暴露给测试/诊断：不 await 也不影响插件启动
+  apply.__toolsReady = toolsReady
+  // ── 系统提示：人格（section）+ 心情（context）────────────────────────
+  const agent = agentOf(ctx)
+  if (agent && agent.ctx) {
+    const prompt = agent.ctx.systemPrompt
+    if (prompt) {
+      // 人格：进**系统提示**（它不每轮变，能吃到前缀缓存）
+      if (cfg.persona.enabled) {
+        const off = addSection(prompt, 'section', {
+          name: 'partner:persona',
+          order: Number(cfg.persona.sectionOrder) || 100,
+          text: () => {
+            try {
+              const p = loadPersona(loadConfig())
+              return p.ok || p.identity ? personaPromptText(p) : ''
+            } catch {
+              return ''
+            }
+          },
+        })
+        if (off) offs.push(off)
+      }
+      // 心情：进**每轮上下文**（它会变，放 section 会把整段提示词缓存打掉）
+      if (cfg.mood.enabled && cfg.mood.inject) {
+        const off = addSection(prompt, 'context', {
+          name: 'partner:mood',
+          order: Number(cfg.mood.contextOrder) || 880,
+          text: () => {
+            try {
+              const c = loadConfig()
+              if (!c.mood.enabled || !c.mood.inject) return ''
+              const snap = readMood()
+              return snap.ok ? moodContextText(snap, c) : ''
+            } catch {
+              return ''
+            }
+          },
+        })
+        if (off) offs.push(off)
       }
     }
-    const asyncGuard = (name, fn) => async (...args) => {
-      try {
-        return await fn(...args)
-      } catch (error) {
-        console.error(`[partner] ${name} 失败：${error && error.message}`)
-        return null
-      }
-    }
+  }
+  // ── 原生界面（需要 dshGo 桥接；没有桥接的主机这一段整个不执行）──────
+  // ⚠️ 必须写 ['dshGo']；写成 ['dshGo?'] 回调永远不执行，写顶层 inject 会在无桥接主机上整体挂掉
+  ctx.inject(['dshGo'], (c) => {
+    // 每个会话当前点开的那条记忆（面板是无状态的，所以状态放这）
+    const opened = new Map()
+    const keyOf = (scope) => String((scope && scope.sessionId) || '')
 
-    // ── 状态条：输入框上方一行「开心 72」────────────────────────────────
-    // ⚠️ 插槽 id = `mood.strip`，**不能**也叫 `mood` —— 同一插件内所有插槽的 id 不许重复
-    //    （和 panels 里的 `mood` 撞了 → App 插件详情页报「原生界面 · N 项有误」）
-    ctx.dshGo.strip('mood.strip', (scope, emit) => {
+    const readCfg = () => loadConfig()
+
+    // ── 人格胶囊：输入框上方一行「大肥鱼 · 开心 72」──────────────
+    // 插槽 id 不能和面板 id 撞（同插件内所有插槽 id 唯一），所以叫 persona.strip
+    c.dshGo.strip('persona.strip', (scope, emit) => {
       let last = ''
       const push = () => {
-        const r = readMood(scope && scope.sessionId)
-        const data = r.ok
-          ? stripData(r.mood, { moodBase: r.cfg.moodBase, selfName: r.selfName })
-          : { text: '心情未开', icon: 'question', tone: 'muted' }
+        const cfgNow = readCfg()
+        let data
+        if (!cfgNow.persona.enabled && !cfgNow.mood.enabled) {
+          data = { text: '伙伴已关', icon: 'question', tone: 'muted' }
+        } else {
+          const p = cfgNow.persona.enabled ? loadPersona(cfgNow) : null
+          const snap = cfgNow.mood.enabled ? readMood() : null
+          const name = (p && p.names && p.names.selfName) || (snap && snap.ok && snap.names && snap.names.selfName) || ''
+          const bits = []
+          if (name) bits.push(name)
+          if (snap && snap.ok) {
+            const band = moodBand(snap.current.value)
+            bits.push(band.label + ' ' + Math.round(snap.current.value))
+            data = { text: bits.join(' · '), icon: band.icon, tone: band.tone }
+          } else {
+            bits.push(p && p.ok ? '人格就绪' : '没找到人格卡')
+            data = { text: bits.join(' · '), icon: name ? 'pet' : 'question', tone: p && p.ok ? 'info' : 'muted' }
+          }
+        }
         const sig = JSON.stringify(data)
-        if (sig === last) return       // 没变就不推（桥接本身限 4Hz，但省一点是一点）
+        if (sig === last) return
         last = sig
         emit(data)
       }
       push()
-      const timer = setInterval(syncGuard('strip.push', push), 30_000)
-      // 返回取消函数：没人看时别留定时器（必须是**同步**返回）
+      const timer = setInterval(g.sync('strip.push', push), 30_000)
       return () => clearInterval(timer)
     })
 
-    // ── 面板 1：心情 ────────────────────────────────────────────────────
-    ctx.dshGo.panel('mood', {
-      view: syncGuard('mood.view', (scope) => {
-        const r = readMood(scope && scope.sessionId)
-        if (!r.ok) {
-          const why = {
-            'no-state': '还没判过任何一轮。确认：①「每轮判断心情」开着 ② 会话/工作区绑对了 ③ 判断模型能用。',
-            'no-moods': '一次都没判过。同上三条。',
-            'slot-mismatch': '设置里的 slot id 与 state.json 里的键对不上（0.7.0 修过这个 bug，老数据可能仍是错的）。到「鱼的心情」设置页重新选一次会话即可。',
-          }[r.reason] || '心情数据读不出来。'
-          return { v: 1, type: 'stack', title: '心情', children: [{ type: 'callout', tone: 'warn', text: why }] }
-        }
-        return moodPanel(r.mood, {
-          label: r.slot?.label,
-          selfName: r.selfName,
-          ownerName: r.ownerName,
-          moodBase: r.cfg.moodBase,
-          decayHalfHours: r.cfg.decayHalfHours,
-          injectMode: r.cfg.injectMode,
-          injectConfidence: r.cfg.injectConfidence,
-          // 绑定对不上但仍只有一份记录：**显示 + 明确警告**。
-          // 静默显示是错的（用户会以为绑对了）；只报错不显示也是错的（数据其实读得到）。
-          bindingWarning: r.matched === false
-            ? `设置里的会话与 state.json 里的记录对不上（设置：${r.slot?.id ?? '?'}，记录：${String(r.keys?.[0] ?? '?').slice(0, 8)}…）。现在显示的是唯一那份记录，但新对话可能不会进这一份 —— 到「鱼的心情」设置页重选一次会话。`
-            : '',
-        })
+    // ── 面板 1：人格详情 ────────────────────────────────────────
+    c.dshGo.panel('persona', {
+      view: g.sync('persona.view', (scope) => {
+        const cfgNow = readCfg()
+        if (!cfgNow.persona.enabled) return DISABLED('人格')
+        const p = loadPersona(cfgNow)
+        const lt = cfgNow.memory.enabled ? loadLongTermFull(cfgNow, scope && scope.sessionId) : { all: [], shortTerm: [], facts: [] }
+        const stats = memoryStats(lt)
+        const snap = cfgNow.mood.enabled ? readMood() : null
+        const band = snap && snap.ok ? { ...moodBand(snap.current.value), value: snap.current.value } : null
+        return personaPanel(p, roleState(stats, band))
       }),
       actions: {
-        refresh: asyncGuard('mood.refresh', (scope) => {
-          ctx.dshGo.refresh('mood', scope)
+        'persona.refresh': g.async('persona.refresh', (scope) => { c.dshGo.refresh('persona', scope); return { toast: '已刷新' } }),
+        'persona.open': g.async('persona.open', () => ({ toast: '全文在 ~/.dsh/partner/persona.md' })),
+      },
+    })
+
+    // ── 面板 2：记忆查看 / 纠正 ─────────────────────────────────
+    c.dshGo.panel('memory', {
+      view: g.sync('memory.view', (scope) => {
+        const cfgNow = readCfg()
+        if (!cfgNow.memory.enabled) return DISABLED('记忆')
+        const lt = loadLongTermFull(cfgNow, scope && scope.sessionId)
+        const id = opened.get(keyOf(scope))
+        if (id) {
+          const rec = lt.all.filter((r) => String(r.id) === id)[0]
+          if (rec) return memoryRowPanel(rec, lt)
+          opened.delete(keyOf(scope))
+        }
+        return memorySectionsPanel(lt, cfgNow)
+      }),
+      actions: {
+        'memory.refresh': g.async('memory.refresh', (scope) => {
+          opened.delete(keyOf(scope))
+          c.dshGo.refresh('memory', scope)
           return { toast: '已刷新' }
         }),
-        timeline: asyncGuard('mood.timeline', () => ({ toast: '完整记录在「网页模式 › 设置 › 鱼的心情」' })),
+        'memory.row': g.async('memory.row', (scope, event) => {
+          const v = event && event.value ? event.value : {}
+          if (v.id) opened.set(keyOf(scope), String(v.id))
+          c.dshGo.refresh('memory', scope)
+          return { toast: '' }
+        }),
+        'memory.hide': g.async('memory.hide', (scope, event) => {
+          const id = opened.get(keyOf(scope))
+          if (!id) return { toast: '先点开一条' }
+          correct(id, 'hide')
+          opened.delete(keyOf(scope))
+          c.dshGo.refresh('memory', scope)
+          return { toast: '藏起来了' }
+        }),
+        'memory.pin': g.async('memory.pin', (scope) => {
+          const id = opened.get(keyOf(scope))
+          if (!id) return { toast: '先点开一条' }
+          correct(id, 'pin')
+          c.dshGo.refresh('memory', scope)
+          return { toast: '钉住了' }
+        }),
+        'memory.unpin': g.async('memory.unpin', (scope) => {
+          const id = opened.get(keyOf(scope))
+          if (!id) return { toast: '先点开一条' }
+          correct(id, 'unpin')
+          c.dshGo.refresh('memory', scope)
+          return { toast: '取消钉住' }
+        }),
+        'memory.hidden': g.async('memory.hidden', (scope) => {
+          const corr = loadCorrections()
+          const n = corr.hide.length
+          c.dshGo.refresh('memory', scope)
+          return { toast: n ? '藏起了 ' + n + ' 条：' + corr.hide.slice(0, 2).join('、') : '没有藏起的记忆' }
+        }),
+        'memory.sources': g.async('memory.sources', (scope, event) => {
+          const cfgNow = readCfg()
+          const lt = loadLongTermFull(cfgNow, scope && scope.sessionId)
+          const f1 = lt.primary && lt.primary.file ? lt.primary.file : '（没有 fish-memory 文件）'
+          return { toast: ('来源：' + f1).slice(0, 40) }
+        }),
       },
     })
 
-    // ── 面板 2：记忆 ────────────────────────────────────────────────────
-    ctx.dshGo.panel('memory', {
-      view: syncGuard('memory.view', (scope) => {
-        const r = readMemory(scope && scope.sessionId)
-        if (!r.ok) {
-          const why = {
-            'no-dir': '还没装 dsh-fish-memory，或者装了没跑过。',
-            empty: '还没有任何会话的记忆。聊几句、说过一件明确的事，它就会自己记。',
-            unreadable: '记忆文件读不出来（可能正在写入）。稍后再刷新。',
-          }[r.reason] || '记忆读不出来。'
-          return { v: 1, type: 'stack', title: '记忆', children: [{ type: 'callout', tone: 'warn', text: why }] }
-        }
-        // 容量：fish-memory 的字段名不稳定，能拿就拿，拿不到就不画进度条
-        const status = r.raw?.status && typeof r.raw.status === 'object' ? r.raw.status : {}
-        const chars = status.chars ?? status.charCount ?? undefined
-        const warn = status.warnChars ?? status.maxChars ?? undefined
-        const percent = chars && warn ? Math.min(100, Math.round((chars / warn) * 1000) / 10) : 0
-        return memoryPanel({ records: r.records, status: { chars, warnChars: warn, percent, counts: { total: r.records.length } } })
+    // ── 面板 3：情绪状态 ────────────────────────────────────────
+    c.dshGo.panel('mood', {
+      view: g.sync('mood.view', () => {
+        const cfgNow = readCfg()
+        if (!cfgNow.mood.enabled) return DISABLED('情绪')
+        return moodStatePanel(readMood(), cfgNow)
       }),
       actions: {
-        refresh: asyncGuard('memory.refresh', (scope) => { ctx.dshGo.refresh('memory', scope); return { toast: '已刷新' } }),
-        open: asyncGuard('memory.open', () => ({ toast: '原文在网页模式里看' })),
-        full: asyncGuard('memory.full', () => ({ toast: '全量存档在 P2 才接；现在只有记忆卡' })),
-        export: asyncGuard('memory.export', () => ({ toast: '导出在网页模式里做' })),
+        'mood.refresh': g.async('mood.refresh', (scope) => { c.dshGo.refresh('mood', scope); return { toast: '已刷新' } }),
+        'mood.sources': g.async('mood.sources', () => ({ toast: 'state.json 在 ~/.dsh/feiyu-mood/' })),
       },
     })
 
-    // ── 面板 3：目的 ────────────────────────────────────────────────────
-    ctx.dshGo.panel('purpose', {
-      view: syncGuard('purpose.view', () => {
-        const r = readPurpose()
-        if (!r.ok) {
+    // ── 面板 4：目的（P2 未做，保留原来的「说还没做」）───────────
+    c.dshGo.panel('purpose', {
+      view: g.sync('purpose.view', () => {
+        const root = path.join(process.env.DSH_HOME || '', 'surfcore')
+        let state = null
+        try {
+          const cur = JSON.parse(fs.readFileSync(path.join(root, 'characters', 'current.json'), 'utf8'))
+          if (cur && cur.id) state = JSON.parse(fs.readFileSync(path.join(cur.dir || path.join(root, 'characters', String(cur.id)), 'purpose-outreach.json'), 'utf8'))
+        } catch {
+          state = null
+        }
+        if (!state) {
           return {
             v: 1,
             type: 'stack',
@@ -263,12 +367,21 @@ export function apply(ctx) {
             ],
           }
         }
-        return purposePanel(r.state)
+        return purposePanel(state)
       }),
       actions: {
-        run: asyncGuard('purpose.run', () => ({ toast: 'P2 才接；现在只能预览' })),
-        preview: asyncGuard('purpose.preview', () => ({ toast: 'P2 才接' })),
+        'purpose.run': g.async('purpose.run', () => ({ toast: 'P2 才接；现在只能预览' })),
+        'purpose.preview': g.async('purpose.preview', () => ({ toast: 'P2 才接' })),
       },
     })
   })
+
+  // 卸载：把所有注册的东西还回去（Disposable 语义，漏一个就泄漏）
+  const dispose = () => {
+    toolsDisposed = true
+    for (const off of pendingToolDisposers.splice(0)) disposeOf(off)
+    for (const off of offs.splice(0)) disposeOf(off)
+  }
+  dispose.__toolsReady = toolsReady
+  return dispose
 }
