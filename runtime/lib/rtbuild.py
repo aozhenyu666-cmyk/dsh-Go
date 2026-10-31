@@ -1414,6 +1414,103 @@ def launch_template():
     }
 
 
+def _read(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def _load_json(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def verify_outputs(out, abis):
+    """Checks the G1' criterion on an existing runtime/out tree: every requested ABI is really
+    there -- assets/runtime/manifest.json, the rootfs it names (hash and size matching), the four
+    jniLibs (hash, size and ELF machine matching) -- and the index manifest lists it.
+
+    Returns (problems, lines). Empty problems means the tree is a complete bundle for those ABIs.
+    Gradle silently ignores a sourceSets srcDir that does not exist, so BUILD SUCCESSFUL proves
+    nothing about the runtime; this is the check that does.
+    """
+    JNI = ("libproot.so", "libproot-loader.so", "libtalloc.so", "libandroid-shmem.so")
+    problems, lines = [], []
+    for abi in abis:
+        before = len(problems)
+        root = os.path.join(out, abi)
+        mpath = os.path.join(root, "assets", "runtime", "manifest.json")
+        if not os.path.isfile(mpath):
+            problems.append("%s: %s missing (run runtime/build-runtime.sh %s on an x86_64 Linux host)"
+                            % (abi, mpath, abi))
+            continue
+        try:
+            m = _load_json(mpath)
+        except ValueError as e:
+            problems.append("%s: %s is not JSON: %s" % (abi, mpath, e))
+            continue
+        if m.get("abi") != abi:
+            problems.append("%s: manifest says abi=%r" % (abi, m.get("abi")))
+        assets = os.path.dirname(mpath)
+        name = m.get("rootfs")
+        rootfs = os.path.join(assets, name) if name else ""
+        if not name or not os.path.isfile(rootfs):
+            problems.append("%s: rootfs %r missing" % (abi, name))
+        else:
+            blob = _read(rootfs)
+            if hashlib.sha256(blob).hexdigest() != m.get("rootfsSha256"):
+                problems.append("%s: %s sha256 does not match the manifest" % (abi, name))
+            elif m.get("rootfsBytes") is not None and len(blob) != m["rootfsBytes"]:
+                problems.append("%s: %s is %d bytes, manifest says %s" % (abi, name, len(blob), m["rootfsBytes"]))
+        jni = m.get("jniLibs") or {}
+        for lib in JNI:
+            want = jni.get(lib) or {}
+            path = os.path.join(root, "jniLibs", abi, lib)
+            if not os.path.isfile(path):
+                problems.append("%s: %s missing (the manifest %s it)"
+                                % (abi, path, "still lists" if lib in jni else "does not list"))
+                continue
+            blob = _read(path)
+            if want.get("sha256") and hashlib.sha256(blob).hexdigest() != want["sha256"]:
+                problems.append("%s: %s sha256 does not match the manifest" % (abi, lib))
+            if want.get("bytes") is not None and len(blob) != want["bytes"]:
+                problems.append("%s: %s is %d bytes, manifest says %s" % (abi, lib, len(blob), want["bytes"]))
+            if want.get("machine") not in (None, ABI[abi]["machine"]):
+                problems.append("%s: %s is machine %s, not %s"
+                                % (abi, lib, want["machine"], ABI[abi]["machine"]))
+        if len(problems) == before:
+            lines.append("PASS  %s  abi=%s  %s  %s  %d jniLibs"
+                         % (abi, m.get("abi"), name, m.get("runtimeVersion"), len(JNI)))
+    index_path = os.path.join(out, "manifest.json")
+    if not os.path.isfile(index_path):
+        problems.append("%s missing (write_index should have made it)" % index_path)
+    else:
+        try:
+            listed = set((_load_json(index_path).get("abis") or {}).keys())
+        except ValueError as e:
+            listed = set()
+            problems.append("%s is not JSON: %s" % (index_path, e))
+        absent = [a for a in abis if a not in listed]
+        if absent:
+            problems.append("%s abis=%s lacks %s" % (index_path, sorted(listed), absent))
+        else:
+            lines.append("PASS  %s  abis=%s" % (index_path, sorted(listed)))
+    return problems, lines
+
+
+def cmd_verify_outputs(args):
+    problems, lines = verify_outputs(args.out, args.abi)
+    for line in lines:
+        print(line)
+    for p in problems:
+        print("FAIL  " + p, file=sys.stderr)
+    if problems:
+        print("G1' FAIL: %s is not a complete runtime bundle for %s"
+              % (args.out, ", ".join(args.abi)), file=sys.stderr)
+        return 1
+    print("G1' PASS: %s holds a real runtime bundle for %s" % (args.out, ", ".join(args.abi)))
+    return 0
+
+
 def cmd_manifest(args):
     report = json.load(open(args.report))
     jni = json.load(open(args.jnilibs))
@@ -1536,6 +1633,11 @@ def main():
     p.add_argument("--proactive", help="dsh-go-proactive package dir -> " + DSH_GO_PROACTIVE + " (+ overlay row)")
     p.set_defaults(fn=cmd_assemble)
 
+    p = sub.add_parser("verify-outputs")
+    p.add_argument("--out", required=True, help="runtime/out (or a RUNTIME_OUT staging dir)")
+    p.add_argument("--abi", nargs="+", required=True, choices=sorted(ABI))
+    p.set_defaults(fn=cmd_verify_outputs)
+
     p = sub.add_parser("manifest")
     p.add_argument("--abi", required=True)
     p.add_argument("--report", required=True)
@@ -1545,7 +1647,8 @@ def main():
     p.set_defaults(fn=cmd_manifest)
 
     args = ap.parse_args()
-    args.fn(args)
+    rc = args.fn(args)
+    sys.exit(rc or 0)
 
 
 if __name__ == "__main__":
