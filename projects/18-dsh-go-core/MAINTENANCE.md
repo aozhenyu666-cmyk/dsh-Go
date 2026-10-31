@@ -114,6 +114,7 @@ git rebase --onto main bf01594          # bf01594 = 旧分支的官方起点（1
 
 | # | 检查 | 命令 | 通过标准 |
 |---|---|---|---|
+| 0 | 运行时产物（G1′） | `python3 -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi arm64-v8a x86_64` | 最后一行 `G1′ PASS`。**`BUILD SUCCESSFUL` 不算数**：Gradle 会静默忽略不存在的 `sourceSets` 目录（现已由 `:app:checkRuntime<Flavor>` 硬失败兜住） |
 | 1 | Kotlin 单元测试 | `cd app/android && ./gradlew :app:testArm64DebugUnitTest --tests "io.github.ccch1mneyyy.dsh_app.loop.*"` | 全部通过（当前 108 个） |
 | 2 | Dart 静态检查 | `cd app && flutter analyze` | No issues |
 | 3 | Flutter 测试 | `flutter test test/phone test/proactive_channel_test.dart test/l10n test/update` | 全部通过；截图对比要在装了 Noto Sans CJK 的环境跑（`DSH_TEST_FONT_DIR`），字体不对时先在干净官方版上对照 |
@@ -129,6 +130,10 @@ git rebase --onto main bf01594          # bf01594 = 旧分支的官方起点（1
 ### 7.1 构建（需要两台环境，或一台 Linux）
 
 1. **运行时（只能在 Linux x86_64 上）**：`runtime/build-runtime.sh`，产物在 `runtime/out/<abi>/`。没有这一步，APK 里就没有 rootfs，自然也没有插件。Windows 环境只能拿 Linux 产出的 `runtime/out/` 来打包。
+   - `bash runtime/build-runtime.sh` = 两个 ABI（x86_64 先、arm64-v8a 后）；只要手机那个就 `bash runtime/build-runtime.sh arm64-v8a`。
+   - **proot 版本陷阱**：默认 pin 的 `5.1.107.98` 已从 Termux 索引消失，默认构建会在 `termux_deb` 处 `die`。先 `export PROOT_VERSION=5.1.107.101`。但 `.101` 改了 `--link2symlink` 的 l2s 布局（`.proot.l2s.` 中间名），而 `app/.../runtime/L2sMigration.kt` 是按 `.98` 写的 —— **换版本前必须先真机验证 L2sMigration**。
+   - 脚本末尾自带 G1′ 断言（`verify-outputs`），两个 ABI 缺一个就 `die`。打包前也可单独跑第 6 节第 0 项。
+   - 完整审计与可复现命令见 `docs/build/runtime-and-abis.md`。
 2. **APK**：`cd app && flutter build apk --flavor arm64 …`（或 `gradlew :app:assembleArm64Release`）。构建参数里必须带：
    - `--dart-define=DSH_UPDATE_REPO=aozhenyu666-cmyk/dsh-go`：应用内更新只看我们自己的发布，不会提示去装官方版。
 3. **校验**：第 6 节第 7 项，必须全部 PASS。
@@ -216,7 +221,8 @@ git rebase --onto main bf01594          # bf01594 = 旧分支的官方起点（1
 | 优先级 | 事项 |
 |---|---|
 | P0 | 在构建机上跑第 6 节第 1 项（Gradle 测试）和 APK 构建 |
-| P0 | Linux 上构建运行时 → 打 APK → `verify_apk_runtime.py` 全 PASS |
+| P0 | Linux 上构建运行时（`PROOT_VERSION=5.1.107.101`）→ `verify-outputs` PASS → 打两个 flavor 的 APK → `verify_apk_runtime.py` 全 PASS。现状：**NOT_TESTED**，本机 WSL `E_UNEXPECTED` 起不来 |
+| P1 | proot 5.1.107.101 × `L2sMigration.kt` 真机回归；通过后把 `build-runtime.sh` 的默认 `PROOT_VERSION` 提到 `.101` 并同步 `THIRD_PARTY_NOTICES.md` |
 | P0 | 真机冒烟（7.3），结果写进 `VALIDATION_REPORT.md` |
 | P1 | 插件启动时检查引擎版本，未验证过的版本拒绝发起主动回合 |
 | P1 | 自用版构建配置：`applicationIdSuffix`、应用名、签名、`DSH_UPDATE_REPO` |
