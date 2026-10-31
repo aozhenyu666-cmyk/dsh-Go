@@ -342,6 +342,9 @@ class AppUpdateController extends Notifier<AppUpdateState> {
   }
 
   Future<UpdateCheckPhase> _check() async {
+    // A side-by-side test build has its own applicationId, so a release would install a second
+    // app rather than upgrade this one. Do not ask, and never offer the release flow.
+    if (!updatesEnabled) return UpdateCheckPhase.idle;
     state = state.copyWith(check: UpdateCheckPhase.checking, checkFailure: () => null);
     final run = _run;
     final prefs = _prefs;
