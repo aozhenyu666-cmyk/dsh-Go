@@ -1107,6 +1107,10 @@ def cmd_assemble(args):
             rel_dir = os.path.relpath(dirpath, src)
             rel_dir = "" if rel_dir == "." else rel_dir.replace(os.sep, "/")
             dest_dir = dest_root + ("/" + rel_dir if rel_dir else "")
+            # Omit dropped directories themselves, not just their files.
+            if rel_dir and drop_reason(rel_dir, abi, args.prune_dev_metadata):
+                dirnames[:] = []
+                continue
             entries[dest_dir] = Entry("dir", 0o755, origin=origin)
             for name in list(dirnames):
                 full = os.path.join(dirpath, name)
