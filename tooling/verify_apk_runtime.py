@@ -12,7 +12,10 @@ which only runtime/build-runtime.sh writes (on Linux). This script opens the APK
   4. inside the rootfs: the plugin's package.json, lib/index.js and lib/core.js
   5. inside the rootfs: dsh-web.patch.yml inserts /opt/dsh-go/dsh-go-proactive/lib/index.js
   6. inside the rootfs: nothing from the plugin's test/ tree (mock model, fixture sessions)
-  7. with --plugin: the shipped plugin files are byte-identical to the repo's (this revision,
+  7. the APK really carries lib/<abi>/lib{proot,proot-loader,talloc,android-shmem}.so, and each
+     is byte-identical to what assets/runtime/manifest.json recorded (the jniLibs the launch
+     command execs; without them proot cannot start)
+  8. with --plugin: the shipped plugin files are byte-identical to the repo's (this revision,
      including the tools/pre-execute guard)
 
 Exit 0 only when every check passes. Reads the APK only; never installs anything.
@@ -32,6 +35,9 @@ ASSET_DIR = "assets/runtime"
 PLUGIN = "opt/dsh-go/dsh-go-proactive"
 WEB_PATCH = "etc/dsh-app/dsh-web.patch.yml"
 SHIPPED = ("package.json", "lib/index.js", "lib/core.js")
+# The Termux binaries the launch argv execs by name; Gradle ships them as lib/<abi>/*.so.
+NATIVE = ("libproot.so", "libproot-loader.so", "libtalloc.so", "libandroid-shmem.so")
+ABIS = ("arm64-v8a", "x86_64")
 
 
 def sha256(data: bytes) -> str:
@@ -68,6 +74,34 @@ def verify(apk: pathlib.Path, plugin_dir: pathlib.Path | None = None) -> list[di
     blob = z.read(rootfs_name)
     check("rootfs sha256 matches manifest", sha256(blob) == manifest.get("rootfsSha256"),
           f"{sha256(blob)[:16]}… vs {str(manifest.get('rootfsSha256'))[:16]}…")
+
+    abi = str(manifest.get("abi") or "")
+    present_abis = sorted({n.split("/")[1] for n in names if n.startswith("lib/") and n.count("/") >= 2})
+    check("manifest names an ABI the APK carries", abi in ABIS and present_abis == [abi],
+          f"manifest abi={abi or 'missing'} apk lib/ dirs={present_abis or 'none'}")
+    if abi not in ABIS:      # nothing below can be addressed; stop before reading lib/wrong/path
+        return checks
+    jni = manifest.get("jniLibs") or {}
+    absent = [f"lib/{abi}/{n}" for n in NATIVE if f"lib/{abi}/{n}" not in names]
+    check("proot binaries in the APK", not absent,
+          "missing: " + ", ".join(absent) + " (Gradle ignores a sourceSets srcDir that does not "
+          "exist, so an APK can be built from an empty runtime/out)" if absent
+          else f"{len(NATIVE)} in lib/{abi}/")
+    check("manifest lists the proot binaries", all(n in jni for n in NATIVE),
+          "missing from manifest.jniLibs: " + ", ".join(n for n in NATIVE if n not in jni)
+          if len(jni) < len(NATIVE) else "all present")
+    differing = []
+    for n in NATIVE:
+        if f"lib/{abi}/{n}" not in names:
+            continue
+        lib = z.read(f"lib/{abi}/{n}")
+        want = (jni.get(n) or {}).get("sha256")
+        if sha256(lib) != want:
+            differing.append(n)
+        elif (jni.get(n) or {}).get("bytes") is not None and len(lib) != jni[n]["bytes"]:
+            differing.append(n + " (size)")
+    check("proot binaries match the manifest", not differing,
+          "differs: " + ", ".join(differing) if differing else "byte-identical")
 
     found: dict[str, bytes] = {}
     patch_text = ""

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import zipfile
 
-from verify_apk_runtime import verify
+from verify_apk_runtime import NATIVE, verify
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN_DIR = ROOT / "runtime" / "proactive" / "dsh-go-proactive"
@@ -29,18 +29,32 @@ def rootfs(files: dict) -> bytes:
     return buf.getvalue()
 
 
-def apk(dirpath: pathlib.Path, files: dict | None, manifest_extra: dict | None = None, runtime: bool = True) -> pathlib.Path:
+def native(abi: str = "arm64-v8a") -> dict:
+    """The lib/<abi>/lib*.so Gradle ships, with what the manifest records for them."""
+    return {n: ("%s for %s" % (n, abi)).encode() for n in NATIVE}
+
+
+def apk(dirpath: pathlib.Path, files: dict | None, manifest_extra: dict | None = None, runtime: bool = True,
+        abi: str = "arm64-v8a", with_native: bool = True, native_override: dict | None = None) -> pathlib.Path:
     p = dirpath / "app.apk"
+    fresh = native(abi)                                  # what the manifest describes
+    libs = fresh if with_native else {}                  # what Gradle actually packaged
+    if native_override is not None:
+        libs = native_override
     with zipfile.ZipFile(p, "w") as z:
         z.writestr("classes.dex", b"dex")
         if runtime:
             blob = rootfs(files or {})
-            m = {"rootfs": "rootfs-arm64-v8a.tar.xz", "rootfsSha256": hashlib.sha256(blob).hexdigest(),
-                 "runtimeVersion": "test", "launch": {"argv": ["/bin/sh", "-c", "exec dsh web --patch /etc/dsh-app/dsh-web.patch.yml"]},
+            m = {"rootfs": "rootfs-%s.tar.xz" % abi, "rootfsSha256": hashlib.sha256(blob).hexdigest(),
+                 "abi": abi, "runtimeVersion": "test",
+                 "launch": {"argv": ["/bin/sh", "-c", "exec dsh web --patch /etc/dsh-app/dsh-web.patch.yml"]},
+                 "jniLibs": {n: {"sha256": hashlib.sha256(b).hexdigest(), "bytes": len(fresh[n])} for n, b in fresh.items()},
                  "dshGoProactive": {"version": "0.1.0", "path": "/opt/dsh-go/dsh-go-proactive"}}
             m.update(manifest_extra or {})
             z.writestr("assets/runtime/manifest.json", json.dumps(m))
-            z.writestr("assets/runtime/rootfs-arm64-v8a.tar.xz", blob)
+            z.writestr("assets/runtime/rootfs-%s.tar.xz" % abi, blob)
+            for n, b in libs.items():
+                z.writestr("lib/%s/%s" % (abi, n), b)
     return p
 
 
@@ -78,6 +92,29 @@ class VerifyApkRuntimeTest(unittest.TestCase):
         self.assertEqual(r["plugin test/ not shipped"], "FAIL")
         self.assertEqual(r["plugin matches this repo revision"], "FAIL")
         self.assertEqual(r["plugin carries the tool guard"], "FAIL")
+
+    def test_an_apk_whose_assets_came_from_an_empty_runtime_out_is_not_proven(self):
+        # Gradle ignores a sourceSets srcDir that does not exist: assets can be present while the
+        # jniLibs (and, in the real case, the rootfs) are not. The manifest still looks right.
+        r = self.run_verify({**plugin_files(), "etc/dsh-app/dsh-web.patch.yml": ROW.encode()},
+                            with_native=False)
+        self.assertEqual(r["proot binaries in the APK"], "FAIL")
+        self.assertEqual(r["manifest names an ABI the APK carries"], "FAIL")
+
+    def test_native_libs_that_differ_from_the_manifest_fail(self):
+        stale = {**native(), "libproot.so": b"a rebuilt proot the manifest never saw"}
+        r = self.run_verify({**plugin_files(), "etc/dsh-app/dsh-web.patch.yml": ROW.encode()},
+                            native_override=stale)
+        self.assertEqual(r["proot binaries match the manifest"], "FAIL")
+
+    def test_an_x86_64_apk_is_accepted_and_a_mismatched_abi_is_not(self):
+        r = self.run_verify({**plugin_files(), "etc/dsh-app/dsh-web.patch.yml": ROW.encode()}, abi="x86_64")
+        self.assertEqual(r["manifest names an ABI the APK carries"], "PASS")
+        self.assertEqual(r["proot binaries in the APK"], "PASS")
+        # A manifest claiming x86_64 while the ABI dirs say arm64-v8a must not pass.
+        r = self.run_verify({**plugin_files(), "etc/dsh-app/dsh-web.patch.yml": ROW.encode()},
+                            abi="x86_64", manifest_extra={"abi": "riscv64"})
+        self.assertEqual(r["manifest names an ABI the APK carries"], "FAIL")
 
     def test_a_tampered_rootfs_fails_the_checksum(self):
         r = self.run_verify({**plugin_files(), "etc/dsh-app/dsh-web.patch.yml": ROW.encode()},
