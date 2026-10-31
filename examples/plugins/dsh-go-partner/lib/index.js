@@ -188,6 +188,34 @@ export function apply(ctx, options) {
         })
         if (off) offs.push(off)
       }
+      // 工具提示：不告诉它「你有这些工具」，它基本不会主动调 —— 这是四个工具能不能被用到的关键。
+      // 排在**最后**（order 89990）：这段几乎不变，放后面能多吃缓存。
+      // 永远注册、每轮现查开关（和心情那条一个规矩）：改配置立刻生效，不用重启。
+      {
+        const off = addSection(prompt, 'section', {
+          name: 'partner:hint',
+          order: Number(cfg.hint.sectionOrder) || 89990,
+          text: () => {
+            try {
+              const c = loadConfig()
+              if (!c.hint.enabled || !c.tools.enabled) return ''
+              if (!c.memory.enabled && !c.mood.enabled) return ''
+              const lines = []
+              if (c.memory.enabled) {
+                lines.push('【记忆】你不必等被提醒：值得长期留着的事（对方的稳定偏好、约定、重要经历）可以自己记下来，用 `partner_remember`。')
+                lines.push('想不起某件事、或怕自己编造共同经历时，先用 `partner_recall` 查一遍 —— 查不到就是查不到，如实说，不要补一段更像样的回忆。')
+                lines.push('对方说你记错了、或者要你别再提某件事，用 `partner_correct`（藏起来 / 改写），不要口头答应却什么都不改。')
+              }
+              if (c.mood.enabled) lines.push('【心情】你此刻的心情是真实状态，不是台词；被问到可以说，但不要每轮都汇报。用 `partner_mood` 才能看到具体的七维和最近的变化。')
+              lines.push('这些工具都只读本机的几个 JSON 文件，不联网、不上传；也不会去读屏幕、窗口标题或剪贴板。')
+              return lines.join('\n')
+            } catch {
+              return ''
+            }
+          },
+        })
+        if (off) offs.push(off)
+      }
       // 心情：进**每轮上下文**（它会变，放 section 会把整段提示词缓存打掉）
       if (cfg.mood.enabled && cfg.mood.inject) {
         const off = addSection(prompt, 'context', {
