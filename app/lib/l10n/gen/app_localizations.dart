@@ -13712,6 +13712,330 @@ abstract class L10n {
   /// **'安装后即可登录'**
   String get localEnvSignInInstallFirst;
 
+  /// No description provided for @loopEntryTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发测试'**
+  String get loopEntryTitle;
+
+  /// No description provided for @loopEntrySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开指定 APP 时弹出测试页（实验）'**
+  String get loopEntrySubtitle;
+
+  /// No description provided for @loopPageSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。'**
+  String get loopPageSubtitle;
+
+  /// No description provided for @loopEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启触发测试'**
+  String get loopEnabled;
+
+  /// No description provided for @loopEnabledHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'DSH 正在操作手机或有确认在等你时不会弹出'**
+  String get loopEnabledHint;
+
+  /// No description provided for @loopTargetApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'测试 APP'**
+  String get loopTargetApp;
+
+  /// No description provided for @loopTargetNone.
+  ///
+  /// In zh, this message translates to:
+  /// **'未选择'**
+  String get loopTargetNone;
+
+  /// No description provided for @loopPickApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择测试 APP'**
+  String get loopPickApp;
+
+  /// No description provided for @loopNoApps.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有找到可选的 APP'**
+  String get loopNoApps;
+
+  /// No description provided for @loopCooldown.
+  ///
+  /// In zh, this message translates to:
+  /// **'冷却时间'**
+  String get loopCooldown;
+
+  /// No description provided for @loopCooldownHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'两次弹出之间至少隔这么久，点一下切换'**
+  String get loopCooldownHint;
+
+  /// No description provided for @loopSeconds.
+  ///
+  /// In zh, this message translates to:
+  /// **'{seconds} 秒'**
+  String loopSeconds(int seconds);
+
+  /// No description provided for @loopTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'等你回应的时间'**
+  String get loopTimeout;
+
+  /// No description provided for @loopTimeoutHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'超时就记成「超时未回应」，点一下切换'**
+  String get loopTimeoutHint;
+
+  /// No description provided for @loopVisitShort.
+  ///
+  /// In zh, this message translates to:
+  /// **'访问 {id}'**
+  String loopVisitShort(String id);
+
+  /// No description provided for @loopExport.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出回执（JSON 复制到剪贴板）'**
+  String get loopExport;
+
+  /// No description provided for @loopExportDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'已把 {count} 条回执复制到剪贴板'**
+  String loopExportDone(int count);
+
+  /// No description provided for @loopQuietHours.
+  ///
+  /// In zh, this message translates to:
+  /// **'免打扰时段'**
+  String get loopQuietHours;
+
+  /// No description provided for @loopQuietHoursHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'这段时间里不弹测试页，可以跨零点。点一下切换。'**
+  String get loopQuietHoursHint;
+
+  /// No description provided for @loopQuietHoursOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不限'**
+  String get loopQuietHoursOff;
+
+  /// No description provided for @loopQuietHoursValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{start}–{end}'**
+  String loopQuietHoursValue(String start, String end);
+
+  /// No description provided for @loopDailyCap.
+  ///
+  /// In zh, this message translates to:
+  /// **'每天上限'**
+  String get loopDailyCap;
+
+  /// No description provided for @loopDailyCapHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'一天最多弹几次，过零点重新算'**
+  String get loopDailyCapHint;
+
+  /// No description provided for @loopDailyCapOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不限次数'**
+  String get loopDailyCapOff;
+
+  /// No description provided for @loopDailyCapValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'今天 {used}/{cap} 次'**
+  String loopDailyCapValue(int used, int cap);
+
+  /// No description provided for @loopA11yNeeded.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要先在系统设置里开启 DSH 的无障碍服务'**
+  String get loopA11yNeeded;
+
+  /// No description provided for @loopA11yWaiting.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍已开启，等待服务连接'**
+  String get loopA11yWaiting;
+
+  /// No description provided for @loopA11yReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍服务已连接'**
+  String get loopA11yReady;
+
+  /// No description provided for @loopCounters.
+  ///
+  /// In zh, this message translates to:
+  /// **'收到 {events} 个窗口事件，复核 {readings} 次 · 最近前台 {app}'**
+  String loopCounters(int events, int readings, String app);
+
+  /// No description provided for @loopStorageError.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执保存失败：{error}'**
+  String loopStorageError(String error);
+
+  /// No description provided for @loopRecoveredFromBackup.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执文件损坏，已从备份（{file}）恢复'**
+  String loopRecoveredFromBackup(String file);
+
+  /// No description provided for @loopDiagnostics.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍诊断'**
+  String get loopDiagnostics;
+
+  /// No description provided for @loopDiagnosticsSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'{events} 个窗口事件、{readings} 次前台复核、{faults} 次失败'**
+  String loopDiagnosticsSummary(int events, int readings, int faults);
+
+  /// No description provided for @loopDiagnosticsLastRead.
+  ///
+  /// In zh, this message translates to:
+  /// **'上次成功读到前台：{time}'**
+  String loopDiagnosticsLastRead(String time);
+
+  /// No description provided for @loopDiagnosticsClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空诊断'**
+  String get loopDiagnosticsClear;
+
+  /// No description provided for @loopFaultEvent.
+  ///
+  /// In zh, this message translates to:
+  /// **'窗口事件出错'**
+  String get loopFaultEvent;
+
+  /// No description provided for @loopFaultRead.
+  ///
+  /// In zh, this message translates to:
+  /// **'读前台失败'**
+  String get loopFaultRead;
+
+  /// No description provided for @loopFaultVerify.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发判定出错'**
+  String get loopFaultVerify;
+
+  /// No description provided for @loopFaultAttach.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接失败'**
+  String get loopFaultAttach;
+
+  /// No description provided for @loopFaultSurface.
+  ///
+  /// In zh, this message translates to:
+  /// **'弹出问题失败'**
+  String get loopFaultSurface;
+
+  /// No description provided for @loopSurfaceNotification.
+  ///
+  /// In zh, this message translates to:
+  /// **'通过通知'**
+  String get loopSurfaceNotification;
+
+  /// No description provided for @loopReceipts.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执'**
+  String get loopReceipts;
+
+  /// No description provided for @loopReceiptsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有回执'**
+  String get loopReceiptsEmpty;
+
+  /// No description provided for @loopClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空回执'**
+  String get loopClear;
+
+  /// No description provided for @loopRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新'**
+  String get loopRefresh;
+
+  /// No description provided for @loopResultReturned.
+  ///
+  /// In zh, this message translates to:
+  /// **'点了返回'**
+  String get loopResultReturned;
+
+  /// No description provided for @loopResultBack.
+  ///
+  /// In zh, this message translates to:
+  /// **'按了系统返回'**
+  String get loopResultBack;
+
+  /// No description provided for @loopResultDismissed.
+  ///
+  /// In zh, this message translates to:
+  /// **'离开了页面'**
+  String get loopResultDismissed;
+
+  /// No description provided for @loopResultTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'超时未回应'**
+  String get loopResultTimeout;
+
+  /// No description provided for @loopResultAbandoned.
+  ///
+  /// In zh, this message translates to:
+  /// **'重启后关闭'**
+  String get loopResultAbandoned;
+
+  /// No description provided for @loopResultUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'页面没能弹出'**
+  String get loopResultUnavailable;
+
+  /// No description provided for @loopResultSuppressed.
+  ///
+  /// In zh, this message translates to:
+  /// **'未触发'**
+  String get loopResultSuppressed;
+
+  /// No description provided for @loopResultError.
+  ///
+  /// In zh, this message translates to:
+  /// **'出错'**
+  String get loopResultError;
+
+  /// No description provided for @loopResultOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get loopResultOpen;
+
   /// No description provided for @marketSectionOfficial.
   ///
   /// In zh, this message translates to:
@@ -16063,6 +16387,18 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'只在你发起任务，或点「读一下当前屏幕」时。平时不读。'**
   String get phoneDisclosureWhenBody;
+
+  /// No description provided for @phoneDisclosureTriggerTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发测试与主动搭话（默认关闭）'**
+  String get phoneDisclosureTriggerTitle;
+
+  /// No description provided for @phoneDisclosureTriggerBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'只有你打开「触发测试」或「主动搭话」之后，DSH 才会读取当前前台 APP 的名称（包名）：触发测试用它判断你有没有打开测试 APP；两者都用它避开系统设置、权限和安装页面，不在这些页面上弹出。不读页面内容，不录屏，不上传。随时可以关掉。'**
+  String get phoneDisclosureTriggerBody;
 
   /// No description provided for @phoneDisclosureWhoTitle.
   ///
@@ -20935,6 +21271,336 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'第 {index} 张'**
   String plugViewGalleryPicture(int index);
+
+  /// No description provided for @proactiveTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'主动搭话'**
+  String get proactiveTitle;
+
+  /// No description provided for @proactiveSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。'**
+  String get proactiveSubtitle;
+
+  /// No description provided for @proactiveEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启主动搭话'**
+  String get proactiveEnabled;
+
+  /// No description provided for @proactiveEnabledHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。'**
+  String get proactiveEnabledHint;
+
+  /// No description provided for @proactiveGap.
+  ///
+  /// In zh, this message translates to:
+  /// **'最短间隔'**
+  String get proactiveGap;
+
+  /// No description provided for @proactiveGapHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'两次主动搭话之间至少隔这么久，实际间隔在这个范围和「最长间隔」之间随机'**
+  String get proactiveGapHint;
+
+  /// No description provided for @proactiveGapValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{min}–{max} 分钟'**
+  String proactiveGapValue(int min, int max);
+
+  /// No description provided for @proactiveGapMax.
+  ///
+  /// In zh, this message translates to:
+  /// **'最长间隔'**
+  String get proactiveGapMax;
+
+  /// No description provided for @proactiveGapMaxHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'随机间隔的上限，点一下切换'**
+  String get proactiveGapMaxHint;
+
+  /// No description provided for @proactiveMinutes.
+  ///
+  /// In zh, this message translates to:
+  /// **'{minutes} 分钟'**
+  String proactiveMinutes(int minutes);
+
+  /// No description provided for @proactiveQuiet.
+  ///
+  /// In zh, this message translates to:
+  /// **'免打扰时段'**
+  String get proactiveQuiet;
+
+  /// No description provided for @proactiveQuietHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'这段时间里不主动搭话，可以跨零点，点一下切换'**
+  String get proactiveQuietHint;
+
+  /// No description provided for @proactiveQuietValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{start}–{end}'**
+  String proactiveQuietValue(String start, String end);
+
+  /// No description provided for @proactiveDaily.
+  ///
+  /// In zh, this message translates to:
+  /// **'每天上限'**
+  String get proactiveDaily;
+
+  /// No description provided for @proactiveDailyHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'一天最多几次，过零点重新算；没送达的不算'**
+  String get proactiveDailyHint;
+
+  /// No description provided for @proactiveDailyValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 次'**
+  String proactiveDailyValue(int count);
+
+  /// No description provided for @proactiveState.
+  ///
+  /// In zh, this message translates to:
+  /// **'现在的状态'**
+  String get proactiveState;
+
+  /// No description provided for @proactiveSession.
+  ///
+  /// In zh, this message translates to:
+  /// **'目标会话'**
+  String get proactiveSession;
+
+  /// No description provided for @proactiveSessionHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没选：主动搭话不会发出去。点一下选一个活着的会话。'**
+  String get proactiveSessionHint;
+
+  /// No description provided for @proactiveSessionNone.
+  ///
+  /// In zh, this message translates to:
+  /// **'不指定'**
+  String get proactiveSessionNone;
+
+  /// No description provided for @proactiveSessionNoneHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'不指定目标会话，主动搭话就不会发出'**
+  String get proactiveSessionNoneHint;
+
+  /// No description provided for @proactiveSessionChosen.
+  ///
+  /// In zh, this message translates to:
+  /// **'发到 {id}'**
+  String proactiveSessionChosen(String id);
+
+  /// No description provided for @proactiveSessionUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'读不到会话列表（{error}），先确认本机引擎已连上、插件已加载'**
+  String proactiveSessionUnavailable(String error);
+
+  /// No description provided for @proactivePickSession.
+  ///
+  /// In zh, this message translates to:
+  /// **'选一个会话'**
+  String get proactivePickSession;
+
+  /// No description provided for @proactiveSessionIdle.
+  ///
+  /// In zh, this message translates to:
+  /// **'空闲，可以发'**
+  String get proactiveSessionIdle;
+
+  /// No description provided for @proactiveSessionRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在忙，发了会被拒（不会打断它）'**
+  String get proactiveSessionRunning;
+
+  /// No description provided for @proactiveSessionEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有活着的会话。先在 DSH 里开一个对话，再回来选。'**
+  String get proactiveSessionEmpty;
+
+  /// No description provided for @proactiveGateFree.
+  ///
+  /// In zh, this message translates to:
+  /// **'现在可以让路了：没有 DSH 任务，也不在黑名单页面上'**
+  String get proactiveGateFree;
+
+  /// No description provided for @proactiveGateHold.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在让路：{reason}'**
+  String proactiveGateHold(String reason);
+
+  /// No description provided for @proactiveHoldDshTask.
+  ///
+  /// In zh, this message translates to:
+  /// **'DSH 正在操作手机'**
+  String get proactiveHoldDshTask;
+
+  /// No description provided for @proactiveHoldDshPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'有确认在等你回应'**
+  String get proactiveHoldDshPrompt;
+
+  /// No description provided for @proactiveHoldLocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'锁屏了'**
+  String get proactiveHoldLocked;
+
+  /// No description provided for @proactiveHoldScreenOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'屏幕关着'**
+  String get proactiveHoldScreenOff;
+
+  /// No description provided for @proactiveHoldProtected.
+  ///
+  /// In zh, this message translates to:
+  /// **'前台是权限/安全页面'**
+  String get proactiveHoldProtected;
+
+  /// No description provided for @proactiveHoldA11y.
+  ///
+  /// In zh, this message translates to:
+  /// **'无障碍没连上'**
+  String get proactiveHoldA11y;
+
+  /// No description provided for @proactiveActiveStage.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在处理：{stage}'**
+  String proactiveActiveStage(String stage);
+
+  /// No description provided for @proactiveWakeRestricted.
+  ///
+  /// In zh, this message translates to:
+  /// **'这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。'**
+  String get proactiveWakeRestricted;
+
+  /// No description provided for @proactiveWakeMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'唤醒方式：{mode}'**
+  String proactiveWakeMode(String mode);
+
+  /// No description provided for @proactiveTransportReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'已经连上本机引擎，可以真的问模型'**
+  String get proactiveTransportReady;
+
+  /// No description provided for @proactiveTransportMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没连上引擎，现在只会用本地文案，不会调用模型'**
+  String get proactiveTransportMissing;
+
+  /// No description provided for @proactiveQueued.
+  ///
+  /// In zh, this message translates to:
+  /// **'排队中：{count} 条'**
+  String proactiveQueued(int count);
+
+  /// No description provided for @proactiveRecoveryIssue.
+  ///
+  /// In zh, this message translates to:
+  /// **'上次的状态读不出来：{issue}'**
+  String proactiveRecoveryIssue(String issue);
+
+  /// No description provided for @proactiveReceipts.
+  ///
+  /// In zh, this message translates to:
+  /// **'回执'**
+  String get proactiveReceipts;
+
+  /// No description provided for @proactiveReceiptsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有记录'**
+  String get proactiveReceiptsEmpty;
+
+  /// No description provided for @proactiveOutcomeResponded.
+  ///
+  /// In zh, this message translates to:
+  /// **'你回应了'**
+  String get proactiveOutcomeResponded;
+
+  /// No description provided for @proactiveOutcomeDismissed.
+  ///
+  /// In zh, this message translates to:
+  /// **'你划掉了'**
+  String get proactiveOutcomeDismissed;
+
+  /// No description provided for @proactiveOutcomeIgnoredSeen.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示了但没回应'**
+  String get proactiveOutcomeIgnoredSeen;
+
+  /// No description provided for @proactiveOutcomeUnconfirmed.
+  ///
+  /// In zh, this message translates to:
+  /// **'通知发了，不知道你看没看'**
+  String get proactiveOutcomeUnconfirmed;
+
+  /// No description provided for @proactiveOutcomeNotDelivered.
+  ///
+  /// In zh, this message translates to:
+  /// **'没能送到'**
+  String get proactiveOutcomeNotDelivered;
+
+  /// No description provided for @proactiveOutcomeOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get proactiveOutcomeOpen;
+
+  /// No description provided for @proactiveMarkAccepted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已交给 Agent'**
+  String get proactiveMarkAccepted;
+
+  /// No description provided for @proactiveMarkGenerated.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型已生成'**
+  String get proactiveMarkGenerated;
+
+  /// No description provided for @proactiveMarkDelivered.
+  ///
+  /// In zh, this message translates to:
+  /// **'已送出'**
+  String get proactiveMarkDelivered;
+
+  /// No description provided for @proactiveMarkShown.
+  ///
+  /// In zh, this message translates to:
+  /// **'界面显示了'**
+  String get proactiveMarkShown;
+
+  /// No description provided for @proactiveMarkResponded.
+  ///
+  /// In zh, this message translates to:
+  /// **'你回应了'**
+  String get proactiveMarkResponded;
 
   /// No description provided for @readListUpdating.
   ///

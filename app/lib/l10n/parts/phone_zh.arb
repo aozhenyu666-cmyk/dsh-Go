@@ -230,6 +230,8 @@
   "phoneDisclosureWhatBody": "当前屏幕上的文字。用能看图的模型时，可能附一张截图。",
   "phoneDisclosureWhenTitle": "什么时候读",
   "phoneDisclosureWhenBody": "只在你发起任务，或点「读一下当前屏幕」时。平时不读。",
+  "phoneDisclosureTriggerTitle": "触发测试与主动搭话（默认关闭）",
+  "phoneDisclosureTriggerBody": "只有你打开「触发测试」或「主动搭话」之后，DSH 才会读取当前前台 APP 的名称（包名）：触发测试用它判断你有没有打开测试 APP；两者都用它避开系统设置、权限和安装页面，不在这些页面上弹出。不读页面内容，不录屏，不上传。随时可以关掉。",
   "phoneDisclosureWhoTitle": "发给谁",
   "phoneDisclosureWhoBody": "发给你选的 DeepSeek 模型（云端）。银行卡号、身份证号会先打码。",
   "phoneDisclosureNeverTitle": "默认不做",

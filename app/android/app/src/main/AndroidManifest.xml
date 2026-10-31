@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <!-- Proactive scheduler (loop/proactive/WakeAlarm.kt): re-plan the single alarm after reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Composer voice input (voice/VoicePlugin.kt), asked for on the first tap of the mic. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -250,6 +252,37 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/phone_accessibility_service" />
         </service>
+
+        <!-- 触发测试 (loop/InteractionActivity.kt): the first loop's interaction page. Its own task
+             and affinity so finishing it returns to the test app and never touches the main task. -->
+        <activity
+            android:name=".loop.InteractionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.loop"
+            android:launchMode="singleInstance"
+            android:noHistory="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+
+        <!-- Proactive page (loop/proactive/ProactivePageActivity.kt): token-bound, own task. -->
+        <activity
+            android:name=".loop.proactive.ProactivePageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.proactive"
+            android:launchMode="singleInstance"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+        <!-- Proactive scheduler wake-ups: its own alarm (explicit intent), boot and app update. -->
+        <receiver
+            android:name=".loop.proactive.ProactiveWakeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 不打扰模式: Shizuku binder provider (shell-uid channel). -->
         <provider

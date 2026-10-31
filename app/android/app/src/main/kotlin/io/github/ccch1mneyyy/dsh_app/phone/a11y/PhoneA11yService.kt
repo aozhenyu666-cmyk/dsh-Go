@@ -19,6 +19,7 @@ import android.util.Log
 import android.view.Display
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import io.github.ccch1mneyyy.dsh_app.loop.LoopRuntime
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneRegistry
 
 /**
@@ -73,10 +74,13 @@ class PhoneA11yService : AccessibilityService() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) probe = A11yProbe(this, d, o).also { it.register() }
         Log.i(TAG, "accessibility service connected")
         PhoneRegistry.controlListener?.onAccessibilityChanged(true)
+        // 触发测试 (loop/): reads the foreground package only, and only while switched on.
+        runCatching { LoopRuntime.attach(this) }.onFailure { Log.w(TAG, "loop attach", it) }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         clock.tick(event?.packageName)
+        runCatching { LoopRuntime.onEvent(this, event) }
     }
 
     /**
@@ -113,6 +117,7 @@ class PhoneA11yService : AccessibilityService() {
     }
 
     private fun teardown(reason: String) {
+        runCatching { LoopRuntime.detach(this) }
         if (instance !== this && driver == null) return
         val d = driver
         val o = overlay

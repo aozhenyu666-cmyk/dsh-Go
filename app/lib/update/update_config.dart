@@ -22,20 +22,26 @@ library;
 /// GitHub repository the releases live in.
 const updateRepo = 'ccch1mneyyy/dsh-go';
 
+/// Where in-app updates look for releases. Defaults to [updateRepo]; a fork that ships its own
+/// builds sets `--dart-define=DSH_UPDATE_REPO=owner/repo`, so it is never offered the official APK
+/// (a different signature, or a second app beside it). Share links, community and stars keep
+/// pointing at [updateRepo].
+const updateReleasesRepo = String.fromEnvironment('DSH_UPDATE_REPO', defaultValue: updateRepo);
+
 /// `releases/latest` of the REST API: tag, notes, assets with sizes and
 /// SHA-256 digests. Unauthenticated: 60 requests per hour per IP.
-final githubLatestApi = Uri.parse('https://api.github.com/repos/$updateRepo/releases/latest');
+final githubLatestApi = Uri.parse('https://api.github.com/repos/$updateReleasesRepo/releases/latest');
 
 /// The latest release's page, for "open in browser".
-final githubReleasesPage = Uri.parse('https://github.com/$updateRepo/releases/latest');
+final githubReleasesPage = Uri.parse('https://github.com/$updateReleasesRepo/releases/latest');
 
 /// A file attached to the latest release. github.com redirects to the asset
 /// CDN; not rate limited like the API and reachable through download mirrors.
-Uri githubLatestAsset(String name) => Uri.parse('https://github.com/$updateRepo/releases/latest/download/$name');
+Uri githubLatestAsset(String name) => Uri.parse('https://github.com/$updateReleasesRepo/releases/latest/download/$name');
 
 /// A file attached to the release tagged [tag].
 Uri githubReleaseAsset(String tag, String name) =>
-    Uri.parse('https://github.com/$updateRepo/releases/download/$tag/$name');
+    Uri.parse('https://github.com/$updateReleasesRepo/releases/download/$tag/$name');
 
 /// The share host (services/share-worker). It serves the beta channel under
 /// `/beta/` but no public mirror, so [UpdateMirror.selfHosted] is only used
@@ -112,7 +118,7 @@ class UpdateMirror {
     if (url.host != 'github.com') return null;
     if (releases case final base?) {
       final segments = url.pathSegments;
-      final repo = updateRepo.split('/');
+      final repo = updateReleasesRepo.split('/');
       final tagged =
           segments.length == 6 &&
           segments[0] == repo[0] &&

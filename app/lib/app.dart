@@ -7,6 +7,7 @@ import 'performance/performance_state.dart';
 import 'state/app_info.dart';
 import 'state/appearance_state.dart';
 import 'state/locale_state.dart';
+import 'state/proactive_transport.dart';
 import 'state/settings_state.dart';
 import 'state/star_prompt.dart' show starPromptGateProvider, starPromptProvider;
 import 'state/tile_style_state.dart';
@@ -55,6 +56,9 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     ref.read(usageStatsProvider);
     // 公测版: the star prompt counts time in front from launch, in either 界面.
     if (ref.read(starPromptGateProvider)) ref.read(starPromptProvider);
+    // D1: listen for the proactive kernel's Agent commands. They are carried over the current
+    // host's authenticated connection; idempotent, and does nothing while not connected.
+    ref.read(proactiveTransportProvider).start();
     WidgetsBinding.instance.addObserver(this);
   }
 

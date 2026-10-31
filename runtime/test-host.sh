@@ -234,6 +234,34 @@ pid="$(cat "$ROOT/tmp/dsh-web.pid" 2>/dev/null || true)"
 wait "$BG" 2>/dev/null || true
 rm -rf "$ROOT/tmp/native-test"
 
+echo "== proactive host plugin end to end (port $((PORT + 5)))"
+# D4: the plugin that turns one Android proactive event into a real followup turn. Its e2e test
+# puts a fake model behind the real engine, so this needs no key and no internet. The fixture
+# session and the mock come from the source tree; the installed copy carries code only.
+PROACTIVE_SRC="$HERE/proactive/dsh-go-proactive"
+if [[ -d "$ROOT/opt/dsh-go/dsh-go-proactive/lib" && -f "$PROACTIVE_SRC/test/e2e-live.mjs" ]]; then
+  if grep -q "dsh-go-proactive" "$ROOT/etc/dsh-app/dsh-web.patch.yml"; then
+    pass "proactive plugin is in the shipped overlay"
+  else
+    fail "proactive plugin is missing from /etc/dsh-app/dsh-web.patch.yml"
+  fi
+  rm -rf "$ROOT/tmp/proactive-test"; mkdir -p "$ROOT/tmp/proactive-test"
+  cp -r "$PROACTIVE_SRC/test" "$ROOT/tmp/proactive-test/"
+  PPORT=$((PORT + 5)); MPORT=$((PORT + 6))
+  run --share-net -- /opt/node/bin/node /tmp/proactive-test/test/mock-messages.mjs > /dev/null 2>&1 &
+  MOCK=$!
+  if run --share-net -- /opt/node/bin/node /tmp/proactive-test/test/e2e-live.mjs \
+    /usr/local/bin/dsh "$PPORT" "$MPORT" /tmp/proactive-test/req.jsonl; then
+    pass "proactive plugin: request, result and cancel against the real engine"
+  else
+    fail "proactive plugin end to end (see above)"
+  fi
+  kill -TERM "$MOCK" 2>/dev/null || true
+  rm -rf "$ROOT/tmp/proactive-test"
+else
+  echo '  SKIP: the proactive plugin is not in this rootfs (build it with the proactive plugin source)'
+fi
+
 echo "== dsh home after runs"; ls -A "$ROOT/root/.dsh" | head -20
 echo "== direct glibc launch (Linux source build; Android permission/lifecycle still needs a device)"
 if [[ -n "${DIRECT_PROOT:-}" ]]; then
