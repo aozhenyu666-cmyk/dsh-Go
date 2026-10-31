@@ -15,6 +15,8 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
+import io.github.ccch1mneyyy.dsh_app.loop.core.EventRequest
+import io.github.ccch1mneyyy.dsh_app.loop.core.Submit
 import io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.Box
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.ProtectedPages
@@ -125,6 +127,52 @@ object LoopRuntime {
         runCatching { ProactiveRuntime.onWindowActivity() }
     }
 
+    /**
+     * D5 (review): hand one first-round trigger to the proactive kernel instead of starting the
+     * page directly. The kernel owns the arbitration (DSH busy, notifications, tokens), so this is
+     * the only place a page can come from — the round-1 [InteractionHub] path would bypass it.
+     *
+     * The fallback text is the round-1 fixed sentence, which the integration guide allows for
+     * `app_enter`; there is no fabricated agent text anywhere.
+     */
+    private fun submitToKernel(
+        s: AccessibilityService,
+        engine: LoopEngine,
+        show: LoopEngine.Outcome.Show,
+        pkg: String?,
+    ) {
+        val label = runCatching { appLabel(s, pkg) }.getOrDefault(pkg.orEmpty())
+        val fallback = io.github.ccch1mneyyy.dsh_app.i18n.AppStrings.get(
+            s, io.github.ccch1mneyyy.dsh_app.R.string.loop_page_text, label,
+        )
+        val request = EventRequest(
+            eventId = show.event.eventId,
+            source = "A11Y_WINDOW",
+            kind = "app_enter",
+            dedupeKey = "app_enter:$pkg",
+            createdAt = show.event.timestamp,
+            ttlMs = show.timeoutMs.coerceAtLeast(60_000L),
+            needsAgent = false,
+            fallbackText = fallback,
+            payload = linkedMapOf(
+                "packageName" to (pkg ?: ""),
+                // The person's own clock, as text; the kernel never asks for screen content.
+                "localTime" to SimpleDateFormat("HH:mm", Locale.US).format(Date()),
+            ),
+        )
+        when (val r = ProactiveRuntime.submit(request)) {
+            // Queued: it will be presented by the kernel's arbiter. Merged: the same intent was
+            // already waiting, so the kernel folded this one into it — also accepted.
+            is Submit.Queued, is Submit.Merged -> Log.i(TAG, "handed ${show.event.eventId} to the kernel: $r")
+            // Refused (queue full, duplicate, feature off): close the round-1 event honestly
+            // instead of leaving it open with no surface that will ever appear.
+            is Submit.Rejected -> {
+                Log.i(TAG, "kernel refused ${show.event.eventId}: ${r.reason}")
+                engine.answer(show.event.eventId, EventResult.UNAVAILABLE, reason = "kernel_${r.reason}")
+            }
+        }
+    }
+
     /** Settings changed: read the foreground again so the new target is judged from now on. */
     fun configChanged() = schedule()
 
@@ -157,7 +205,10 @@ object LoopRuntime {
                 runCatching { ProactiveRuntime.refreshGate("protected_page") }
             }
             when (val out = e.onForeground(pkg, environment(s))) {
-                is LoopEngine.Outcome.Show -> InteractionHub.show(s, e, out)
+                // D5 (review): the trigger itself is handed to the proactive kernel, so one
+                // arbiter decides about every surface. The first round's fixed test sentence is
+                // the only fallback allowed here (integration guide §4: no fabricated agent text).
+                is LoopEngine.Outcome.Show -> submitToKernel(s, e, out, pkg)
                 is LoopEngine.Outcome.Suppressed -> Log.i(TAG, "suppressed ${out.event.packageName}: ${out.event.reason}")
                 is LoopEngine.Outcome.Ignored -> Unit
             }
