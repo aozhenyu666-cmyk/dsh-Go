@@ -33,6 +33,15 @@ jobs:
           sudo apt-get install -y -qq gpgv zstd xz-utils unzip file
       - name: Build full arm64 Linux runtime including proactive plugin
         run: |
+          # Termux no longer indexes the old proot deb; source archive stays pinned.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("runtime/build-runtime.sh")
+          s = p.read_text()
+          old = 'termux_deb proot "$PROOT_VERSION" "$termux_arch"'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, 'termux_deb proot "5.1.107.101" "$termux_arch"'))
+          PY
           bash runtime/build-runtime.sh arm64-v8a
           test -f runtime/out/arm64-v8a/assets/runtime/manifest.json
           test -f runtime/out/arm64-v8a/assets/runtime/rootfs-arm64-v8a.tar.xz
@@ -61,7 +70,9 @@ jobs:
           APK=app/build/app/outputs/flutter-apk/app-arm64-release.apk
           test -s "$APK"
           python3 tooling/verify_apk_runtime.py "$APK" --plugin runtime/proactive/dsh-go-proactive
-          find /opt/android-sdk /usr/local/lib/android/sdk "$ANDROID_HOME" -path '*/build-tools/*/aapt' -type f 2>/dev/null | tail -1 | xargs -r -I{} {} dump badging "$APK" | grep 'io.github.ccch1mneyyy.dsh_app.mine'
+          AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK" | grep 'io.github.ccch1mneyyy.dsh_app.mine'
           sha256sum "$APK" | tee APK-SHA256.txt
           cp "$APK" dsh-go-r3-1.0.4-mine-arm64.apk
       - uses: actions/upload-artifact@v4
