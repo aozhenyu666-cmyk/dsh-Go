@@ -129,6 +129,30 @@ try {
   check(userBusy.status === 409 && userBusy.body.error.code === 'agent-busy', `agent running the person's turn → 409 agent-busy (${userBusy.body.error?.code})`)
   await sleep(3500)
 
+  // Review r3, E: the tool layer, not the prompt, stops tools in a proactive turn.
+  writeFileSync(join(dirname(mockLog), 'delay'), '0')
+  const deniedBefore = (await http('GET', `${P}/status`, C)).body.counters.toolDenied
+  const probe = await http('POST', `${P}/request`, { ...C, body: { ...req1, requestId: 'req-00000008', eventId: 'evt-00000008', kind: 'tool_probe', payload: { marker: 'TOOL_PROBE' } } })
+  check(probe.status === 202, 'tool-probe event accepted')
+  let pr = probe
+  for (let i = 0; i < 10 && !['generated', 'failed'].includes(pr.body.state); i++) pr = await http('GET', `${P}/result?requestId=req-00000008&waitMs=10000`, C)
+  const deniedAfter = (await http('GET', `${P}/status`, C)).body.counters.toolDenied
+  check(deniedAfter > deniedBefore, `the model's tool call in a proactive turn was denied at tools/pre-execute (toolDenied ${deniedBefore} → ${deniedAfter})`)
+  check(pr.body.state === 'generated' && /error=true/.test(pr.body.text) && /tools are disabled in a proactive turn/.test(pr.body.text),
+    `the model saw an error tool result naming the guard: ${pr.body.text}`)
+  // Control: the person's own turn may still use the same tool.
+  const ctl = await http('POST', '/fixture/user-says', { ...C, body: { sessionId, text: 'TOOL_PROBE from the person' } })
+  check(ctl.status === 200, 'fixture: the person asks for a tool themselves')
+  await sleep(4000)
+  const deniedCtl = (await http('GET', `${P}/status`, C)).body.counters.toolDenied
+  check(deniedCtl === deniedAfter, `the person's own turn is not restricted (toolDenied stays ${deniedCtl})`)
+  // Only the newest tool result counts: the history still holds the earlier, denied, proactive one.
+  const lastReq = JSON.parse(readFileSync(mockLog, 'utf8').trim().split('\n').filter((l) => l.includes('/messages')).at(-1) ?? '{}')
+  const lastMsg = (JSON.parse(lastReq.body ?? '{}').messages ?? []).at(-1) ?? {}
+  const lastResult = (lastMsg.content ?? []).find((b) => b.type === 'tool_result')
+  check(lastResult !== undefined && lastResult.is_error !== true && !JSON.stringify(lastResult).includes('tools are disabled in a proactive turn'),
+    `and its tool actually ran (is_error=${lastResult?.is_error})`)
+
   // Deadline: model slower than the request's deadline.
   writeFileSync(join(dirname(mockLog), 'delay'), '9000')
   const d = await http('POST', `${P}/request`, { ...C, body: { ...req1, requestId: 'req-00000006', eventId: 'evt-00000006', deadlineMs: 5000 } })

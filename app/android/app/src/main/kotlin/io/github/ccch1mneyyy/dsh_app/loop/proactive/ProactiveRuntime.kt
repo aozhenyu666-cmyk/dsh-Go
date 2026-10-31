@@ -27,12 +27,12 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.SchedulerConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.Step
 import io.github.ccch1mneyyy.dsh_app.loop.core.Submit
 import io.github.ccch1mneyyy.dsh_app.loop.core.Surface
+import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
 import io.github.ccch1mneyyy.dsh_app.loop.core.SurfaceReport
 import io.github.ccch1mneyyy.dsh_app.loop.core.WakeMode
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneTasks
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.PhoneA11yService
-import io.github.ccch1mneyyy.dsh_app.phone.a11y.ProtectedPages
 import java.io.File
 import java.util.Calendar
 import java.util.TimeZone
@@ -96,6 +96,10 @@ object ProactiveRuntime {
     fun ensure(context: Context): Coordinator {
         coordinator?.let { return it }
         app = context.applicationContext
+        // Load 触发测试's switch before anything reads it: if Flutter starts before the accessibility
+        // service, an unloaded LoopEngine would read as "off" and applySwitches would cancel live
+        // app-enter events with the wrong reason (review r3, startup race).
+        runCatching { LoopRuntime.engine(app) }
         val dir = File(File(app.filesDir, "loop"), "proactive")
         val c = Coordinator(AtomicJsonFile(File(dir, "coordinator.json")), clock = System::currentTimeMillis, ids = { UUID.randomUUID().toString() })
         val s = ProactiveScheduler(AtomicJsonFile(File(dir, "scheduler.json")), ::minuteOfDay, ::dayOf)
@@ -103,6 +107,9 @@ object ProactiveRuntime {
         scheduler = s
         s.recover(clocks())
         dispatch(c.recover(gate()))
+        // Round-1 twins whose kernel event closed while no LoopEngine was alive (review r3, A).
+        runCatching { LoopRuntime.reconcileWithKernel(c::find) }
+        applySwitches()
         watchTasks()
         arm()
         return c
@@ -114,6 +121,27 @@ object ProactiveRuntime {
         ensure(context)
         scheduler!!.setConfig(cfg, clocks())
         refreshGate("config")
+        // 主动搭话 alone still needs foreground readings for the protected-page gate (review r3, C).
+        runCatching { LoopRuntime.configChanged() }
+    }
+
+    fun proactiveEnabled(): Boolean = scheduler?.config?.enabled == true
+
+    /** The coordinator if this process created it; never creates one. */
+    fun kernelOrNull(): Coordinator? = coordinator
+
+    /** Each feature switch cancels only its own events (review r3, B). */
+    private fun applySwitches() {
+        val c = coordinator ?: return
+        val sw = Switches(LoopRuntime.triggerEnabled(), proactiveEnabled())
+        for ((source, reason) in sw.disabledSources()) dispatch(c.cancelSource(source, reason))
+        // A different test app: app-enter events about the old one are no longer wanted.
+        val target = LoopRuntime.triggerTarget()
+        if (sw.triggerTest) {
+            (c.queued() + listOfNotNull(c.active()))
+                .filter { it.request.source == Switches.SOURCE_APP_ENTER && it.request.payload["packageName"] != target }
+                .forEach { dispatch(c.cancel(it.eventId, "target_changed")) }
+        }
     }
 
     /** Alarm, boot, app open: one evaluation, no loop. */
@@ -121,6 +149,7 @@ object ProactiveRuntime {
         val c = coordinator ?: return
         val s = scheduler ?: return
         watchTasks()
+        applySwitches()
         dispatch(c.setGate(gate()))
         when (val d = s.evaluate(clocks())) {
             is ProactiveScheduler.Decision.Fire -> submit(d.request, fromScheduler = true)
@@ -152,13 +181,16 @@ object ProactiveRuntime {
     fun refreshGate(reason: String) {
         val c = coordinator ?: return
         watchTasks()
+        applySwitches()
         dispatch(c.setGate(gate()))
         Log.d(TAG, "gate $reason")
     }
 
     fun onSurface(token: String, report: SurfaceReport) {
         val c = coordinator ?: return
+        val before = c.active()?.takeIf { it.token == token }
         dispatch(c.onSurface(token, report))
+        if (report == SurfaceReport.Shown && before != null) runCatching { LoopRuntime.onKernelShown(c.find(before.eventId)) }
         if (report is SurfaceReport.Answered || report == SurfaceReport.Dismissed) scheduler?.onUserActivity(clocks())
     }
 
@@ -233,6 +265,8 @@ object ProactiveRuntime {
         for (cmd in step.commands) runCatching { run(cmd) }.onFailure { Log.w(TAG, "command $cmd", it) }
         for (closed in step.closed) {
             scheduler?.onOutcome(closed.eventId, closed.engagement, clocks())
+            // The kernel owns the outcome; the round-1 twin mirrors it (review r3, A).
+            runCatching { LoopRuntime.onKernelClosed(closed) }
             Log.i(TAG, "closed ${closed.eventId} ${closed.outcome} ${closed.reason} engagement=${closed.engagement}")
         }
         main.removeCallbacks(deadlineTick)
@@ -332,10 +366,11 @@ object ProactiveRuntime {
         val nm = app.getSystemService(NotificationManager::class.java)
         val fg = LoopRuntime.lastForeground
         return Gate(
-            featureEnabled = scheduler?.config?.enabled == true,
+            // Either feature keeps arbitration on; each one's events are cancelled by applySwitches.
+            featureEnabled = Switches(LoopRuntime.triggerEnabled(), proactiveEnabled()).arbitrate,
             dshTaskActive = core != null && (core.tasks.isActive || core.tasks.callsInFlight > 0),
             dshPromptOpen = core?.prompts?.busy() == true,
-            protectedForeground = fg != null && (fg in ProtectedPages.packages),
+            protectedForeground = io.github.ccch1mneyyy.dsh_app.loop.ProtectedForeground.isProtected(fg),
             screenOn = power?.isInteractive != false,
             unlocked = keyguard?.isKeyguardLocked != true,
             a11yConnected = PhoneA11yService.isConnected(),

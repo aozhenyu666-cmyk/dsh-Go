@@ -95,7 +95,9 @@ export class Desk {
     /** sessionId -> current turn number seen in turn/start */
     this.turns = new Map()
     this.waiters = new Map()
-    this.counters = { accepted: 0, refused: 0, generated: 0, failed: 0, cancelled: 0, lateText: 0 }
+    /** sessionId -> the turn that is running on one of our messages (tools are denied in it). */
+    this.proactiveTurns = new Map()
+    this.counters = { accepted: 0, refused: 0, generated: 0, failed: 0, cancelled: 0, lateText: 0, toolDenied: 0 }
   }
 
   now() { return this.deps.now() }
@@ -198,9 +200,13 @@ export class Desk {
     if (!event || typeof event.type !== 'string') return
     const data = event.data
     if (event.type === 'turn/start' && Number.isInteger(data?.turn)) { this.turns.set(sessionId, data.turn); return }
+    if (event.type === 'turn/end' && this.proactiveTurns.get(sessionId) === data?.turn) this.proactiveTurns.delete(sessionId)
     for (const r of this.records.values()) {
       if (r.sessionId !== sessionId) continue
       if (event.type === 'user/message' && data?.id === r.messageId) {
+        // Whatever the record's state (even cancelled), this turn runs on our message: no tools in it.
+        const turn = this.turns.get(sessionId)
+        if (turn != null) this.proactiveTurns.set(sessionId, turn)
         if (r.state === 'accepted') {
           r.state = 'claimed'
           r.claimedAt = this.now()
@@ -229,8 +235,20 @@ export class Desk {
     }
   }
 
+  /**
+   * `tools/pre-execute` guard: a turn started by a proactive event may not run any tool —
+   * enforced where tools execute, not only asked for in the prompt. Returns the deny decision,
+   * or undefined to let the call continue down the chain.
+   */
+  guardTool(sessionId) {
+    if (sessionId == null || !this.proactiveTurns.has(sessionId)) return undefined
+    this.counters.toolDenied++
+    return { kind: 'deny', reason: 'dsh-go-proactive: tools are disabled in a proactive turn (no phone control, no files, no commands)' }
+  }
+
   /** The agent of a session went away. */
   onAgentGone(sessionId) {
+    this.proactiveTurns.delete(sessionId)
     for (const r of this.records.values()) if (r.sessionId === sessionId && !TERMINAL.has(r.state)) this.fail(r.requestId, 'agent-gone')
   }
 

@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Proves from the APK itself whether it carries the dsh-go-proactive host plugin.
+
+    python3 tooling/verify_apk_runtime.py app-arm64-debug.apk [--plugin runtime/proactive/dsh-go-proactive] [--json]
+
+A green Gradle build says nothing about the runtime: the rootfs comes from runtime/out/<abi>/assets,
+which only runtime/build-runtime.sh writes (on Linux). This script opens the APK and checks:
+
+  1. assets/runtime/manifest.json exists and names dshGoProactive at /opt/dsh-go/dsh-go-proactive
+  2. the launch command passes --patch /etc/dsh-app/dsh-web.patch.yml
+  3. the rootfs archive is in the APK and its SHA-256 matches the manifest
+  4. inside the rootfs: the plugin's package.json, lib/index.js and lib/core.js
+  5. inside the rootfs: dsh-web.patch.yml inserts /opt/dsh-go/dsh-go-proactive/lib/index.js
+  6. inside the rootfs: nothing from the plugin's test/ tree (mock model, fixture sessions)
+  7. with --plugin: the shipped plugin files are byte-identical to the repo's (this revision,
+     including the tools/pre-execute guard)
+
+Exit 0 only when every check passes. Reads the APK only; never installs anything.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import pathlib
+import sys
+import tarfile
+import zipfile
+
+ASSET_DIR = "assets/runtime"
+PLUGIN = "opt/dsh-go/dsh-go-proactive"
+WEB_PATCH = "etc/dsh-app/dsh-web.patch.yml"
+SHIPPED = ("package.json", "lib/index.js", "lib/core.js")
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def verify(apk: pathlib.Path, plugin_dir: pathlib.Path | None = None) -> list[dict]:
+    checks: list[dict] = []
+
+    def check(name: str, ok: bool, detail: str = "") -> bool:
+        checks.append({"check": name, "result": "PASS" if ok else "FAIL", "detail": detail})
+        return ok
+
+    try:
+        z = zipfile.ZipFile(apk)
+    except (OSError, zipfile.BadZipFile) as e:
+        check("apk readable", False, str(e))
+        return checks
+    names = set(z.namelist())
+    if not check("runtime manifest in APK", f"{ASSET_DIR}/manifest.json" in names,
+                 f"{ASSET_DIR}/manifest.json" + ("" if f"{ASSET_DIR}/manifest.json" in names
+                                                  else " missing: runtime/out was empty when the APK was built")):
+        return checks
+    manifest = json.loads(z.read(f"{ASSET_DIR}/manifest.json"))
+    pro = manifest.get("dshGoProactive") or {}
+    check("manifest names dshGoProactive", pro.get("path") == "/" + PLUGIN,
+          f"dshGoProactive={json.dumps(manifest.get('dshGoProactive'))} runtimeVersion={manifest.get('runtimeVersion')}")
+    launch = json.dumps(manifest.get("launch", {}))
+    check("launch passes the web patch", f"--patch /{WEB_PATCH}" in launch)
+
+    rootfs_name = f"{ASSET_DIR}/{manifest.get('rootfs', '')}"
+    if not check("rootfs archive in APK", rootfs_name in names, rootfs_name):
+        return checks
+    blob = z.read(rootfs_name)
+    check("rootfs sha256 matches manifest", sha256(blob) == manifest.get("rootfsSha256"),
+          f"{sha256(blob)[:16]}… vs {str(manifest.get('rootfsSha256'))[:16]}…")
+
+    found: dict[str, bytes] = {}
+    patch_text = ""
+    test_entries: list[str] = []
+    mode = "r:xz" if rootfs_name.endswith(".xz") else "r:gz"
+    import io
+    with tarfile.open(fileobj=io.BytesIO(blob), mode=mode) as tar:
+        for m in tar:
+            n = m.name.lstrip("./")
+            if n.startswith(PLUGIN + "/test/") or n == PLUGIN + "/test":
+                test_entries.append(n)
+            if not m.isfile():
+                continue
+            if n == WEB_PATCH:
+                patch_text = tar.extractfile(m).read().decode("utf-8", "replace")
+            for rel in SHIPPED:
+                if n == f"{PLUGIN}/{rel}":
+                    found[rel] = tar.extractfile(m).read()
+    check("plugin files in rootfs", all(r in found for r in SHIPPED),
+          "missing: " + ", ".join(r for r in SHIPPED if r not in found) if len(found) < len(SHIPPED) else "all present")
+    check("web patch loads the plugin", f"name: /{PLUGIN}/lib/index.js" in patch_text,
+          "row present" if patch_text else f"{WEB_PATCH} not in rootfs")
+    check("plugin test/ not shipped", not test_entries, ", ".join(test_entries[:5]))
+
+    if plugin_dir is not None:
+        diffs = []
+        for rel in SHIPPED:
+            want = (plugin_dir / rel).read_bytes()
+            if found.get(rel) is None or sha256(found[rel]) != sha256(want):
+                diffs.append(rel)
+        check("plugin matches this repo revision", not diffs, "differs: " + ", ".join(diffs) if diffs else "identical")
+        check("plugin carries the tool guard", b"tools/pre-execute" in found.get("lib/index.js", b""))
+    return checks
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("apk", type=pathlib.Path)
+    ap.add_argument("--plugin", type=pathlib.Path, help="repo plugin dir to compare against")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    checks = verify(a.apk, a.plugin)
+    ok = all(c["result"] == "PASS" for c in checks)
+    if a.json:
+        print(json.dumps({"apk": str(a.apk), "apkSha256": sha256(a.apk.read_bytes()) if a.apk.exists() else None,
+                          "ok": ok, "checks": checks}, ensure_ascii=False, indent=2))
+    else:
+        for c in checks:
+            print(f"{c['result']}  {c['check']}" + (f"  ({c['detail']})" if c["detail"] else ""))
+        print("OK" if ok else "NOT PROVEN: this APK does not demonstrably carry the plugin")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
