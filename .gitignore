@@ -27,3 +27,7 @@ site/build/
 
 # Release assets (tooling/release_assets.py)
 /dist/
+
+# Python bytecode from the packaging/APK verifier tests
+__pycache__/
+*.pyc
