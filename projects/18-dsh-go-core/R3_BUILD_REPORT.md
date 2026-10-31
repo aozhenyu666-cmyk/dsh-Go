@@ -189,3 +189,58 @@ gradlew :app:assembleArm64Debug --init-script D:\code\test-apk.init.gradle
 9. **不要同时开启两个包的无障碍**（会双份监听、双份弹窗、两份 rootfs 抢资源）。
 10. **不要通过卸载正式版解决签名冲突**——两者签名相同（同一 debug 证书）但包名不同，
     本就应并存；若用 release 签名构建，则更不该混装。
+
+## 2026-10-31 真机验证（vivo V2307A，Android 16，arm64-v8a）
+
+**这是本项目第一次拿到真机证据。** 设备通过 USB 调试连接，均未卸载或覆盖用户的正式版。
+
+### 怎么装的
+
+用户机上原有 `io.github.ccch1mneyyy.dsh_app` 1.0.1，签名 `CN=dsh-go, O=DSH-TUI`（`14371492…`）。
+我构建的是 debug 签名（`10cdb677…`）——**同包名不同签名装不上，且禁止卸载正式版**，
+所以装的是独立测试包 `io.github.ccch1mneyyy.dsh_app.test`，两包并存，正式版未受影响。
+
+### 实测结果
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 安装与并存 | **PASS** | 两个包同时在，正式版仍 `versionName=1.0.1` |
+| 首次解包 rootfs | **PASS**（87 s） | 日志 `[dsh-app] runtime ready in 87s` |
+| 插件进入手机端 rootfs | **PASS** | `core.js` 13416 B、`index.js` 6767 B，**与构建机字节数一致** |
+| 插件路由存在且鉴权 | **PASS** | `/dsh-go-proactive/v1/status` 无凭据返回 **401** |
+| 引擎运行 | **PASS** | 监听 `127.0.0.1:3081`，DSH 0.2.1-rc.4，Node 进程正常 |
+| 模型可用 | **PASS** | 发 "hi" → 6.1 秒回复，会话名 "Greeting" |
+| 主动搭话页渲染 | **PASS** | 开关/间隔/免打扰/上限/目标会话/状态全部正确 |
+| 会话列表（插件 /status） | **PASS** | 列出真实 `session-d4ee26ec-…`，标注"空闲，可以发" |
+| D1 转发通道 | **PASS** | 页面显示"已经连上本机引擎，可以真的问模型" |
+| 唤醒方式 | **PASS** | `EXACT`（vivo 允许精确闹钟，非 OPPORTUNISTIC） |
+| 内核状态落盘 | **PASS** | `scheduler.json` + `.bak` 都在，配置与界面一致 |
+| **C 项：权限页避让** | **PASS** | 见下 |
+
+### C 项的决定性证据
+
+让 DSH 执行"打开设置"的手机操控任务后：
+
+```
+10-31 12:38:28.691 D DshProactive: gate protected_page
+前台：com.android.settings/.homepage.SettingsHomepageActivity
+```
+
+前台进入系统设置时，主动搭话内核**立即识别为受保护页面并刷新让路闸门**。
+这正是 R3 修的 C 项，在真机上确认生效。
+
+### 仍未验证（NOT_TESTED）
+
+| 项 | 原因 |
+|---|---|
+| 主动搭话真的触发一次（Agent 回合 + 交互页 + 回执） | 下次排期还有 ~45 分钟，等待不划算；未强行改盘内 `nextDueWall`（会绕过真实调度逻辑） |
+| 交互页 onResume→Shown 的真实时序 | 同上，需要一次真实触发 |
+| 通知兜底的真实投递 | 需要触发且页面被拦截 |
+| 两个包无障碍同时开启的相互影响 | 未做（有风险，不建议） |
+| 工具守卫在真机的拦截 | 需要一次主动回合 |
+
+### 待用户决定
+
+- 想直接看到主动搭话，可以在页面上等它到点（约 45 分钟），或告诉我可以用 adb 把
+  `scheduler.json` 的 `nextDueWall` 临时改到 1 分钟后**仅用于观察**（会偏离真实调度，需注明）。
+- 验证完可随时 `adb uninstall io.github.ccch1mneyyy.dsh_app.test` 移除测试包，正式版不受影响。
