@@ -27,3 +27,10 @@ site/build/
 
 # Release assets (tooling/release_assets.py)
 /dist/
+
+# Python bytecode left by runtime/lib and tooling scripts run on the build host.
+__pycache__/
+*.pyc
+
+# Flutter tool scratch file (created by flutter test/analyze on Windows).
+app/.flutter_tool_state
