@@ -216,7 +216,12 @@ class DshProcess(
             listener.onLog("[dsh-app] direct fallback: tidying PRoot links needs ${result.need shr 20} MB plus ${L2sMigration.MARGIN shr 20} MB spare, ${result.free shr 20} MB free; compatible launch this time", "system")
             return DirectLaunch.Selection(false, DirectLaunch.NOT_ENOUGH_SPACE)
         }
-        listener.onLog("[dsh-app] direct: moved ${(result as L2sMigration.Result.Done).links} PRoot links to real files in ${(System.nanoTime() - started) / 1_000_000} ms", "system")
+        val done = result as L2sMigration.Result.Done
+        listener.onLog(
+            "[dsh-app] direct: moved ${done.links} PRoot links to real files in ${(System.nanoTime() - started) / 1_000_000} ms" +
+                if (done.repaired > 0) ", and put ${done.repaired} link count PRoot had left naming nothing back on its file" else "",
+            "system",
+        )
         val reason = DirectLaunch.compatibilityReason(rootfs)
         return DirectLaunch.Selection(reason == null, reason)
     }

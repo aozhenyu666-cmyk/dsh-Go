@@ -12,10 +12,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * Fixtures are built the way PRoot 5.1.107.98's link2symlink builds them
+ * Fixtures are built the way PRoot's link2symlink builds them
  * (src/extension/link2symlink/link2symlink.c, move_and_symlink_path and
  * decrement_link_count), matching what an emulator install showed: a name's
  * symlink and the intermediate both hold host-absolute paths into the store.
+ *
+ * Building both Termux releases from source and running them under
+ * --link2symlink showed 5.1.107.98 and 5.1.107.101 produce this same layout,
+ * so one set of fixtures covers both; [theStoreAReleaseLeavesBehindIsTheOneThisConverts]
+ * pins the layout the .101 binary actually wrote.
  */
 class L2sMigrationTest {
     private val base = kotlin.io.path.createTempDirectory("l2s-migration").toFile()
@@ -435,6 +440,142 @@ class L2sMigrationTest {
         assertEquals(2, (migrate() as L2sMigration.Result.Done).links)
         assertTrue(regular("root/a") && regular("root/b"))
         assertTrue(symlink("dev/stray") && symlink("tmp/dangling") && symlink("tmp/dangling-store") && symlink("tmp/loop"))
+    }
+
+    /**
+     * PRoot's decrement path renames the stored file to its new count, then re-points the
+     * intermediate at it. Killed in between, the intermediate points at a name that is gone
+     * while the stored file -- the only copy of the data -- is named by nothing. Converting
+     * that as "the store holds an orphan" deleted the data and then reported the tree
+     * compatible: the names came back empty on the next start.
+     */
+    @Test fun aCountRenamePRootWasKilledInTheMiddleOfIsFinishedNotTakenForAnOrphan() {
+        // What the killed run left: the data at its new count, the intermediate on the old one.
+        Files.write(store.resolve(".l2s.a0001.0003"), "PRECIOUS".toByteArray())
+        Files.createSymbolicLink(store.resolve(".l2s.a0001"), store.resolve(".l2s.a0001.0004"))
+        for (name in listOf("root/a", "root/b")) {
+            val path = File(root, name).toPath()
+            Files.createDirectories(path.parent)
+            Files.createSymbolicLink(path, store.resolve(".l2s.a0001"))
+        }
+        assertEquals(DirectLaunch.INCOMPATIBLE, DirectLaunch.compatibilityReason(root))
+
+        val result = migrate() as L2sMigration.Result.Done
+        assertEquals(1, result.repaired)
+        assertEquals(2, result.links)
+        for (name in listOf("root/a", "root/b")) {
+            assertTrue(name, regular(name))
+            assertEquals("PRECIOUS", text(name))
+        }
+        assertEquals(emptyList<String>(), storeEntries())
+        assertNull(DirectLaunch.compatibilityReason(root))
+    }
+
+    /**
+     * The same damage, but the store says nothing certain about which file those names were:
+     * two stored files of that name are left. Guessing between them loses one of them, so
+     * nothing is touched and the store stays non-empty, which keeps the compatible launch --
+     * where PRoot itself still reads every name.
+     */
+    @Test fun aBrokenCountThatCouldBeEitherOfTwoFilesIsLeftForProotToRead() {
+        Files.write(store.resolve(".l2s.a0001.0003"), "FIRST".toByteArray())
+        Files.write(store.resolve(".l2s.a0001.0005"), "SECOND".toByteArray())
+        Files.createSymbolicLink(store.resolve(".l2s.a0001"), store.resolve(".l2s.a0001.0004"))
+        val name = File(root, "root/a").toPath()
+        Files.createDirectories(name.parent)
+        Files.createSymbolicLink(name, store.resolve(".l2s.a0001"))
+
+        val result = migrate() as L2sMigration.Result.Done
+        assertEquals(0, result.repaired)
+        assertEquals(0, result.links)
+        assertEquals(0, result.removed)
+        assertEquals("FIRST", Files.readString(store.resolve(".l2s.a0001.0003")))
+        assertEquals("SECOND", Files.readString(store.resolve(".l2s.a0001.0005")))
+        assertEquals(DirectLaunch.INCOMPATIBLE, DirectLaunch.compatibilityReason(root))
+    }
+
+    /**
+     * A stored file whose count no longer covers every name that leads through it is damage
+     * of a different kind: converting would give one name a file the store never held for it.
+     * The count is PRoot's own promise about how many names exist, so it decides.
+     */
+    @Test fun aBrokenCountTooSmallForTheNamesItCarriesIsNotUsed() {
+        Files.write(store.resolve(".l2s.a0001.0001"), "ONLY".toByteArray())
+        Files.createSymbolicLink(store.resolve(".l2s.a0001"), store.resolve(".l2s.a0001.0009"))
+        for (name in listOf("root/a", "root/b")) {
+            val path = File(root, name).toPath()
+            Files.createDirectories(path.parent)
+            Files.createSymbolicLink(path, store.resolve(".l2s.a0001"))
+        }
+
+        val result = migrate() as L2sMigration.Result.Done
+        assertEquals(0, result.repaired)
+        assertEquals("ONLY", Files.readString(store.resolve(".l2s.a0001.0001")))
+        assertEquals(DirectLaunch.INCOMPATIBLE, DirectLaunch.compatibilityReason(root))
+    }
+
+    /**
+     * Not a broken chain at all: a name pointing through a store entry that is simply not
+     * there is somebody else's dangling symlink, and PRoot never made it.
+     */
+    @Test fun aLinkThroughTheStoreThatNeverExistedIsNotRepaired() {
+        file("root/a", "a")
+        Files.createSymbolicLink(File(root, "root/dangling").toPath(), store.resolve(".l2s.ghost0001"))
+
+        val result = migrate() as L2sMigration.Result.Done
+        assertEquals(0, result.repaired)
+        assertEquals(0, result.removed)
+        assertTrue(symlink("root/dangling"))
+        assertTrue(regular("root/a"))
+    }
+
+    /**
+     * The layout this converter reads is the one the .101 Termux binary actually writes, not
+     * the one its source spells out for a USERLAND build: `.l2s.<name><NNNN>.<COUNT>` stored
+     * files, `.l2s.<name><NNNN>` intermediates, host-absolute targets, and no `.proot.l2s.`
+     * anywhere. Captured from a real `proot 5.1.107.101 --link2symlink` run with
+     * PROOT_L2S_DIR pointed at the store.
+     */
+    @Test fun theStoreAReleaseLeavesBehindIsTheOneThisConverts() {
+        // Verbatim from a proot 5.1.107.101 run: three names of one file, one of another.
+        val entries = listOf(
+            "l .l2s.alpha0001 -> " + store.resolve(".l2s.alpha0001.0003"),
+            "f .l2s.alpha0001.0003",
+            "l .l2s.tool0001 -> " + store.resolve(".l2s.tool0001.0002"),
+            "f .l2s.tool0001.0002",
+        )
+        Files.write(store.resolve(".l2s.alpha0001.0003"), "alpha-content\n".toByteArray())
+        Files.write(store.resolve(".l2s.tool0001.0002"), "#!/bin/sh\necho tool\n".toByteArray())
+        Files.createSymbolicLink(store.resolve(".l2s.alpha0001"), store.resolve(".l2s.alpha0001.0003"))
+        Files.createSymbolicLink(store.resolve(".l2s.tool0001"), store.resolve(".l2s.tool0001.0002"))
+        for (name in listOf("root/alpha", "root/alpha2", "root/deep/er/alpha3")) {
+            val path = File(root, name).toPath()
+            Files.createDirectories(path.parent)
+            Files.createSymbolicLink(path, store.resolve(".l2s.alpha0001"))
+        }
+        for (name in listOf("opt/lib/tool", "opt/lib/tool-copy")) {
+            val path = File(root, name).toPath()
+            Files.createDirectories(path.parent)
+            Files.createSymbolicLink(path, store.resolve(".l2s.tool0001"))
+        }
+        assertEquals(entries, storeEntries().map { describe(it) })
+
+        val result = migrate() as L2sMigration.Result.Done
+        assertEquals(0, result.repaired)
+        assertEquals(5, result.links)
+        for (name in listOf("root/alpha", "root/alpha2", "root/deep/er/alpha3", "opt/lib/tool", "opt/lib/tool-copy")) {
+            assertTrue(name, regular(name))
+        }
+        assertEquals("alpha-content\n", text("root/alpha"))
+        assertEquals("#!/bin/sh\necho tool\n", text("opt/lib/tool"))
+        assertEquals(emptyList<String>(), storeEntries())
+    }
+
+    /** A store entry the way `find -printf '%y %f -> %l'` prints it. */
+    private fun describe(entry: String): String {
+        val path = store.resolve(entry)
+        return (if (Files.isSymbolicLink(path)) "l " else "f ") + entry +
+            if (Files.isSymbolicLink(path)) " -> " + Files.readSymbolicLink(path).toString() else ""
     }
 
     @Test fun bindTargetsAreTheGuestSidesOfTheLaunchBinds() {
