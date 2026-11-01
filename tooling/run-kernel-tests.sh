@@ -151,3 +151,59 @@ if [[ $rc -ne 0 ]]; then
   exit $rc
 fi
 say "PASS"
+
+# ---- W3: production-path guards ---------------------------------------------------------------
+# The kernel suite above proves the pieces work. It cannot prove the pieces are USED: 24 tests were
+# green while three mechanisms had never executed in production once (self-audit B-1/B-2/B-3).
+# These checks read the production sources and fail if a mechanism is left disconnected again.
+say "checking production wiring..."
+WIRING_FAIL=0
+MAIN_DIR="$ROOT/app/android/app/src/main/kotlin"
+FAILFILE="$OUT/wiring.fail"
+rm -f "$FAILFILE"
+
+# 1. Every InterceptGuard( built in production must name its repository, unless it is the explicit
+#    legacy fallback. Match the whole call, not one line: the production call spans several lines.
+set +e
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  while IFS=: read -r ln rest; do
+    [[ -z "$ln" ]] && continue
+    block=$(sed -n "${ln},$((ln + 14))p" "$file")
+    if ! grep -q "repository" <<<"$block" && ! grep -q "legacy-fallback" <<<"$block"; then
+      say "  FAIL: ${file#"$ROOT"/}:$ln builds InterceptGuard without repository="
+      echo 1 > "$FAILFILE"
+    fi
+  done < <(grep -n "InterceptGuard(" "$file" 2>/dev/null | grep -v "class InterceptGuard")
+done < <(grep -rl "InterceptGuard(" "$MAIN_DIR" --include="*.kt" 2>/dev/null)
+
+# 2. A seam whose default "looks like success" is worse than no seam: it answers silently and
+#    wrongly. Only the D2 seams are checked by name - a nullable lambda elsewhere (dayKey, labels)
+#    legitimately means "no value yet", not "the operation succeeded".
+for seam in currentForeground notifyEnforcementUnavailable; do
+  hits=$(grep -rn "var $seam.*= { null }\|var $seam.*-> Unit = { }" "$MAIN_DIR" --include="*.kt" 2>/dev/null)
+  if [[ -n "$hits" ]]; then
+    say "  FAIL: $seam still has a silent default:"
+    printf "%s\n" "$hits" | sed "s|$ROOT/|  |"
+    echo 1 > "$FAILFILE"
+  fi
+done
+
+# 3. The alert must be reachable: a notification nobody can send is the bug this replaces.
+if ! grep -rq "EnforcementAlert.notify" "$MAIN_DIR" --include="*.kt" 2>/dev/null; then
+  say "  FAIL: nothing calls EnforcementAlert.notify - the person would never be told"
+  echo 1 > "$FAILFILE"
+fi
+
+# 4. The production entry point must go through the kernel factory, not build its own guard.
+if ! grep -rq "InterceptKernel.open" "$MAIN_DIR" --include="*.kt" 2>/dev/null; then
+  say "  FAIL: nothing calls InterceptKernel.open - the atomic snapshot is not in the production path"
+  echo 1 > "$FAILFILE"
+fi
+set -e
+
+if [[ -f "$FAILFILE" ]]; then
+  say "WIRING FAIL -- a mechanism exists but is not connected to the production path"
+  exit 1
+fi
+say "wiring OK"
