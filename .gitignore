@@ -34,3 +34,6 @@ __pycache__/
 
 # Flutter tool scratch file (created by flutter test/analyze on Windows).
 app/.flutter_tool_state
+
+# Output of tooling/run-kernel-tests.sh
+.kernel-tests/
