@@ -3,8 +3,9 @@
 R4 的**人格 / 记忆 / 情绪**层：把「她是谁、她记得什么、她现在什么心情」变成
 App 里看得见、能纠正、也能真正交给模型的东西。
 
-零第三方依赖（`import` 只有 `node:fs` / `node:path` / `node:os` + 本包自己的模块），
-不需要 App、不需要桥接也能装上。
+零第三方依赖（`import` 只有 `node:fs` / `node:path` / `node:os` / `node:module` + 本包自己的模块），
+不需要 App、不需要桥接也能装上。原生设置表单要的 `schemastery` 是**从宿主那棵树同步取**的
+（`lib/hostdeps.mjs`），不是本包的依赖；宿主没有就不导出 `Config`，插件照常跑。
 
 ---
 
@@ -33,7 +34,9 @@ App 里看得见、能纠正、也能真正交给模型的东西。
 
 ## 三个模块，可以分别关
 
-配置文件：`~/.dsh/partner/config.json`（没有就用全默认；坏了也不会让插件起不来）
+在 DSH 里改的是**原生设置表单**（设置 › 引擎参数 › 插件 › 伙伴），落盘到 profile 的
+`cordis.patch.yml`（细节见下面「配置：只有一套」）。**没有宿主**（单测 / CLI）时才读
+`~/.dsh/partner/config.json`（没有就用全默认；坏了也不会让插件起不来）
 
 ```json
 {
@@ -114,19 +117,53 @@ DSH_TOOLS_DIR=<dsh-tools 目录> node --test   # 额外跑真 defineTool 编译
 
 ---
 
-## 已知取舍
+## 配置：只有一套（R4 第三轮改的）
 
-**`export const Config = undefined`** —— App 原生设置页画不出这个插件的表单，只能改文件。
+```
+原生设置表单（设置 › 引擎参数 › 插件 › 伙伴）
+        │  ConfigEditor.edit()  ← 宿主自己的能力
+        ▼
+$DSH_HOME/profiles/<name>/cordis.patch.yml 里 partner 这一行的 config
+        │  cordis 校验后作为 apply(ctx, config) 的第二个参数
+        ▼
+插件运行时读到的值（volatile 字段是引用，改完立刻生效，不用重启）
+```
 
-要画原生表单就得引 `schemastery`，而本包坚持零第三方依赖（这是它能装进 DSH Go 那个
-精简引擎的前提）。塞一个假 `Config` 会画出一张**改不动**的表单，比没有更糟。
+| 场景 | 用哪一份 |
+|---|---|
+| 在 DSH 里跑（apply 拿到了 config） | **只认宿主注入的 config**，它是唯一真相 |
+| 没有宿主（单元测试 / CLI 探针 / 网页预览） | 退回 `~/.dsh/partner/config.json` |
 
-替代路径：改 `~/.dsh/partner/config.json`（字段见上面那张表），回来点一次「刷新」。
+旧的 `config.json` 如果还在，**不再参与运行**，人格面板会明说一句
+「旧配置文件已不再参与运行」—— 静默忽略会让你以为自己设过的东西生效了。
+
+字段（原生表单和文件用同一套名字）：
+
+| 组 | 字段 | 含义 |
+|---|---|---|
+| `persona` | `enabled` / `personaFile` / `style` / `topics` / `identityFile` | 人格模块与表达风格 |
+| `memory` | `enabled` / `shortTermHours` / `recallLimit` / `recallFloor` / `panelLimit` | 记忆模块 |
+| `mood` | `enabled` / `inject` / `timelineLimit` | 情绪模块 |
+| `tools` | `enabled` | 四个工具的执行开关 |
+| `hint` | `enabled` | 告诉模型「你自己有记忆和情绪」的那段提示 |
+
+每个字段都是 `.extra('volatile', true)`：宿主设置层只认 volatile，cordis 也靠它做热更新
+（改完不重启插件，直接把新值写进引用）。
+
+**开关是运行期语义**：关掉 `tools` 之后工具仍在列表里（注册一次就是这样），
+调用会返回一句明确的拒绝，而不是按旧配置继续干活 —— 那比「打开了却什么都不发生」诚实。
 
 **其他还没做的**
-- 目的面板的「现在说一句 / 先看看」仍是占位（P2 的主动调度器不属于本轮）。
+- 目的面板只**读** surfcore 的 `purpose-outreach.json`（念头、驱力、没说完的话）；
+  「主动开口」由 surfcore 自己的引擎决定，本插件不接管，按钮上也如实写着没接。
 - 记忆面板一次最多画 `panelLimit` 行，全量存档仍在网页版。
 - 上游换了数据结构时 → 面板会显示 `shape: unknown` 和具体原因，不会瞎猜字段。
+
+## 真宿主端到端
+
+`live-host/` 里有一套起真引擎的脚本，证明「改 setting → 插件重新读 → 系统提示变化 →
+重启后仍有效」。跑法见 [live-host/README.md](live-host/README.md)。
+R4 第三轮就是靠它抓到 4 个只有真宿主才会暴露的缺陷。
 
 ---
 

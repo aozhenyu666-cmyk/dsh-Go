@@ -111,3 +111,25 @@ test('真 SDK 宿主：dispose 之后不再注册任何东西（没有泄漏）'
   host.dispose()
   assert.ok(true)
 })
+
+test('没有「写了却没注册」的面板函数：views 里每个面板函数都必须被 index.js 真的用上', async () => {
+  const views = await import('file:///' + path.join(PLUGIN_DIR, 'lib/views.mjs').replace(/\\/g, '/'))
+  const indexSrc = (await import('node:fs')).readFileSync(path.join(PLUGIN_DIR, 'lib/index.js'), 'utf8')
+  const exported = Object.keys(views).filter((k) => /Panel$/.test(k))
+  assert.ok(exported.length >= 3, 'views 里应该有面板函数')
+  const unused = exported.filter((name) => !indexSrc.includes(name))
+  assert.deepEqual(unused, [], '这些面板函数导出了却没人用（上一轮 identityPanel 就是这么死的）：' + unused.join(', '))
+})
+
+test('四块面板的 view 都能真的取到东西，且人格面板带模块开关', async () => {
+  const home = tempHome()
+  seedAll(home)
+  const host = await sdkHost()
+  const plugin = await import('file:///' + path.join(PLUGIN_DIR, 'lib/index.js').replace(/\\/g, '/'))
+  plugin.apply(host.ctx, {}, { defineTool: (o) => o })
+  const persona = await host.view('persona', { sessionId: 's1' })
+  const s = JSON.stringify(persona.view)
+  assert.match(s, /模块开关/, '人格面板要显示四个模块的开关状态')
+  assert.match(s, /人格/, '四个开关的标签要在')
+  assert.match(s, /配置来自|没有宿主 config/, '必须写明当前配置来自哪一套')
+})

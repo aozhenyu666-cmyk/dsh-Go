@@ -37,7 +37,22 @@ function sessionOf(exec) {
   return sid
 }
 
-export function buildTools(defineTool) {
+export function buildTools(defineTool, readCfg) {
+  // ★ R4 第三轮：配置是**每次执行现取**的（readCfg），不是注册时那一份快照。
+  //   原生表单改的是 volatile 字段 → cordis 不重启插件、只换引用值；
+  //   如果这里固化注册时的 cfg，用户把「记忆」关掉之后工具还照样读写，那就等于开关没用。
+  //   工具行本身仍在列表里（注册一次就是这样），所以关掉之后再调用会得到一句明确的拒绝，
+  //   而不是静默按旧配置干活 —— 说明写在 result.message 里，用户/模型都看得到。
+  const cfgNow = () => {
+    try { return (typeof readCfg === 'function' ? readCfg() : readCfg) || {} } catch { return {} }
+  }
+  const offReason = (which) => {
+    const c = cfgNow()
+    if (c.tools && c.tools.enabled === false) return '工具已经在设置里关掉了（伙伴 › 工具），这次没有执行。'
+    if (which === 'memory' && c.memory && c.memory.enabled === false) return '记忆模块已经在设置里关掉了，这次没有执行。'
+    if (which === 'mood' && c.mood && c.mood.enabled === false) return '情绪模块已经在设置里关掉了，这次没有执行。'
+    return ''
+  }
   return [
     defineTool({
       name: 'partner_recall',
@@ -87,7 +102,9 @@ export function buildTools(defineTool) {
       timeoutMs: 15000,
       isConcurrencySafe: () => true,
       execute: (args, exec) => {
-        const cfg = (exec && exec.partnerConfig) || {}
+        const off = offReason('memory')
+        if (off) return { ok: false, query: String(args.query || ''), count: 0, total: 0, reason: off, items: [] }
+        const cfg = (exec && exec.partnerConfig) || cfgNow()
         const lt = loadLongTermFull(cfg, sessionOf(exec))
         const hits = recall(args.query, lt.all, {
           limit: args.limit ? Number(args.limit) : Number(cfg.memory && cfg.memory.recallLimit) || 6,
@@ -143,6 +160,8 @@ export function buildTools(defineTool) {
       timeoutMs: 15000,
       isConcurrencySafe: () => false,
       execute: (args) => {
+        const off = offReason('memory')
+        if (off) return { ok: false, id: '', duplicate: false, count: 0, message: off, text: '' }
         try {
           const r = appendOwn({ text: args.text, importance: args.importance, tags: args.tags, fact: args.fact })
           return {
@@ -187,6 +206,8 @@ export function buildTools(defineTool) {
       timeoutMs: 15000,
       isConcurrencySafe: () => false,
       execute: (args) => {
+        const off = offReason('memory')
+        if (off) return { ok: false, id: String(args.id || ''), action: String(args.action || ''), message: off, total: 0 }
         try {
           const saved = correct(args.id, args.action, args.value)
           const verb = {
@@ -263,6 +284,8 @@ export function buildTools(defineTool) {
       timeoutMs: 15000,
       isConcurrencySafe: () => true,
       execute: (args, exec) => {
+        const off = offReason('mood')
+        if (off) return { ok: false, reason: off, mood: 0, stored: 0, band: '', dims: [], changes: [] }
         const snap = readMood(sessionOf(exec))
         if (!snap.ok) return { ok: false, reason: snap.reason, mood: 0, stored: 0, band: '', dims: [], changes: [] }
         const n = Math.max(0, Math.min(8, args.timeline === undefined ? 3 : Number(args.timeline)))

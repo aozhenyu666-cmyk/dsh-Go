@@ -1,13 +1,23 @@
 /**
- * partner 自己的配置（人格 / 记忆 / 情绪三个模块的独立开关）
+ * partner 的配置 —— **宿主注入的 config 是唯一配置源**
  *
- * 为什么是文件而不是 `export const Config`：
- *   本包坚持零第三方依赖（import 只有 node: 内置模块），而 DSH 的原生设置表单要
- *   schemastery 的 schema 对象。硬塞一个假 Config 会让 App 画出一张改不动的表单 ——
- *   比没有更糟。所以只认一个 JSON 文件，路径可被环境变量覆盖。
+ * 上一轮的注释说「本包坚持零第三方依赖，所以只认一个 JSON 文件」，那是把结论当成了理由。
+ * 真实情况（R4 第三轮查证，见 R4-M3-CONFIG.md）：
+ *   · cordis 会把 profile patch 里这一行的 config 校验后作为 apply(ctx, config) 的第二个参数给插件；
+ *   · DSH 的原生设置表单（设置 › 引擎参数 › 插件 / 插件详情 › 设置）通过
+ *     ConfigEditor.edit() 写的就是**同一个 profile patch**（$DSH_HOME/profiles/<name>/cordis.patch.yml）；
+ *   · 所以「表单」和「插件读到的值」本来就是同一条链，只要插件**真的去读注入的 config**。
+ *
+ * 因此现在只有一套配置：
+ *   1. 在 DSH 里跑（apply 拿到了 config）→ **只认宿主注入的 config**；
+ *   2. 没有宿主（单元测试、CLI 探针、网页预览）→ 退回 ~/.dsh/partner/config.json。
+ * 两套不会同时生效，面板上会写明当前生效的是哪一套（cfg.__source）。
+ *
+ * 旧的 config.json 如果还在，**不再参与运行**，只在面板上提示一句「它已经不生效了，请把值填进原生表单」——
+ * 静默忽略会让用户以为自己设过的东西生效了，那种错误比没有设置更糟。
  *
  * 三个模块**互相独立**：任何一个 enabled=false，它就既不进面板、也不进系统提示、
- * 也不注册工具，其余两个照常。
+ * 也不注册工具的执行，其余两个照常。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,6 +30,24 @@ export const dshHome = () => process.env.DSH_HOME || path.join(os.homedir(), '.d
 export const partnerDir = () => path.join(dshHome(), 'partner')
 
 export const configPath = () => process.env.DSH_PARTNER_CONFIG || path.join(partnerDir(), 'config.json')
+
+/** 宿主注入的 config（cordis 给 apply 的那一份）。null = 当前没有宿主。 */
+let liveSource = null
+
+/**
+ * 注册宿主配置源。apply() 在启动时调用；返回 disposer，卸载时清掉。
+ * @param {(() => any)|null} fn 返回 cordis 校验后的 config（含 Volatile 引用）
+ */
+export function setLiveConfigSource(fn) {
+  if (typeof fn !== 'function') {
+    liveSource = null
+    return () => {}
+  }
+  liveSource = fn
+  return () => { if (liveSource === fn) liveSource = null }
+}
+
+export const hasLiveConfig = () => liveSource !== null;
 
 export const DEFAULTS = Object.freeze({
   persona: {
@@ -99,19 +127,60 @@ function merge(base, patch) {
 }
 
 /**
- * 读配置。永远返回一个完整对象（缺文件 = 全默认），永不抛错 ——
+ * 把 cordis 给的 config 摊平成纯值：volatile 字段是引用对象（{ get() }），
+ * 每次读都要现取，才能做到「表单改了立刻生效，不用重启」。
+ */
+export function unwrapLive(value) {
+  if (value === null || value === undefined) return value
+  if (typeof value === 'object' && typeof value.get === 'function' && typeof value[Symbol.for('cosmokit.volatile.write')] === 'function') {
+    return unwrapLive(value.get())
+  }
+  if (Array.isArray(value)) return value.map(unwrapLive)
+  if (typeof value === 'object') {
+    const out = {}
+    for (const k of Object.keys(value)) out[k] = unwrapLive(value[k])
+    return out
+  }
+  return value
+}
+
+function readFileRaw(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 读配置。永远返回一个完整对象，永不抛错 ——
  * 配置坏了不能让插件整个起不来，那样用户连「出问题了」都看不到。
+ *
+ * 优先级：宿主注入的 config（唯一真相）> 没有宿主时才读 JSON 文件。
+ * @returns {object} 带 __source（'host' / 'file'）、__file、__legacy、__ok、__reason 的完整配置
  */
 export function loadConfig(file = configPath()) {
-  let raw = null
-  try {
-    raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
-  } catch {
-    raw = null
+  let live = null
+  if (liveSource) {
+    try { live = unwrapLive(liveSource()) } catch { live = null }
   }
+  if (live && typeof live === 'object' && !Array.isArray(live)) {
+    const cfg = merge(DEFAULTS, live)
+    cfg.__source = 'host'
+    cfg.__file = file
+    cfg.__ok = true
+    cfg.__reason = ''
+    // 旧文件还在、而且确实有内容 —— 如实告诉用户它已经不生效了，不静默忽略
+    const legacy = readFileRaw(file)
+    cfg.__legacy = legacy && Object.keys(legacy).length ? file : ''
+    return cfg
+  }
+  const raw = readFileRaw(file)
   const cfg = merge(DEFAULTS, raw)
+  cfg.__source = 'file'
   cfg.__file = file
   cfg.__ok = raw !== null
+  cfg.__legacy = ''
   cfg.__reason = raw !== null ? '' : (fs.existsSync(file) ? 'unreadable' : 'missing')
   return cfg
 }
