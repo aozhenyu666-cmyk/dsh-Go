@@ -569,14 +569,25 @@ class InterceptGuard(
         //   whitelist  an explicit standing decision: the package leaves the target list
         //
         // Anything else (an unknown code, a typo, a future value) grants nothing.
+        //
+        // And before any of them: the page must have been *proved* on screen (P0-5).
+        // openShownAt is stamped by the adapter's attached+shown+laid-out+focused proof, which is
+        // the only evidence that the person actually saw the question. A page that was triggered
+        // but never appeared can therefore not walk through any door - it has no door to walk
+        // through, because nobody was asked anything.
+        if (state.openShownAt == 0L) return@synchronized false
         when (how) {
             RELEASE_TRAINING -> {
                 if (state.drill?.solved != true) return@synchronized false
-                // trainingMs was a setting that did nothing. It now means what its name says: the
-                // drill must have been on screen at least that long before the pass is granted, so
-                // speed-tapping through four buttons is not a substitute for stopping. 0 disables it.
-                val shownAt = state.openShownAt
-                if (config.trainingMs > 0L && shownAt != 0L && now - shownAt < config.trainingMs) {
+                // trainingMs means what its name says: the drill must have been on screen at least
+                // that long before the pass is granted, so speed-tapping four buttons is not a
+                // substitute for stopping. 0 disables it.
+                //
+                // The old form was `shownAt != 0L && now - shownAt < trainingMs`, and that made an
+                // unseen page the FASTEST way through: shownAt == 0 skipped the dwell entirely.
+                // It is unreachable now - the gate above already refused an unseen page - so the
+                // condition reads plainly instead of hiding a bypass.
+                if (config.trainingMs > 0L && now - state.openShownAt < config.trainingMs) {
                     return@synchronized false
                 }
             }
@@ -600,6 +611,14 @@ class InterceptGuard(
     /** 紧急退出: the person leaves at once; recorded as an exit, never as a normal release. */
     fun onExited(eventId: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
+        // An exit is the person choosing to leave something they were shown. Without the
+        // visibility proof there is nobody leaving and nothing to leave, so this settles the
+        // event honestly as NOT_SHOWN instead of recording a walk-away that never happened (P0-5).
+        if (state.openShownAt == 0L) {
+            endOpen(now, InterceptOutcome.NOT_SHOWN, "exit_before_shown")
+            persist()
+            return@synchronized true
+        }
         endOpen(now, InterceptOutcome.EXITED, "emergency_exit")
         persist()
         true
@@ -612,6 +631,14 @@ class InterceptGuard(
      */
     fun onPaused(eventId: String?, pauseMs: Long, now: Long): Boolean = synchronized(lock) {
         if (eventId != null && state.openEventId != eventId) return@synchronized false
+        // A page's own pause is the person pressing a button they were shown. Without the
+        // visibility proof it settles as NOT_SHOWN and changes no setting (P0-5). The settings
+        // page passes eventId = null and is unaffected: that is the person acting in the app.
+        if (eventId != null && state.openShownAt == 0L) {
+            endOpen(now, InterceptOutcome.NOT_SHOWN, "pause_before_shown")
+            persist()
+            return@synchronized true
+        }
         val until = now + pauseMs.coerceIn(60_000L, 24 * 3_600_000L)
         config = config.copy(pauseUntilWall = until)
         if (eventId != null) {
