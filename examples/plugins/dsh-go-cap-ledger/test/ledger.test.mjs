@@ -11,8 +11,10 @@ import {
 const NOW = 1_700_000_000_000
 
 // ── 1. 四个状态必须分得开 ───────────────────────────────────────────────────
-test('STATES 就是那四个（顺序 = 面板显示顺序）', () => {
-  assert.deepEqual(STATES, ['installed', 'loaded', 'toolRegistered', 'lastRunOk'])
+test('STATES 是六个（顺序 = 面板显示顺序）', () => {
+  // 硬化轮：从四态扩到六态。装没装、加没加载、注册没注册、现在能不能用、真跑过没、失败没失败 ——
+  // 六件不同的事，任何一个塌了都不该被另外五个掩盖。
+  assert.deepEqual(STATES, ['installed', 'loaded', 'toolRegistered', 'available', 'executed', 'failed'])
 })
 
 test('空条目：四态都是 null（未知），不是 false 也不是 true', () => {
