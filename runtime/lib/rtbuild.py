@@ -21,6 +21,8 @@ import sys
 import tarfile
 
 EM_NAMES = {3: "i386", 40: "arm", 62: "x86-64", 183: "aarch64"}
+# The same mapping read the other way, for manifests that only record the printable name.
+_EM_BY_NAME = {v: k for k, v in EM_NAMES.items()}
 NPMMIRROR = "https://registry.npmmirror.com/"
 NPMJS = "https://registry.npmjs.org/"
 # `dsh web` overlay (passed with --patch by the launch command): plugin-install registries and
@@ -1474,9 +1476,16 @@ def verify_outputs(out, abis):
                 problems.append("%s: %s sha256 does not match the manifest" % (abi, lib))
             if want.get("bytes") is not None and len(blob) != want["bytes"]:
                 problems.append("%s: %s is %d bytes, manifest says %s" % (abi, lib, len(blob), want["bytes"]))
-            if want.get("machine") not in (None, ABI[abi]["machine"]):
+            # The manifest records BOTH the printable name ("aarch64") and the raw ELF
+            # e_machine ("183"). Compare the number, and fall back to the name only when the
+            # number is absent -- comparing the printable name against the integer is what made
+            # this check report every honest build as "aarch64, not 183".
+            want_em = want.get("e_machine")
+            if want_em is None:
+                want_em = _EM_BY_NAME.get(want.get("machine")) if isinstance(want.get("machine"), str) else want.get("machine")
+            if want_em is not None and int(want_em) != ABI[abi]["machine"]:
                 problems.append("%s: %s is machine %s, not %s"
-                                % (abi, lib, want["machine"], ABI[abi]["machine"]))
+                                % (abi, lib, want.get("machine") or want_em, ABI[abi]["machine"]))
         if len(problems) == before:
             lines.append("PASS  %s  abi=%s  %s  %s  %d jniLibs"
                          % (abi, m.get("abi"), name, m.get("runtimeVersion"), len(JNI)))
