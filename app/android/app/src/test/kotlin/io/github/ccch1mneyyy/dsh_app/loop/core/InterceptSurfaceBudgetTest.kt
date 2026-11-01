@@ -41,26 +41,28 @@ class InterceptSurfaceBudgetTest {
     }
 
     @Test
-    fun a_block_decision_spends_the_cooldown_immediately() {
+    fun a_not_shown_interception_does_not_spend_the_cooldown() {
         val h = Harness()
         h.enable()
         val first = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall)
         assertTrue(first is InterceptDecision.Block)
-        // Nothing was ever shown, yet the cooldown is already armed - hence the adapter must ask first.
+        // Nothing was ever shown, so nothing is owed: the trigger has to give back what it charged.
         h.guard.onUnavailable((first as InterceptDecision.Block).eventId, "surface_busy", h.wall)
         h.wall += 1_000
         val second = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall)
-        assertTrue("a busy surface must not be charged for a second attempt", second is InterceptDecision.Allow)
-        assertEquals(InterceptRules.REASON_COOLDOWN, (second as InterceptDecision.Allow).reason)
+        assertTrue(
+            "a page that was never shown must not put the app in a cooldown",
+            second is InterceptDecision.Block,
+        )
     }
 
     @Test
-    fun a_block_decision_spends_the_daily_count_immediately() {
+    fun a_not_shown_interception_does_not_spend_the_daily_count() {
         val h = Harness()
         h.guard.setConfig(
             InterceptConfig(
                 enabled = true,
-                targets = listOf(InterceptTarget("tv.danmaku.bili", "B站")),
+                targets = listOf(InterceptTarget("tv.danmaku.bili", "Bilibili")),
                 cooldownMs = 0,
                 dailyMax = 1,
             ),
@@ -71,10 +73,23 @@ class InterceptSurfaceBudgetTest {
         h.guard.onUnavailable((first as InterceptDecision.Block).eventId, "surface_busy", h.wall)
         h.wall += 1_000
         val second = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall)
-        assertTrue(second is InterceptDecision.Allow)
-        assertEquals(InterceptRules.REASON_DAILY_MAX, (second as InterceptDecision.Allow).reason)
+        assertTrue("a page that never appeared must not use up the day's budget", second is InterceptDecision.Block)
+        assertEquals("and the counter was given back", 1, h.guard.state.countToday)
     }
 
+    @Test
+    fun a_shown_block_does_spend_the_cooldown() {
+        val h = Harness()
+        h.enable()
+        val first = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall) as InterceptDecision.Block
+        // This one really was on screen: it is a block, and a block costs a cooldown.
+        assertTrue(h.guard.onPageShown(first.eventId, h.wall))
+        assertTrue(h.guard.onExited(first.eventId, h.wall))
+        h.wall += 1_000
+        val second = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall)
+        assertTrue("a real block does arm the cooldown", second is InterceptDecision.Allow)
+        assertEquals(InterceptRules.REASON_COOLDOWN, (second as InterceptDecision.Allow).reason)
+    }
     @Test
     fun a_guard_that_was_never_asked_keeps_its_budget() {
         val h = Harness()

@@ -114,11 +114,13 @@ class InterceptDrillTest {
         assertNull("nothing is open after a restart", revived.openEventId())
         assertNull("and no drill is left over", revived.drill())
 
-        // The next attempt is refused by the cooldown the first interception already spent, which is
-        // the honest outcome: the person is not charged twice, and nothing is granted.
+        // Nothing was ever shown, so recover() records NOT_SHOWN and refunds what that trigger
+        // charged: no cooldown is running and no daily slot was used. The next foreground reading
+        // therefore decides on its merits and blocks again — the person is not let through because
+        // the app died before it could show anything (P0-3 / D2).
         val next = revived.onForeground(bili, env(), wall + 1_000L)
-        assertTrue("a restart grants nothing", next !is InterceptDecision.Block)
-        assertNull("still nothing open", revived.openEventId())
+        assertTrue("a page that never appeared must not grant passage", next is InterceptDecision.Block)
+        assertNotNull("and the new interception is open", revived.openEventId())
     }
 
     // ---- 3. only the open interception can be drilled --------------------------------------

@@ -379,6 +379,11 @@ class InterceptGuard(
     var state = InterceptState()
         private set
 
+    /** What the current Block charged, so NOT_SHOWN can restore it (P0-3). Memory only. */
+    private var chargedLastTriggerAt = 0L
+    private var chargedLastTriggerPackage: String? = null
+    private var chargedCountToday = 0
+
     @Volatile var storageError: String? = null
         private set
     @Volatile var recoveryIssue: String? = null
@@ -413,6 +418,20 @@ class InterceptGuard(
                 openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
                 lastReason = if (shown) "open_lost" else "open_lost_unshown", drill = null,
             )
+            if (!shown) {
+                // The same refund [onUnavailable] makes, for the same reason: this trigger charged
+                // a cooldown and a slot of the daily budget, and it never reached the screen. A
+                // restarted process cannot know what the pre-trigger values were, so it does the
+                // one thing it can prove: it takes this trigger's charge back out.
+                //
+                // lastTriggerAt = 0 means "no cooldown is running"; countToday loses the one this
+                // event added. Both are floored, so a corrupt file cannot make them negative.
+                state = state.copy(
+                    lastTriggerAt = 0L,
+                    lastTriggerPackage = null,
+                    countToday = (state.countToday - 1).coerceAtLeast(0),
+                )
+            }
         }
         // The daily bucket is only rolled from [InterceptEnv.dayKey], which the caller reads from the
         // same calendar it uses for quiet hours; computing a second day number here would make the
@@ -463,6 +482,12 @@ class InterceptGuard(
         )
         if (d is InterceptDecision.Block) {
             val eventId = ids()
+            // Remember what this trigger is about to charge, so a NOT_SHOWN can give it back
+            // (P0-3). Kept in memory only: a process death means recover() settles the event,
+            // and that path records NOT_SHOWN from the persisted openShownAt instead.
+            chargedLastTriggerAt = s.lastTriggerAt
+            chargedLastTriggerPackage = s.lastTriggerPackage
+            chargedCountToday = s.countToday
             state = s.copy(
                 openEventId = eventId, openPackage = packageName, openSinceWall = now,
                 lastTriggerAt = now, lastTriggerPackage = packageName, lastReason = d.reason,
@@ -585,10 +610,31 @@ class InterceptGuard(
         true
     }
 
-    /** The page could not be shown: the interception did not happen and nothing is owed. */
+    /**
+     * The page could not be shown: the interception did not happen and nothing is owed.
+     *
+     * "Nothing is owed" has to be made true, not just stated. [onForeground] stamps
+     * [InterceptState.lastTriggerAt] and increments [InterceptState.countToday] the moment it
+     * decides to block, long before anything is on screen. Ending as NOT_SHOWN therefore has to
+     * give both back - otherwise a ROM that refuses the page launch silently costs the person a
+     * cooldown and a slot of the daily budget for a block that never happened, and the target app
+     * is then let through for the whole cooldown. That was P0-3.
+     *
+     * The rollback restores what the *previous* interception left behind rather than zeroing, so an
+     * earlier genuine block keeps its effect.
+     */
     fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
         endOpen(now, InterceptOutcome.NOT_SHOWN, code)
+        // Give back exactly what this trigger charged.
+        state = state.copy(
+            lastTriggerAt = chargedLastTriggerAt,
+            lastTriggerPackage = chargedLastTriggerPackage,
+            countToday = chargedCountToday,
+        )
+        chargedLastTriggerAt = 0L
+        chargedLastTriggerPackage = null
+        chargedCountToday = 0
         persist()
         true
     }
@@ -643,6 +689,11 @@ class InterceptGuard(
             openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
             lastReason = reason, drill = null,
         )
+        // The event is over one way or another: whatever it charged is now this event's business,
+        // and a later NOT_SHOWN must not restore a stale snapshot of it.
+        chargedLastTriggerAt = 0L
+        chargedLastTriggerPackage = null
+        chargedCountToday = 0
     }
 
     /** The local day only moves forward: setting the clock back cannot refill the daily count. */
