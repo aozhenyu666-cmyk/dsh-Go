@@ -1,7 +1,7 @@
 # R4-LOGIC-CLOSURE-REPORT · 第三阶段：逻辑闭环与交付加固
 
 **集成分支** `integration/r4-logic-closure-2026-11-01`
-**HEAD** `e2cf428e9d0fe5c1aabe39b7ca8a7b39d34ed940`（已推 origin，非 force）
+**HEAD** `8810464e5eb3c49102c76ec544dbd8840cab704f`（已推 origin，非 force）
 **基线** `integration/r4-hardening-2026-11-01` @ `ac04b388b7ebe8c400a5907c9116797e7d539eda`
 
 开工前核对：origin HEAD 与本地 `hard` worktree 一致（`ac04b38`），工作区干净，受保护分支未动。**没有 reset、没有覆盖任何后续提交。**
@@ -26,8 +26,8 @@
 | `fix/r4-m1-logic-2026-11-01` | `e7f5d0a5fdc6513eacc4f872641665c9d33d7348` |
 | `fix/r4-m2-ledger-2026-11-01` | `701451beb10b3aba5c5ed8b759f52a518d897070` |
 | `fix/r4-m3-config-2026-11-01` | `0b38713841964f8dfa33e440855af7475f1b8ec6` |
-| `fix/r4-dev-regression-build-2026-11-01` | 见 §9（DEV 线本轮为 PARTIAL，见 §九） |
-| `integration/r4-logic-closure-2026-11-01` | `e2cf428e9d0fe5c1aabe39b7ca8a7b39d34ed940` |
+| `fix/r4-dev-regression-build-2026-11-01` | `51c0083b51572eb43f8eea09f748e860c0c49dac` |
+| `integration/r4-logic-closure-2026-11-01` | `8810464e5eb3c49102c76ec544dbd8840cab704f` |
 
 ---
 
@@ -71,6 +71,7 @@
 | L2s 兼容测试（lead 亲做） | — | `1ee619b` |
 | M2 | `701451beb10b3aba5c5ed8b759f52a518d897070` | `a4eb125` |
 | M3 | `0b38713841964f8dfa33e440855af7475f1b8ec6` | `e2cf428` |
+| DEV | `51c0083b51572eb43f8eea09f748e860c0c49dac` | `6120f28` + `ea932c9` + `8810464` |
 
 ---
 
@@ -153,6 +154,22 @@ ONLY in baseline (disappeared): 1
      `fake_async` 下 `DshConnection._exchange` 留下 **120 秒 Pending timer**，
      报 "A Timer is still pending even after the widget tree was disposed"。
 4. **分类**：两者都是 **既有测试缺陷**（flaky / fake_async 泄漏），**不属于本轮新增**，也不属于 R3→R4 的代码差异。
+
+
+### 5.5 DEV 的独立对跑（与 lead 分别做，结论一致）
+
+DEV 在同一会话、同一 Flutter 3.47.7、同一 `pubspec.lock` 下各跑一次全量：
+
+| 树 | 通过 | 跳过 | 失败 | 失败名 |
+|---|---|---|---|---|
+| `hard` @ ac04b38 | +7331 | ~372 | **−969** | 968 条 |
+| `wt-dev` @ 69e36ff | +7321 | ~372 | **−969** | 968 条 |
+
+**双向差集 0 条 → 本轮零新增失败。**
+
+**「970=970」这个说法正式作废**：同一 commit 的两次全量就不同
+（`HARD-full-ft.log` 与 `HARD-full-ft2.log` 都是 hard@ac04b38，缺的却是**不同的** session_sync 用例）。
+数量相等从来不是证据，集合才是。
 
 **未做的事（明确声明）**：**没有**为了让测试通过去放宽 `PluginConfigScope` 的任何安全限制，**没有**改任何测试预期。
 
@@ -334,7 +351,7 @@ $ strings libproot.so | grep -E '5\.1\.107|l2s'
 `L2sMigration.chain()` **从不解析 store 名字**，它顺着符号链接走到普通文件为止。
 `.98` 是两跳、`.101` 是一跳，两者终点都是普通文件，所以同一套遍历都能转。
 
-### 9.3 测试（Linux 非 root，23/23 OK）
+### 9.3 测试（Linux 非 root，28/28 OK）
 
 | 测试 | 覆盖 |
 |---|---|
@@ -354,7 +371,23 @@ $ strings libproot.so | grep -E '5\.1\.107|l2s'
 不够确定就原样不动、store 保持非空，让 `DirectLaunch.compatibilityReason` 继续选择兼容启动
 （那条路径下 PRoot 还能读到每个名字）。**猜一下比让用户用能工作的启动器更糟。**
 
-### 9.5 默认版本变更
+### 9.5 DEV 用真实二进制复现了断链缺陷
+
+旧代码在同一复现上的表现（这是最有力的证据）：
+
+```
+旧：Done(links=0, removed=2)  store=[]  compatibilityReason=null  两个名字都读不出
+新：Done(links=2, removed=0, repaired=1)                          两个名字都读回 PRECIOUS
+```
+
+`compatibilityReason=null` 意味着下次**直接启动**——而名字全指向空气。
+这不只是"记账不准"，是**静默的数据丢失**。
+
+顺带修掉一处只有 Gradle 编译才暴露的问题：`Files.readString` 是 Java 11 API，
+单测编译对着 `android.jar`（API 35）时**不存在**，三条新断言改成读字节。
+**这是"读代码看不出来、必须真编译"的又一个例子。**
+
+### 9.6 默认版本变更
 
 ```diff
 -PROOT_VERSION="${PROOT_VERSION:-5.1.107.98}"
@@ -380,6 +413,7 @@ $ strings libproot.so | grep -E '5\.1\.107|l2s'
 | PROOT `.101` 在真机上跑一次真实旧数据迁移 | 需要一台已装 `.98` 运行时的手机 |
 | b23.tv 真实短链跳转、并发压测 | 未做 |
 | 桌面 App 整机装载 partner / bili 插件 | 需改用户 profile 并重启桌面版，超出分支范围 |
+| **`:app:testArm64DebugUnitTest` 真正执行** | 本机 `No tests found for given includes`；**未改动的基线树上同样如此**。所以 Android 单测只到「Gradle 编译通过」（`:app:compileArm64DebugKotlin` 与 `:app:compileArm64DebugUnitTestKotlin` 均 BUILD SUCCESSFUL），执行这一步记 NOT_TESTED |
 
 ### 10.2 PARTIAL（做到了多少，差在哪）
 
@@ -416,7 +450,7 @@ $ strings libproot.so | grep -E '5\.1\.107|l2s'
 | 4 | **M2 不把未执行插件显示成健康** | **PASS** | `healthy = callable && runs>0 && ok`；未跑过显示"尚未验证实际执行"；50/50 测试 |
 | 5 | **M3 配置页面修改确实影响运行行为** | **PASS** | 真 DSH 0.2.1-rc.2 + 真 ConfigEditor.edit + 真重启：15/15 |
 | 6 | **Flutter 失败集合差异已解释** | **PASS** | 对照实验：两树 blob 相同、行为相同、`--concurrency=1` 一致；定性为既有测试非确定性 |
-| 7 | **PROOT .101 迁移测试通过** | **PASS** | 23/23（Linux 非 root），含 5 项 .101 专项；默认已改为 .101 |
+| 7 | **PROOT .101 迁移测试通过** | **PASS** | 28/28（Linux 非 root），含 5 项 .101 专项 + 断链修复复现；默认已改为 .101 |
 | 8 | **文档 SHA 与远端一致** | **PASS** | 见 §一，全部 `git ls-remote` 核对 |
 
 ### PARTIAL
