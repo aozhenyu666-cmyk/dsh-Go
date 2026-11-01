@@ -38,8 +38,18 @@ object InterceptKernel {
             }
     }
 
-    fun open(dir: File, clock: () -> Long, ids: () -> String): Opened {
-        val snapshot = AtomicJsonFile(File(dir, InterceptRepository.FILE_NAME));
+    /**
+     * @param snapshotStore how to wrap the snapshot file. Defaults to the real [AtomicJsonFile];
+     *   tests inject a wrapper that can fail a write, which is the only way to exercise the
+     *   commit-failure path through the production entry point instead of through a hand-built guard.
+     */
+    fun open(
+        dir: File,
+        clock: () -> Long,
+        ids: () -> String,
+        snapshotStore: (File) -> SnapshotStore = { AtomicJsonFile(it) },
+    ): Opened {
+        val snapshot = snapshotStore(File(dir, InterceptRepository.FILE_NAME));
         val legacyGuard = File(dir, "guard.json").let { if (it.exists()) AtomicJsonFile(it) else null }
         val legacyLedger = File(dir, "ledger.json").let { if (it.exists()) AtomicJsonFile(it) else null }
 
@@ -53,7 +63,7 @@ object InterceptKernel {
 
     /** 正常路径：一份快照，一个事务所有者。 */
     private fun onSnapshot(
-        snapshot: AtomicJsonFile,
+        snapshot: SnapshotStore,
         clock: () -> Long,
         ids: () -> String,
         migration: InterceptMigration.Result,

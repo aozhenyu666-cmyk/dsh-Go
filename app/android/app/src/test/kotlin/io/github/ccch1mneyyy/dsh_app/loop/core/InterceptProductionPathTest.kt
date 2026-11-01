@@ -89,4 +89,130 @@ class InterceptProductionPathTest {
         assertTrue("the whitelist survived", bili in again.guard.config.whitelist)
         assertNull("and nothing was left in an error state", again.guard.storageError)
     }
+
+    // ---- F2: a failed commit must not leave memory ahead of the disk --------------------
+    //
+    // Commit failure is injected at the store, but everything is still built by InterceptKernel.open
+    // on a real temp directory: the point is to exercise the same seam production uses.
+
+    /** Wraps the real snapshot file and can refuse the next write. */
+    private class FailingStore(private val real: SnapshotStore) : SnapshotStore {
+        var failNextWrite = false
+        var writes = 0
+        override fun read(): SnapshotStore.Read = real.read()
+        override fun write(map: Map<String, Any?>) {
+            writes++
+            if (failNextWrite) {
+                failNextWrite = false
+                throw java.io.IOException("injected write failure")
+            }
+            real.write(map)
+        }
+    }
+
+    private class Rig(val dir: File, val store: FailingStore, val opened: InterceptKernel.Opened)
+
+    private fun openWithFaults(dir: File): Rig {
+        var created: FailingStore? = null
+        val o = InterceptKernel.open(dir, { wall }, { "evt-" + (++seq) }) { f ->
+            FailingStore(AtomicJsonFile(f)).also { created = it }
+        }
+        return Rig(dir, created!!, o)
+    }
+
+    @Test
+    fun a_failed_release_rolls_back_and_returns_false() {
+        val rig = openWithFaults(tmpDir())
+        configure(rig.opened.guard)
+        val b = trigger(rig.opened.guard)
+        assertTrue(rig.opened.guard.onPageShown(b.eventId, wall))
+
+        val configBefore = rig.opened.guard.config
+        val stateBefore = rig.opened.guard.state
+        val ledgerBefore = rig.opened.ledger.state
+        val appliedBefore = rig.opened.ledger.appliedIds()
+
+        rig.store.failNextWrite = true
+        val ok = rig.opened.guard.onReleased(b.eventId, InterceptGuard.RELEASE_WHITELIST, wall + 1_000L)
+
+        assertTrue("a commit that did not land must report failure", !ok)
+        assertEquals("config rolled back", configBefore, rig.opened.guard.config)
+        assertEquals("guard state rolled back", stateBefore, rig.opened.guard.state)
+        assertEquals("ledger state rolled back", ledgerBefore, rig.opened.ledger.state)
+        assertEquals("applied ids rolled back", appliedBefore, rig.opened.ledger.appliedIds())
+    }
+
+    @Test
+    fun a_failed_exit_rolls_back_and_returns_false() {
+        val rig = openWithFaults(tmpDir())
+        configure(rig.opened.guard)
+        val b = trigger(rig.opened.guard)
+        assertTrue(rig.opened.guard.onPageShown(b.eventId, wall))
+        val stateBefore = rig.opened.guard.state
+        val ledgerBefore = rig.opened.ledger.state
+
+        rig.store.failNextWrite = true
+        assertTrue("an exit that did not land must report failure", !rig.opened.guard.onExited(b.eventId, wall + 1_000L))
+        assertEquals(stateBefore, rig.opened.guard.state)
+        assertEquals(ledgerBefore, rig.opened.ledger.state)
+    }
+
+    @Test
+    fun a_failed_settings_pause_rolls_back_and_returns_false() {
+        val rig = openWithFaults(tmpDir())
+        configure(rig.opened.guard)
+        val configBefore = rig.opened.guard.config
+        val ledgerBefore = rig.opened.ledger.state
+
+        rig.store.failNextWrite = true
+        assertTrue("a pause that did not land must report failure", !rig.opened.guard.onPaused(null, 60_000L, wall))
+        assertEquals("the pause window was not applied", configBefore, rig.opened.guard.config)
+        assertEquals(ledgerBefore, rig.opened.ledger.state)
+    }
+
+    @Test
+    fun a_failed_set_config_rolls_back_and_reports_the_old_one() {
+        val rig = openWithFaults(tmpDir())
+        configure(rig.opened.guard)
+        val before = rig.opened.guard.config
+
+        rig.store.failNextWrite = true
+        val returned = rig.opened.guard.setConfig(before.copy(enabled = false), wall + 1_000L)
+
+        assertEquals("setConfig must hand back the config that is still in force", before, returned)
+        assertEquals(before, rig.opened.guard.config)
+    }
+
+    @Test
+    fun a_failed_drill_tap_rolls_back_and_returns_false() {
+        val rig = openWithFaults(tmpDir())
+        configure(rig.opened.guard)
+        val b = trigger(rig.opened.guard)
+        assertTrue(rig.opened.guard.onPageShown(b.eventId, wall))
+        val stateBefore = rig.opened.guard.state
+
+        rig.store.failNextWrite = true
+        assertTrue(
+            "a drill tap that did not land must report failure",
+            !rig.opened.guard.tapDrill(b.eventId, b.drill.candidates.first()),
+        )
+        assertEquals(stateBefore, rig.opened.guard.state)
+    }
+
+    @Test
+    fun a_failed_unavailable_rolls_back_and_returns_false() {
+        val rig = openWithFaults(tmpDir())
+        configure(rig.opened.guard)
+        val b = trigger(rig.opened.guard)
+        val stateBefore = rig.opened.guard.state
+        val ledgerBefore = rig.opened.ledger.state
+
+        rig.store.failNextWrite = true
+        assertTrue(
+            "a NOT_SHOWN that did not land must report failure",
+            !rig.opened.guard.onUnavailable(b.eventId, "no_visibility_proof", wall + 1_000L),
+        )
+        assertEquals(stateBefore, rig.opened.guard.state)
+        assertEquals(ledgerBefore, rig.opened.ledger.state)
+    }
 }
