@@ -17,13 +17,19 @@
 
 export const LEDGER_VERSION = 2
 
-/** 四个状态的名字，给外面做遍历/校验用（顺序 = 面板上的显示顺序）。 */
+/** 六态的名字，给外面做遍历/校验用（顺序 = 面板上的显示顺序）。 */
 /**
- * 鍏€佺姸鎬? 纭寲杞帴鏃剁殑鍏€? 姣忎竴姝ラ兘鏄?竴涓笉鍚岀殑浜嬪疄锛? *   installed      宸插畨瑁?  璺熶笂鍐?  *   loaded         宸插姞杞?  apply() 鐪熺殑璺戣捣鏉ヤ簡
- *   toolRegistered 宸ュ叿宸叉敞鍐?  ctx.tools.register 杩斿洖浜?disposer
- *   available      鍙敤锛氬悓鏃舵弧瓒?installed + loaded + toolRegistered锛屽苟涓旀病鏈夊け璐ョ殑鎵ц
- *   executed       鐪熺殑鎵ц杩囷紙runs > 0锛夆€斺€?鏈夋病鏈夎窇杩囧拰璺戝緱瀵逛笉瀵规槸涓ゅ洖浜?
- *   failed         鎵ц繃涓斿け璐?  lastRunOk === false
+ * 六态（每一态是一个独立事实，任何一态都不能被别的态顶替）：
+ *   installed      已安装：包在磁盘上、被 profile 选中
+ *   loaded         已加载：apply() 真的跑起来了
+ *   toolRegistered 工具已注册：ctx.tools.register 返回了 disposer
+ *   available      可用：同时满足 installed + loaded + toolRegistered
+ *   executed       真的执行过（runs > 0）—— 「跑过没有」和「跑得对不对」是两件事
+ *   failed         执行过且失败：lastRunOk === false
+ *
+ * 另有一个**只有跑过且成功**才成立的 derived 标志 verified：
+ * 「已加载 / 可以调用」不等于「验证过能跑」。没跑过的插件必须显示
+ * 「尚未验证实际执行」，不许算成健康 —— 假绿比不显示更坏。
  */
 export const STATES = ['installed', 'loaded', 'toolRegistered', 'available', 'executed', 'failed']
 
@@ -37,6 +43,7 @@ export function emptyEntry(plugin = '') {
     available: null,
     executed: null,
     failed: null,
+    verified: null,
     lastRunOk: null,
     lastRunAt: null,
     lastRunCode: null,
@@ -69,9 +76,6 @@ export function normalizeEntry(raw, plugin = '') {
   out.installed = tri(raw.installed)
   out.loaded = tri(raw.loaded)
   out.toolRegistered = tri(raw.toolRegistered)
-  // 鍏€佺殑鍚庝袱浣?*鐢卞墠闈紑鍜岃绠楄繃绋嬪緱鍑?*锛屼笉淇′换鍏ュ弬锛屼篃涓嶈鎵嬪啓銆?  out.executed = out.runs > 0 ? true : null
-  out.failed = out.runs > 0 ? out.lastRunOk === false : null
-  out.available = out.installed === true && out.loaded === true && out.toolRegistered === true ? true : (out.installed === false || out.loaded === false || out.toolRegistered === false ? false : null)
   out.lastRunOk = tri(raw.lastRunOk)
   out.lastRunAt = Number.isFinite(raw.lastRunAt) ? raw.lastRunAt : null
   out.lastRunCode = text(raw.lastRunCode)
@@ -79,6 +83,14 @@ export function normalizeEntry(raw, plugin = '') {
   out.runs = nonNegInt(raw.runs)
   out.fails = Math.min(nonNegInt(raw.fails), nonNegInt(raw.runs))
   out.updatedAt = Number.isFinite(raw.updatedAt) ? raw.updatedAt : null
+  // 后三态**由前面的字段算出来**，不信任入参，也不许手写
+  out.executed = out.runs > 0 ? true : null
+  out.failed = out.runs > 0 ? out.lastRunOk === false : null
+  out.available = out.installed === true && out.loaded === true && out.toolRegistered === true
+    ? true
+    : (out.installed === false || out.loaded === false || out.toolRegistered === false ? false : null)
+  // verified：只有「真跑过且上次成功」才成立。没跑过 = null（尚未验证），不是 true。
+  out.verified = out.runs > 0 && out.lastRunOk === true ? true : null
   // 「还没跑过」和「失败」是两件事：runs=0 时 lastRunOk 只能是 null
   if (out.runs === 0) {
     out.lastRunOk = null
@@ -189,9 +201,17 @@ export function markRun(entry, run) {
 }
 
 /**
- * 四态各自怎么读 —— 面板与状态条共用这一份，避免两处口径不一致。
+ * 六态各自怎么读 —— 面板与状态条共用这一份，避免两处口径不一致。
+ *
+ * **最要紧的一条**：healthy 只给「真跑通过」的插件。
+ * 装好了、加载了、工具也注册了，但一次都没执行过 —— 那叫
+ * 「已加载 / 可以调用 / 尚未验证实际执行」，**不叫健康**。
+ * 上一轮就是在这里把「没跑过」算成了健康，那是假绿。
+ *
  * @param {object} entry
- * @returns {{ installed: string, loaded: string, toolRegistered: string, lastRunOk: string, healthy: boolean, usable: boolean }}
+ * @returns {{ installed: string, loaded: string, toolRegistered: string, available: string,
+ *   executed: string, failed: string, verified: string, lastRunOk: string,
+ *   callable: boolean, healthy: boolean, usable: boolean, health: string, headline: string }}
  */
 export function describeEntry(entry) {
   const e = normalizeEntry(entry, entry?.plugin)
@@ -208,6 +228,30 @@ export function describeEntry(entry) {
       : '未知'
   const executed = e.runs === 0 ? '还没跑过' : `跑过 ${e.runs} 次`
   const failed = e.runs === 0 ? '还没跑过' : e.failed === true ? `失败 ${e.fails} 次` : '没有失败'
+  // verified 只有三种值，一个都不许含糊：没跑过 ≠ 成功
+  const verified = e.runs === 0
+    ? '尚未验证实际执行'
+    : e.lastRunOk === true
+      ? '已验证（真的跑通过）'
+      : '验证过，但上次失败'
+
+  /** 前三态齐 = 现在能调用它。这是「能不能叫」，不是「试过没有」。 */
+  const callable = e.installed === true && e.loaded === true && e.toolRegistered === true
+  /** 健康 = 能调用 **且** 真的跑成功过。少一样都不算。 */
+  const healthy = callable && e.runs > 0 && e.lastRunOk === true
+
+  const health = healthy
+    ? 'healthy'
+    : callable
+      ? (e.runs === 0 ? 'callable_unverified' : 'callable_last_failed')
+      : (e.installed === false || e.loaded === false || e.toolRegistered === false ? 'broken' : 'unknown')
+
+  const headline = healthy
+    ? '已加载 / 可以调用 / 已验证实际执行'
+    : callable
+      ? (e.runs === 0 ? '已加载 / 可以调用 / 尚未验证实际执行' : '已加载 / 可以调用 / 上次执行失败')
+      : '未就绪'
+
   return {
     installed: yesNo(e.installed),
     loaded: yesNo(e.loaded),
@@ -215,26 +259,39 @@ export function describeEntry(entry) {
     available,
     executed,
     failed,
+    verified,
     lastRunOk,
-    // 健康 = 前三态都 true 且上次不是失败。any null 判 false（不报假绿）。
-    healthy: e.installed === true && e.loaded === true && e.toolRegistered === true && e.lastRunOk !== false,
-    usable: e.installed === true && e.loaded === true && e.toolRegistered === true,
+    callable,
+    health,
+    headline,
+    healthy,
+    // usable 保持旧语义 = 现在能不能用（前三态齐），**不等于**健康。
+    usable: callable,
   }
 }
 
-/** 汇总：几成插件真的能用（给状态条一句话）。 */
+/**
+ * 汇总：几成插件真的**验证过能用**（给状态条一句话）。
+ *
+ * healthy 只数「跑成功过」的；另外单独数 callable（装上且能调用）与
+ * unverified（能调用但一次都没跑）—— 三个数分开报，不许把后两者并进 healthy。
+ */
 export function summarize(ledger) {
   const l = normalizeLedger(ledger)
   const names = Object.keys(l.plugins)
   const total = names.length
   let healthy = 0
   let failing = 0
+  let callable = 0
+  let unverified = 0
   for (const name of names) {
     const d = describeEntry(l.plugins[name])
     if (d.healthy) healthy += 1
+    if (d.callable) callable += 1
+    if (d.health === 'callable_unverified') unverified += 1
     if (l.plugins[name].lastRunOk === false) failing += 1
   }
-  return { total, healthy, failing }
+  return { total, healthy, failing, callable, unverified }
 }
 
 /**

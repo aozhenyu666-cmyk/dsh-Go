@@ -38,12 +38,17 @@ test('四态可以两两组合，互相不被覆盖', () => {
   markToolRegistered(e, { ok: true, at: NOW })
   assert.deepEqual([e.installed, e.loaded, e.toolRegistered, e.lastRunOk], [true, true, true, null])
 
-  // 前三态齐了但还没跑过 —— 这是最常见的正常状态，不能被当成失败
+  // 前三态齐了但还没跑过 —— 这是最常见的正常状态，**不能被当成失败**。
+  // 但它也**不是健康**：能调用 ≠ 验证过能跑。上一轮这里断言 healthy=true，那是假绿。
   assert.equal(e.lastRunOk, null)
   const d = describeEntry(e)
   assert.equal(d.lastRunOk, '还没跑过')
-  assert.equal(d.usable, true)
-  assert.equal(d.healthy, true, '还没跑过不算不健康')
+  assert.equal(d.usable, true, '前三态齐 = 现在能调用')
+  assert.equal(d.callable, true)
+  assert.equal(d.verified, '尚未验证实际执行', '没跑过必须明说「尚未验证」')
+  assert.equal(d.health, 'callable_unverified')
+  assert.equal(d.healthy, false, '没跑过 → 不算健康（这一条是本轮的核心修正）')
+  assert.equal(d.headline, '已加载 / 可以调用 / 尚未验证实际执行')
 
   markRun(e, { ok: true, at: NOW })
   assert.deepEqual([e.installed, e.loaded, e.toolRegistered, e.lastRunOk], [true, true, true, true])
@@ -217,4 +222,69 @@ test('looksInstalled：只看文件在不在，不猜能不能跑', () => {
   assert.equal(looksInstalled(exists, '/pkg', ''), true, '没声明 main 时，有 package.json 就算')
   assert.equal(looksInstalled(exists, '', 'x'), false)
   assert.equal(looksInstalled(null, '/pkg', 'x'), false, '注入的 exists 必须是函数')
+})
+
+// ── 5. 六态：健康必须要求「真跑通过」（本轮新增，防假绿）─────────────────────
+test('describeEntry：healthy 只在「真跑过且成功」时为 true', () => {
+  const e = emptyEntry('p')
+  markInstalled(e, { ok: true, at: NOW })
+  markLoaded(e, { at: NOW })
+  markToolRegistered(e, { ok: true, at: NOW })
+
+  // 能调用，但一次都没跑 —— 不是健康
+  let d = describeEntry(e)
+  assert.equal(d.callable, true)
+  assert.equal(d.healthy, false)
+  assert.equal(d.health, 'callable_unverified')
+  assert.equal(d.verified, '尚未验证实际执行')
+  assert.equal(d.executed, '还没跑过')
+
+  // 跑过一次失败 —— 更不是健康
+  markRun(e, { ok: false, code: 'E_TIMEOUT', message: '超时', at: NOW })
+  d = describeEntry(e)
+  assert.equal(d.healthy, false)
+  assert.equal(d.health, 'callable_last_failed')
+  assert.equal(d.verified, '验证过，但上次失败')
+
+  // 跑成功过 —— 这才叫健康
+  markRun(e, { ok: true, at: NOW + 1 })
+  d = describeEntry(e)
+  assert.equal(d.healthy, true, '真跑通过才是健康')
+  assert.equal(d.health, 'healthy')
+  assert.equal(d.verified, '已验证（真的跑通过）')
+  assert.equal(d.headline, '已加载 / 可以调用 / 已验证实际执行')
+})
+
+test('summarize：已验证 / 能调用 / 未验证 / 上次失败 四个数分别对', () => {
+  const l = emptyLedger()
+  const verified = emptyEntry('verified')
+  verified.installed = true; verified.loaded = true; verified.toolRegistered = true
+  markRun(verified, { ok: true, at: NOW })
+
+  const unverified = emptyEntry('unverified')
+  unverified.installed = true; unverified.loaded = true; unverified.toolRegistered = true
+
+  const failing = emptyEntry('failing')
+  failing.installed = true; failing.loaded = true; failing.toolRegistered = true
+  markRun(failing, { ok: false, code: 'E_NETWORK', message: '断了', at: NOW })
+
+  const broken = emptyEntry('broken')
+  broken.installed = true; broken.loaded = true; broken.toolRegistered = false
+
+  putEntry(l, verified); putEntry(l, unverified); putEntry(l, failing); putEntry(l, broken)
+  const s = summarize(l)
+  assert.equal(s.total, 4)
+  assert.equal(s.healthy, 1, '只有真跑通过的那个算已验证')
+  assert.equal(s.callable, 3, 'broken 的工具没注册上，不算能调用')
+  assert.equal(s.unverified, 1)
+  assert.equal(s.failing, 1)
+})
+
+test('verified 是派生字段：手写 true 也不算（不信任入参）', () => {
+  const e = normalizeEntry({ plugin: 'p', installed: true, loaded: true, toolRegistered: true, verified: true, runs: 0 }, 'p')
+  assert.equal(e.verified, null, '没跑过就是没验证过，手写不算')
+  const f = normalizeEntry({ plugin: 'f', installed: true, loaded: true, toolRegistered: true, verified: true, runs: 1, lastRunOk: false, lastRunAt: NOW }, 'f')
+  assert.equal(f.verified, null, '上次失败不算验证通过')
+  const g = normalizeEntry({ plugin: 'g', installed: true, loaded: true, toolRegistered: true, runs: 1, lastRunOk: true, lastRunAt: NOW }, 'g')
+  assert.equal(g.verified, true)
 })

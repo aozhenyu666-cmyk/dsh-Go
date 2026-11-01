@@ -23,6 +23,7 @@ export const CODES = {
   E_HTTP: 'B站返回了非 2xx',
   E_NOT_JSON: 'B站返回的不是 JSON（可能被网络中间层拦了）',
   E_BIZ: 'B站接口报了业务错误（视频不存在等）',
+  E_BANNED: 'B站把这个请求当成机器人挡了（-412）',
   E_NO_DATA: 'B站返回里没有视频数据',
   E_INTERNAL: '插件内部错误',
 }
@@ -37,6 +38,7 @@ export const HINTS = {
   E_HTTP: '多半是网络中间层 / 代理拦了请求，换个网络再试。',
   E_NOT_JSON: '可能连到了需要登录的网关或运营商劫持页；换个网络再试。',
   E_BIZ: '确认 BV 号没写错；视频可能已删除、私有或仅限特定地区。',
+  E_BANNED: 'B站的风控拦了这台机器的出口 IP。换网络（或等一会儿）再试；这不是 BV 号的问题。',
   E_NO_DATA: '接口通了但没给数据，稍后重试。',
   E_INTERNAL: '这是插件的 bug，请把错误信息连同 BV 号一起反馈。',
 }
@@ -200,6 +202,9 @@ function normalizeCover(pic) {
 
 export const DEFAULT_TIMEOUT_MS = 12000
 
+/** 浏览器形状的 UA。自造 UA 会被 B站风控判 -412（真机实测，与 BV 号无关）。 */
+export const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
 /** 拿一个可用的 fetch，没有就报 E_NO_FETCH —— 缺依赖必须说出来。 */
 export function resolveFetch(port) {
   if (typeof port === 'function') return port
@@ -235,20 +240,78 @@ export async function peek(input, options = {}) {
   const query = target.kind === 'bvid'
     ? 'bvid=' + encodeURIComponent(String(target.value))
     : 'aid=' + String(target.value)
-  const body = await getJson(VIEW_URL + '?' + query, { fetch: fetchImpl, timeoutMs, signal: options.signal })
+  const url = VIEW_URL + '?' + query
 
-  const code = isObject(body) ? num(body.code) : undefined
+  // 匿名指纹缓存：拿到过一次就复用，避免每次查询都多打一个请求。
+  // 只是匿名设备号，不含账号信息；进程重启就重新取，不做任何持久化。
+  let cookie = typeof options.cookie === 'string' && options.cookie !== '' ? options.cookie : cachedAnonymousCookie
+  const allowBootstrap = options.anonymousCookie !== false
+
+  let body = await getJson(url, { fetch: fetchImpl, timeoutMs, signal: options.signal, cookie })
+  let code = isObject(body) ? num(body.code) : undefined
+
+  // -412 = 风控把这次请求当机器人挡了。**懒补**匿名指纹后重试一次：
+  // 正常路径不多打任何请求；被挡了才去取设备号。取了还被挡 = 出口 IP 的事，
+  // 如实报 E_BANNED，绝不假装是「BV 号写错了」。
+  if (code === -412 && allowBootstrap) {
+    const fresh = await anonymousCookie({ fetch: fetchImpl, timeoutMs, signal: options.signal })
+    if (fresh !== undefined) {
+      const retry = await getJson(url, { fetch: fetchImpl, timeoutMs, signal: options.signal, cookie: fresh })
+      const retryCode = isObject(retry) ? num(retry.code) : undefined
+      if (retryCode !== -412) {
+        body = retry
+        code = retryCode
+        cachedAnonymousCookie = fresh
+        cookie = fresh
+      }
+    }
+  }
+
   if (code === undefined) throw new BiliError('E_NOT_JSON', '返回里没有 code 字段，不像 B站的接口')
+  if (code === -412) throw new BiliError('E_BANNED', 'B站返回 -412 request was banned（出口 IP 被风控）')
   if (code !== 0) throw new BiliError('E_BIZ', ('code=' + code + ' ' + (str(body.message) ?? '')).trim())
 
   return normalizeView(body.data, { fetchedAt: now(), requestedPage: target.page })
 }
 
-async function resolveShortLink(shortUrl, { fetch: fetchImpl, timeoutMs, signal }) {
+/**
+ * 匿名设备指纹接口。**这不是登录**：它发一个匿名 buvid3/buvid4 给未登录客户端，
+ * 不带任何账号、不带 token、不读用户的 cookies。
+ *
+ * 为什么必须有这一步（真实网络测出来的，不是猜的）：
+ * 直接请求 x/web-interface/view 且不带 cookie 时，B站返回
+ *   HTTP 200 + {"code":-412,"message":"request was banned"}
+ * 没有任何 UA / Referer 组合能绕过；带上这个接口发的匿名 buvid3 就立刻 200。
+ * 不打这一步 = 真机上一次都查不到，而单测因为 fetch 是打桩的，全绿却什么也没验证。
+ */
+const SPI_URL = 'https://api.bilibili.com/x/frontend/finger/spi'
+
+/** 匿名设备指纹（buvid3/buvid4）。进程内缓存，不含账号信息，不落盘。 */
+let cachedAnonymousCookie
+
+/** 从一个 fetch 实现里换一份匿名 cookie。失败返回 undefined（不抛，让主流程自己报错）。 */
+async function anonymousCookie({ fetch: fetchImpl, timeoutMs, signal }) {
+  try {
+    const body = await getJson(SPI_URL, { fetch: fetchImpl, timeoutMs, signal, cookie: null })
+    const data = isObject(body) ? body.data : undefined
+    const b3 = isObject(data) ? str(data.b_3) : undefined
+    const b4 = isObject(data) ? str(data.b_4) : undefined
+    if (b3 === undefined) return undefined
+    return b4 === undefined ? 'buvid3=' + b3 : 'buvid3=' + b3 + '; buvid4=' + b4
+  } catch {
+    return undefined
+  }
+}
+
+async function resolveShortLink(shortUrl, { fetch: fetchImpl, timeoutMs, signal, cookie }) {
   const composed = composeSignal(signal, timeoutMs)
   let res
   try {
-    res = await fetchImpl(shortUrl, { redirect: 'follow', signal: composed.signal })
+    res = await fetchImpl(shortUrl, {
+      redirect: 'follow',
+      signal: composed.signal,
+      headers: { 'user-agent': BROWSER_UA, ...(typeof cookie === 'string' && cookie !== '' ? { cookie } : {}) },
+    })
   } catch (error) {
     throw classifyThrow(error, signal)
   }
@@ -280,17 +343,21 @@ function classifyThrow(error, callerSignal) {
  * GET 一个 JSON。五类失败各有码：取消 / 超时 / 网络 / HTTP / 非 JSON。
  * @returns {Promise<unknown>}
  */
-export async function getJson(url, { fetch: fetchImpl, timeoutMs, signal }) {
+export async function getJson(url, { fetch: fetchImpl, timeoutMs, signal, cookie }) {
   const composed = composeSignal(signal, timeoutMs)
   let res
   try {
     res = await fetchImpl(url, {
       signal: composed.signal,
       headers: {
-        // B站会拒掉没有 UA 的请求；Referer 也照浏览器带上。不带 cookie，不登录。
-        'user-agent': 'Mozilla/5.0 (Linux; Android 14) dsh-go-bili-peek/0.1',
+        // UA 必须是**浏览器形状**的：自造的 `dsh-go-bili-peek/0.1` 会被风控直接判 -412。
+        // （实测：同 IP 下浏览器 UA 200，自造 UA 412 —— 与 BV 号无关。）
+        'user-agent': BROWSER_UA,
         referer: 'https://www.bilibili.com/',
-        accept: 'application/json',
+        accept: 'application/json, text/plain, */*',
+        'accept-language': 'zh-CN,zh;q=0.9',
+        // 只带**匿名**指纹，不带任何账号 cookie。没有就不带这个头。
+        ...(typeof cookie === 'string' && cookie !== '' ? { cookie } : {}),
       },
     })
   } catch (error) {
@@ -300,9 +367,11 @@ export async function getJson(url, { fetch: fetchImpl, timeoutMs, signal }) {
   if (!isObject(res)) throw new BiliError('E_NETWORK', 'fetch 返回的不是 Response')
 
   const status = num(res.status)
-  if (res.ok === false && status !== undefined) throw new BiliError('E_HTTP', 'HTTP ' + status)
-  if (res.ok === false) throw new BiliError('E_HTTP', 'HTTP 非 2xx')
 
+  // ⚠️ 顺序很要紧：B站的风控拒绝是 **HTTP 412 且响应体里带 {"code":-412}**。
+  // 老代码先判 res.ok === false 就抛 E_HTTP，于是永远读不到那个 -412，
+  // 匿名指纹的重试路径一次都不会触发 —— 真实网络下 100% 查不到，而打桩测试全绿。
+  // 所以：先读 body，再把「非 2xx」和「body 里的业务码」放在一起判。
   let text
   try {
     text = typeof res.text === 'function' ? await res.text() : JSON.stringify(res)
@@ -312,6 +381,18 @@ export async function getJson(url, { fetch: fetchImpl, timeoutMs, signal }) {
   // 超时可能落在读完 headers 之后
   if (composed.timeout.aborted && !(signal != null && signal.aborted === true)) {
     throw new BiliError('E_TIMEOUT', '超过 ' + timeoutMs + ' ms')
+  }
+
+  if (res.ok === false) {
+    // 412 交给上层按 body 里的 -412 归类；其它非 2xx 就是 HTTP 错。
+    if (status === 412) {
+      try {
+        const parsed = JSON.parse(String(text))
+        if (isObject(parsed) && num(parsed.code) === -412) return parsed
+      } catch {}
+      throw new BiliError('E_BANNED', 'HTTP 412（响应体不是 JSON）')
+    }
+    throw new BiliError('E_HTTP', status !== undefined ? 'HTTP ' + status : 'HTTP 非 2xx')
   }
   if (typeof text !== 'string') throw new BiliError('E_NOT_JSON', '响应体不是文本')
 

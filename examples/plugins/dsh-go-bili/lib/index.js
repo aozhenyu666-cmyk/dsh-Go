@@ -33,6 +33,7 @@ import { callPeek, compact, hhmmss } from './bili.mjs'
 import { peekCard, peekPanel, stripData } from './views.mjs'
 import { emptyLedger, normalizeLedger, recordRun, describe } from './ledger.mjs'
 
+
 export const name = 'dsh-go-bili'
 
 /** 工具卡上限：它会被写进对话记录，必须小。 */
@@ -89,7 +90,7 @@ export const outputSchema = {
   additionalProperties: false,
   properties: {
     ok: { type: 'boolean', required: true, description: '查到了 true；失败 false（失败也是正常结果，不是异常）' },
-    code: { type: 'string', required: true, description: 'OK / E_INPUT / E_NO_FETCH / E_TIMEOUT / E_ABORTED / E_NETWORK / E_HTTP / E_NOT_JSON / E_BIZ / E_NO_DATA / E_INTERNAL' },
+    code: { type: 'string', required: true, description: 'OK / E_INPUT / E_NO_FETCH / E_TIMEOUT / E_ABORTED / E_NETWORK / E_HTTP / E_NOT_JSON / E_BANNED / E_BIZ / E_NO_DATA / E_INTERNAL' },
     message: { type: 'string', required: true, description: '给人看的一句话' },
     hint: { type: 'string', description: '失败时下一步怎么做' },
     source: { type: 'string', required: true, description: '数据来源接口' },
@@ -133,6 +134,35 @@ export function peekText(value = {}) {
     'url ' + String(value.url ?? ''),
     'source: ' + String(value.source ?? ''),
   ].filter((x) => x !== '').join('\n')
+}
+
+// ── 统一能力登记服务（跨插件契约）─────────────────────────────────────────────
+/**
+ * 服务名：cap-ledger 用 ctx.provide 提供的那个登记接口。
+ * 契约的**生产方**在 examples/plugins/dsh-go-cap-ledger/lib/registry.mjs，
+ * 这里只放一个字符串常量 + 一个读法 —— 插件之间不做源码级 import，
+ * 否则 bili 就没法单独安装了。两边的字面量由 test/unified.test.mjs 守住不许漂移。
+ */
+export const REGISTRY_SERVICE = 'dshGoCapabilityLedger'
+
+/**
+ * 读登记服务；宿主没提供就是 undefined。
+ * 走 ctx.get()（cordis reflect.ts:233，设计上就是「不要求 inject 的读」），
+ * 并包住 try —— 没有 inject 时直接读 ctx.xxx 会抛（reflect.ts:144）。
+ */
+export function readRegistry(ctx, name = REGISTRY_SERVICE) {
+  if (ctx === null || typeof ctx !== 'object') return undefined
+  try {
+    if (typeof ctx.get === 'function') {
+      const got = ctx.get(name)
+      if (got !== undefined && got !== null) return got
+    }
+  } catch {}
+  try {
+    const direct = ctx[name]
+    if (direct !== undefined && direct !== null) return direct
+  } catch {}
+  return undefined
 }
 
 // ── 宿主探测：**不用 ctx.x 直接读**（没 inject 的 service 会抛）────────────────
@@ -204,6 +234,10 @@ export function apply(ctx, options = {}) {
   const fsImpl = options.fs ?? fs
   const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : undefined
   const ledgerPath = options.ledgerPath === undefined ? ledgerPathFor() : options.ledgerPath
+
+  // ⓪ 统一台账服务：宿主上有就用（cap-ledger 提供的），没有就是 undefined。
+  //    在 apply 时读一次；服务后来才提供时由 ctx.inject 回调补一次（见下面 ⑨）。
+  let unified = readRegistry(ctx)
 
   // ① 台账：installed / loaded 由「我们真的跑到这里」判定；toolRegistered 等注册结果
   const loaded = loadState(ledgerPath, fsImpl)
@@ -279,6 +313,20 @@ export function apply(ctx, options = {}) {
     while (recent.length > RECENT_MAX) recent.pop()
     scheduleSave()
     notify()
+    // ⑤ 统一台账：宿主上有 cap-ledger 提供的登记服务就**同时**写进那一份。
+    //    没有就只是本地这一份（面板会显示「未接入统一台账」），不猜、不假装。
+    if (unified !== undefined) {
+      try {
+        unified.record(name, {
+          ok: result.ok === true,
+          ...(typeof result.code === 'string' ? { code: result.code } : {}),
+          ...(typeof result.message === 'string' ? { message: result.message } : {}),
+          at: now(),
+        })
+      } catch (error) {
+        console.error('[bili] 写统一台账失败：' + (error instanceof Error ? error.message : String(error)))
+      }
+    }
     return result
   }
 
@@ -332,6 +380,40 @@ export function apply(ctx, options = {}) {
     ledger.lastRunMessage = '工具注册失败：' + registerError
   }
   ledger.updatedAt = now()
+
+  /**
+   * 把「已安装 / 已加载 / 工具是否注册成功」这三件事实推给统一台账。
+   * **只推事实**：registration 成功不写成「跑过一次」，失败才带原因。
+   */
+  const pushRegistration = (registry) => {
+    if (registry === undefined || registry === null) return false
+    try {
+      registry.register(name, {
+        installed: true,
+        loaded: true,
+        toolRegistered,
+        ...(registerError === undefined ? {} : { error: registerError }),
+      })
+      return true
+    } catch (error) {
+      console.error('[bili] 登记到统一台账失败：' + (error instanceof Error ? error.message : String(error)))
+      return false
+    }
+  }
+  let registeredUnified = pushRegistration(unified)
+
+  // ⑨ 服务晚到也能接上：cap-ledger 若是比本插件后加载，ctx.inject 的回调会在
+  //    服务 provide 的那一刻触发（cordis registry.ts:176 + reflect.ts:314 notify）。
+  if (unified === undefined && typeof ctx.inject === 'function') {
+    try {
+      ctx.inject([REGISTRY_SERVICE], (serviceCtx) => {
+        unified = readRegistry(serviceCtx)
+        registeredUnified = pushRegistration(unified)
+      })
+    } catch (error) {
+      console.error('[bili] 注入统一台账服务失败：' + (error instanceof Error ? error.message : String(error)))
+    }
+  }
 
   // ④ 清理：ctx.effect 存在才用（不存在也不让插件起不来）
   if (typeof ctx.effect === 'function') {
@@ -423,6 +505,14 @@ export function apply(ctx, options = {}) {
     /** 直接跑一次查询（不经过模型）；测试和手工排查用 */
     peek: (input) => run(input, undefined),
     toolRegistered: () => toolRegistered,
+    /** 统一台账到底接上没接上 —— 每次都现读，不缓存一句过期的结论。 */
+    unified: () => (unified === undefined ? null : { plugin: name, registered: registeredUnified }),
+    /** 重新探一次统一台账服务（宿主后加载时手工补接）。 */
+    attachUnified: () => {
+      unified = readRegistry(ctx)
+      registeredUnified = pushRegistration(unified)
+      return registeredUnified
+    },
     registerError: () => registerError,
     ledgerPath,
     describe: () => describe(ledger),

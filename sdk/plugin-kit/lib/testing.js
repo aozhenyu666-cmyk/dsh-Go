@@ -136,12 +136,40 @@ export function createTestHost(options = {}) {
 
   const has = (name) => (name === 'dshGo' ? options.bridge !== false : name in services)
 
+  /**
+   * Real cordis lets a plugin publish a service with `ctx.provide(name, value)` and read it
+   * with `ctx.get(name)` (cordis/src/reflect.ts:277 and :233). The host half of a plugin may
+   * legally depend on that (e.g. one plugin registering capabilities for another), so the
+   * stand-in has to offer it too — otherwise a plugin that provides a service looks broken
+   * here while working on a real host.
+   */
+  function provide(ctx, name, value) {
+    if (typeof name !== 'string' || name === '') throw new TypeError('ctx.provide: name must be a non-empty string')
+    if (has(name)) throw new Error('service "' + name + '" has already been registered')
+    services[name] = value
+    // Wake every callback that was parked waiting for this service.
+    for (const item of [...pending]) {
+      if (!item.missing.includes(name)) continue
+      const stillMissing = item.missing.filter((n) => n !== name && !has(n))
+      if (stillMissing.length > 0) {
+        item.missing = stillMissing
+        continue
+      }
+      pending.splice(pending.indexOf(item), 1)
+      item.callback(makeCtx(item.missing.includes('dshGo') ? { dshGo } : {}))
+    }
+    return () => { delete services[name] }
+  }
+
   /** A minimal cordis-like context. */
   function makeCtx(extra = {}) {
     const ctx = {
       ...services,
       ...extra,
       get: (name) => (name === 'dshGo' && options.bridge !== false ? dshGo : services[name]),
+      provide(name, value) {
+        return provide(ctx, name, value)
+      },
       inject(deps, callback) {
         const names = Array.isArray(deps) ? deps : Object.keys(deps ?? {})
         const missing = names.filter((n) => !has(n))
