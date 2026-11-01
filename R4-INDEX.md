@@ -234,7 +234,7 @@ python -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi arm64-v8
 |---|---|---|
 | 全量回归 · 本轮分支 | `D:\code\R4\B-full-hard.log` | `+7331 ~372 −969`，失败名 968 条 |
 | 全量回归 · R3 基线 | `D:\code\R4\B-full-wtdev.log` | `+7321 ~372 −969`，失败名 968 条 |
-| 集合差集 | 见 `R4-HARDENING-REPORT.md` §9 | **双向差集 0 条** |
+| 集合差集 | 见 `R4-HARDENING-REPORT.md` §9 | **双向差集 0 条**（−969 与 968 条差 1 = `-r compact` 截断残留的一行 `loading <日志>`，不是测试） |
 | Flutter analyze（本轮分支） | `D:\code\R4\D-analyze-ldev.log` | `No issues found!` |
 | 内核 JVM 测试（本轮分支） | `D:\code\R4\ldev-loop-test.log` | `PASS 172 tests` |
 | L2sMigrationTest（Linux 非 root） | `D:\code\R4\C-proot-all-atomic.log` | `OK (23 tests)` |
