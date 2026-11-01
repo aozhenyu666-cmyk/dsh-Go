@@ -119,14 +119,35 @@ class InterceptPageActivity : Activity() {
         if (++attempts <= MAX_PROOF_ATTEMPTS) main.postDelayed(proof, PROOF_STEP_MS)
     }
 
-    /** Leaving the page without choosing anything is an exit: the person went away from the app. */
+    /**
+     * Back is the emergency exit, and only that: it never passes the person through and it never
+     * counts as training. Ordinary Android apps cannot stop the Home gesture or a system-level
+     * leave — that is stated plainly rather than pretended otherwise — but a system leave must
+     * never be recorded as a pass, which is what this and onStop together guarantee.
+     */
     @Deprecated("Activity back handling; targetSdk 28")
     override fun onBackPressed() = exit()
 
     override fun onStop() {
         super.onStop()
+        // Leaving is an exit only when the page was ever on screen. A page that is stopped before
+        // the visibility proof never blocked anybody, so recording EXITED for it invents an act the
+        // person did not perform — recovery settles those as NOT_SHOWN instead.
+        if (reported || isChangingConfigurations || isFinishing) return
+        if (!shown) {
+            // Never proved visible: hand this back to the guard as "could not be shown".
+            eventId?.let { id -> InterceptRuntime.onUnavailable(id, "stopped_before_shown") }
+            reported = true
+            return
+        }
         val screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
-        if (!reported && !isChangingConfigurations && screenOn && !isFinishing) exit()
+        if (!screenOn) {
+            // Screen off is not the person leaving: they are not looking at anything. The page is
+            // simply no longer in front; the guard keeps the interception open.
+            return
+        }
+        if (!InterceptRuntime.onExited(eventId ?: return)) return
+        reported = true
     }
 
     override fun onDestroy() {
@@ -139,24 +160,55 @@ class InterceptPageActivity : Activity() {
     }
 
 
+    /**
+     * One of the ways through. **The guard decides, not this page.**
+     *
+     * `InterceptRuntime.onReleased` returns false when the door does not exist (an unconfigured
+     * authorization rule, an unsolved drill, a stale eventId). Round 4 finished the page anyway, so
+     * a refused release still looked like a successful one — the person saw the page disappear and
+     * reasonably believed they had got through. The page now stays up, says why, and keeps
+     * `reported` false so the person can choose another door.
+     */
     private fun release(how: String) {
         val id = eventId ?: return
         if (reported) return
-        reported = true
         main.removeCallbacks(proof)
-        val opened = InterceptRuntime.onReleased(id, how)
+        val accepted = InterceptRuntime.onReleased(id, how)
+        if (!accepted) {
+            // Refused: keep the page (and the interception) exactly as it was.
+            render()
+            showRefusal(how)
+            return
+        }
+        reported = true
         val pkg = packageName
         if (!isFinishing) finish()
-        // A release is meant to work: if the guard accepted it, put the app back in front.
-        if (opened && pkg != null) InterceptRuntime.openTarget(this, pkg)
+        // A release is meant to work: it did, so put the app back in front.
+        if (pkg != null) InterceptRuntime.openTarget(this, pkg)
+    }
+
+    /** Says why a door did not open, instead of silently closing and looking like success. */
+    private fun showRefusal(how: String) {
+        val why = when (how) {
+            InterceptRuntime.RELEASE_TRAINING ->
+                if (drill?.solved == true) R.string.intercept_refused_dwell else R.string.intercept_refused_drill
+            InterceptRuntime.RELEASE_RULE -> R.string.intercept_refused_rule
+            else -> R.string.intercept_refused_unknown
+        }
+        drillStatus?.text = AppStrings.get(this, why)
     }
 
     private fun exit() {
         val id = eventId ?: return
         if (reported) return
-        reported = true
         main.removeCallbacks(proof)
-        InterceptRuntime.onExited(id)
+        // The guard owns the receipt: if it did not accept the exit (a stale page, an event that
+        // already ended), this page must not pretend it did and must not close over it.
+        if (!InterceptRuntime.onExited(id)) {
+            render()
+            return
+        }
+        reported = true
         if (!isFinishing) finish()
         // The emergency exit goes home, never back into the app it just refused.
         runCatching {
@@ -169,9 +221,12 @@ class InterceptPageActivity : Activity() {
     private fun pause() {
         val id = eventId ?: return
         if (reported) return
-        reported = true
         main.removeCallbacks(proof)
-        InterceptRuntime.onPaused(id)
+        if (!InterceptRuntime.onPaused(id)) {
+            render()
+            return
+        }
+        reported = true
         val pkg = packageName
         if (!isFinishing) finish()
         if (pkg != null) InterceptRuntime.openTarget(this, pkg)

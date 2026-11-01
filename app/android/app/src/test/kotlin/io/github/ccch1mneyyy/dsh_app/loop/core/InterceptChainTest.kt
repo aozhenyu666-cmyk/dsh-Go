@@ -57,6 +57,10 @@ class InterceptChainTest {
         val order = if (drill.ascending) drill.candidates.sorted() else drill.candidates.sortedDescending()
         for (v in order) assertTrue("a correct press is accepted", g.tapDrill(eventId, v))
         assertTrue("the drill is solved", g.drill()!!.solved)
+        // trainingMs is a real rule now: the drill has to have been on screen that long before a
+        // pass is granted. Tests that are about what happens *after* training move the clock past
+        // it explicitly, rather than the guard ignoring the setting.
+        wall += g.config.trainingMs
     }
 
     // ---- 0. one interception at a time, whatever the app -------------------------------------
@@ -281,6 +285,14 @@ class InterceptChainTest {
         g.setConfig(InterceptConfig(enabled = true, dailyMax = 1, cooldownMs = 0), wall)
         val block = g.onForeground(bili, env(), wall) as InterceptDecision.Block
         g.onPageShown(block.eventId, wall)
+        // RELEASE_RULE now needs a configured window that covers this moment — a rule nobody set
+        // is not a rule. (Before this round the button granted passage unconditionally, which is
+        // the bypass the hardening pass removed; this test used to rely on it.)
+        val minuteNow = InterceptGuard.minuteOfDayOf(wall)
+        g.setConfig(
+            g.config.copy(authorizedWindows = listOf(minuteNow until minuteNow + 60)),
+            wall,
+        )
         g.onReleased(block.eventId, InterceptGuard.RELEASE_RULE, wall)
         wall += minute
         assertEquals(
@@ -414,7 +426,11 @@ class InterceptChainTest {
         assertEquals(setOf("com.example.ok"), cfg.whitelist)
         assertEquals(0, cfg.dailyMax)
         assertEquals(0L, cfg.releaseMs)
-        assertEquals(5_000L, cfg.trainingMs)
+        // trainingMs now allows 0 ("no dwell requirement"), so the floor is 0 rather than 5 s and a
+        // small positive value survives as written. The upper bound still clamps at 30 min.
+        assertEquals(1L, cfg.trainingMs)
+        assertEquals(0L, InterceptConfig(trainingMs = -1).normalized().trainingMs)
+        assertEquals(30 * 60_000L, InterceptConfig(trainingMs = Long.MAX_VALUE).normalized().trainingMs)
         assertEquals(listOf(12 * 60..13 * 60), cfg.authorizedWindows)
 
         val back = InterceptConfig.fromMap(cfg.toMap())
