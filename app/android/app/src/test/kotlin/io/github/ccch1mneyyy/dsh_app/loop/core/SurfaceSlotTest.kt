@@ -49,12 +49,33 @@ class SurfaceSlotTest {
     }
 
     @Test
-    fun a_new_token_from_the_same_owner_still_conflicts() {
+    fun a_new_token_from_the_same_owner_takes_the_slot_over() {
         val s = slot()
         assertTrue(s.claim("proactive", "tok-1", 100))
-        // A different presentation replaces the old one in the activity (singleInstance); the slot
-        // must be released by the old page first, so the kernel does not silently drop the new one.
-        assertFalse(s.claim("proactive", "tok-2", 200))
+        // A different presentation reuses the same Activity instance (singleInstance + onNewIntent):
+        // refusing it would fail the new presentation as "surface_busy" while that very Activity is
+        // already showing the new content, and the slot would stay pinned to a token nobody releases.
+        assertTrue("the same feature replaces its own surface", s.claim("proactive", "tok-2", 200))
+        assertEquals("tok-2", s.holderToken)
+        assertEquals(200L, s.heldSince())
+    }
+
+    @Test
+    fun the_replaced_token_cannot_free_its_replacement() {
+        val s = slot()
+        assertTrue(s.claim("proactive", "tok-1", 100))
+        assertTrue(s.claim("proactive", "tok-2", 200))
+        // The replaced page's late onDestroy arrives after the hand-over and must be ignored.
+        assertFalse(s.release("proactive", "tok-1"))
+        assertEquals("tok-2", s.holderToken)
+    }
+
+    @Test
+    fun a_replacement_still_cannot_cross_to_another_feature() {
+        val s = slot()
+        assertTrue(s.claim("proactive", "tok-1", 100))
+        assertFalse("a replacement is only the owner's own move", s.claim("intercept", "evt-1", 200))
+        assertEquals("proactive", s.holder)
     }
 
     @Test

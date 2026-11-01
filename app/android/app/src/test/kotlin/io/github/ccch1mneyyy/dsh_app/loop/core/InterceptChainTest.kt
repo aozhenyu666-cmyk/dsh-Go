@@ -45,6 +45,68 @@ class InterceptChainTest {
     private fun env(minuteOfDayValue: Int = 12 * 60) =
         InterceptEnv(screenOn = true, unlocked = true, dshBusy = false, minuteOfDay = minuteOfDayValue, dayKey = day)
 
+    /**
+     * Solve the 训练题 the guard minted for [eventId].
+     *
+     * Round 4's page passed on a countdown; from the hardening round a training pass is only
+     * granted when the drill says every candidate was pressed in the required order. Tests that are
+     * about the chain *after* training call this instead of pretending the page can grant itself.
+     */
+    private fun solveDrill(g: InterceptGuard, eventId: String) {
+        val drill = g.drill() ?: error("no drill for the open interception")
+        val order = if (drill.ascending) drill.candidates.sorted() else drill.candidates.sortedDescending()
+        for (v in order) assertTrue("a correct press is accepted", g.tapDrill(eventId, v))
+        assertTrue("the drill is solved", g.drill()!!.solved)
+    }
+
+    // ---- 0. one interception at a time, whatever the app -------------------------------------
+
+    @Test
+    fun openingAnotherTargetWhileOneIsOpenIsNotASecondInterception() {
+        val ledger = book()
+        val g = guard(ledger)
+        g.setConfig(InterceptConfig(enabled = true), wall)
+        val first = g.onForeground(bili, env(), wall) as InterceptDecision.Block
+
+        // The person opens Douyin while the B站 page is still up. A second page must not open, the
+        // cooldown and today's count must not be spent, and — the real defect this pins — the first
+        // event must not lose its eventId and end up with no receipt at all.
+        val second = g.onForeground(douyin, env(), wall + 1_000L)
+        assertTrue("no second page", second is InterceptDecision.Allow)
+        assertEquals(InterceptRules.REASON_ANOTHER_OPEN, (second as InterceptDecision.Allow).reason)
+        assertEquals("the first interception is still the open one", first.eventId, g.openEventId())
+        assertEquals("nothing extra was counted", 1, g.state.countToday)
+
+        g.onPageShown(first.eventId, wall + 2_000L)
+        solveDrill(g, first.eventId)
+        assertTrue(g.onReleased(first.eventId, InterceptGuard.RELEASE_TRAINING, wall + 3_000L))
+        assertEquals("exactly one receipt, and it is the first event", first.eventId, ledger.state.receipts.single().eventId)
+    }
+
+    @Test
+    fun theSameAppStillOpenIsNotASecondInterception() {
+        val g = guard()
+        g.setConfig(InterceptConfig(enabled = true), wall)
+        val first = g.onForeground(bili, env(), wall) as InterceptDecision.Block
+        val again = g.onForeground(bili, env(), wall + 1_000L)
+        assertEquals(
+            InterceptDecision.Allow(bili, InterceptRules.REASON_ALREADY_OPEN),
+            again,
+        )
+        assertEquals(first.eventId, g.openEventId())
+    }
+
+    @Test
+    fun anUnrelatedAppIsIgnoredEvenWhileAnInterceptionIsOpen() {
+        val g = guard()
+        g.setConfig(InterceptConfig(enabled = true), wall)
+        g.onForeground(bili, env(), wall)
+        // Regression: the "one at a time" short-circuit used to answer Allow for *any* package,
+        // claiming a decision about an app this feature never configured. A non-target is Ignore.
+        assertTrue(g.onForeground("com.tencent.mm", env(), wall + 1_000L) is InterceptDecision.Ignore)
+        assertTrue(g.onForeground(null, env(), wall + 2_000L) is InterceptDecision.Ignore)
+    }
+
     // ---- 1. what is a target ---------------------------------------------------------------
 
     @Test fun onlyConfiguredPackagesAreIntercepted() {
@@ -83,6 +145,7 @@ class InterceptChainTest {
 
         assertTrue("the page proved it was on screen", g.onPageShown(block.eventId, wall + 500L))
         assertEquals(1, ledger.state.blockedCount)
+        solveDrill(g, block.eventId)
         assertTrue(g.onReleased(block.eventId, InterceptGuard.RELEASE_TRAINING, wall + 61_000L))
 
         val r = ledger.state.receipts.single()
@@ -100,6 +163,8 @@ class InterceptChainTest {
         g.setConfig(InterceptConfig(enabled = true, releaseMs = 10 * minute), wall)
         val block = g.onForeground(bili, env(), wall) as InterceptDecision.Block
         g.onPageShown(block.eventId, wall)
+        // A release now has to be earned: the drill the guard minted must be solved first.
+        solveDrill(g, block.eventId)
         g.onReleased(block.eventId, InterceptGuard.RELEASE_TRAINING, wall)
 
         wall += 5 * minute
@@ -265,6 +330,7 @@ class InterceptChainTest {
         g.setConfig(InterceptConfig(enabled = true), wall)
         val block = g.onForeground(bili, env(), wall) as InterceptDecision.Block
         g.onPageShown(block.eventId, wall)
+        solveDrill(g, block.eventId)
         assertTrue(g.onReleased(block.eventId, InterceptGuard.RELEASE_TRAINING, wall))
         assertFalse(g.onExited(block.eventId, wall))
         assertFalse(g.onPaused(block.eventId, minute, wall))

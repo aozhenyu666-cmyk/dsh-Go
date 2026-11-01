@@ -124,10 +124,126 @@ data class InterceptEnv(
     val dayKey: Long = Long.MIN_VALUE,
 )
 
+/**
+ * 训练题: the checkable half of "training passed".
+ *
+ * Round 4 shipped a page that passed on a countdown, so "训练通过" meant nothing more than "the page
+ * stayed up for a minute" — the person could put the phone down and come back to a pass. A pass has
+ * to be earned by doing something, and it has to be verifiable *by the guard*, not just claimed by
+ * the page: the page only reports button presses, and [InterceptGuard.onReleased] refuses
+ * [InterceptGuard.RELEASE_TRAINING] until this record says the drill is solved.
+ *
+ * The drill: several numbers are shown out of order; press them from small to large (or large to
+ * small, which the eventId decides). A wrong press resets the progress and counts, so a fail means
+ * "keep training" and never "through". Generated purely from the eventId, so it is reproducible in a
+ * test and needs no random source at runtime.
+ */
+data class InterceptDrill(
+    /** The buttons on screen, in display order (never the answer order). */
+    val candidates: List<Int>,
+    /** True when the answer is ascending; false when it is descending. */
+    val ascending: Boolean,
+    /** How many presses were correct in a row. */
+    val cursor: Int = 0,
+    /** Wrong presses so far. Never a way through; only ever a reason to start again. */
+    val wrongAttempts: Int = 0,
+) {
+    /** The drill is done only when every candidate was pressed in the required order. */
+    val solved: Boolean get() = candidates.isNotEmpty() && cursor >= candidates.size
+
+    /** The value that should be pressed now, or null once solved. */
+    val expected: Int?
+        get() = when {
+            solved -> null
+            ascending -> candidates.sorted().getOrNull(cursor)
+            else -> candidates.sortedDescending().getOrNull(cursor)
+        }
+
+    /** One press. Wrong restarts the sequence — the person trains again instead of getting through. */
+    fun tap(value: Int): InterceptDrill = when {
+        solved -> this
+        value == expected -> copy(cursor = cursor + 1)
+        else -> copy(cursor = 0, wrongAttempts = wrongAttempts + 1)
+    }
+
+    fun toMap(): Map<String, Any?> = linkedMapOf(
+        "candidates" to candidates, "ascending" to ascending, "cursor" to cursor,
+        "wrongAttempts" to wrongAttempts,
+    )
+
+    companion object {
+        /** Four numbers: enough to need a look, short enough not to be a chore. */
+        const val SIZE = 4
+
+        /** Candidates are drawn from 1..9 so each is one readable digit. */
+        private const val POOL = 9
+
+        /**
+         * The value a [InterceptDecision.Block] carries while it is still only a *decision*:
+         * [InterceptRules.decide] knows the target but not the eventId, and the drill is minted
+         * from the eventId by [InterceptGuard.onForeground]. Never shown to anybody.
+         */
+        val NONE: InterceptDrill = InterceptDrill(candidates = emptyList(), ascending = true)
+
+        /** Stable across platforms and app versions — unlike a hash of the object identity. */
+        private fun seedOf(text: String): Long {
+            var h = 0xcbf29ce484222325uL
+            for (b in text.encodeToByteArray()) {
+                h = h xor b.toUByte().toULong()
+                h *= 0x100000001b3uL
+            }
+            return h.toLong()
+        }
+
+        /**
+         * A drill for [eventId]. Deterministic: the same interception always shows the same numbers
+         * in the same order, so a retried page cannot "reroll" for an easier one.
+         */
+        fun of(eventId: String): InterceptDrill {
+            var state = seedOf(eventId)
+            fun next(bound: Int): Int {
+                // SplitMix64: tiny, deterministic, and good enough for picking four digits.
+                state += -0x61c8864680b583ebL
+                var z = state
+                z = (z xor (z ushr 30)) * -0x40a7b892e31b1a47L
+                z = (z xor (z ushr 27)) * -0x6b2fb644ecceee15L
+                z = z xor (z ushr 31)
+                return ((z ushr 1) % bound).toInt()
+            }
+            val picked = LinkedHashSet<Int>()
+            while (picked.size < SIZE) picked.add(next(POOL) + 1)
+            val ascending = next(2) == 0
+            return InterceptDrill(candidates = picked.toList(), ascending = ascending)
+        }
+
+        fun fromMap(m: Map<*, *>?): InterceptDrill? {
+            if (m == null) return null
+            val candidates = M.list(m, "candidates").mapNotNull { (it as? Number)?.toInt() }
+            if (candidates.isEmpty()) return null
+            return InterceptDrill(
+                candidates = candidates,
+                ascending = M.bool(m, "ascending"),
+                cursor = M.int(m, "cursor").coerceIn(0, candidates.size),
+                wrongAttempts = M.int(m, "wrongAttempts").coerceAtLeast(0),
+            )
+        }
+    }
+}
+
 /** What the guard decided about the app the person just opened. */
 sealed interface InterceptDecision {
-    /** Show the blocking page for [packageName] under [eventId]. */
-    data class Block(val eventId: String, val target: InterceptTarget, val reason: String) : InterceptDecision
+    /**
+     * Show the blocking page for [packageName] under [eventId].
+     *
+     * [drill] is the 训练题 the page must render; it is minted with the eventId and can only be
+     * *solved* through [InterceptGuard.tapDrill], never claimed.
+     */
+    data class Block(
+        val eventId: String,
+        val target: InterceptTarget,
+        val reason: String,
+        val drill: InterceptDrill,
+    ) : InterceptDecision
     /** Let it through, with the reason (for the settings page and the receipts). */
     data class Allow(val packageName: String, val reason: String) : InterceptDecision
     /** Not a target at all: nothing to decide. */
@@ -141,6 +257,17 @@ object InterceptRules {
     const val REASON_AUTHORIZED_WINDOW = "authorized_window"
     const val REASON_DAILY_MAX = "daily_max"
     const val REASON_COOLDOWN = "cooldown"
+
+    /** The same app is still on screen under the open interception: not a second one. */
+    const val REASON_ALREADY_OPEN = "already_open"
+
+    /**
+     * A *different* target app was opened while an interception is still open. One interception at
+     * a time is a rule of the guard, not of the adapter: opening Douyin while the B站 page is up
+     * must not open a second page, spend the cooldown, spend today's count, or — worst of all —
+     * overwrite [InterceptState.openEventId] and leave the first event without any receipt.
+     */
+    const val REASON_ANOTHER_OPEN = "another_open"
     const val REASON_SCREEN_OFF = "screen_off"
     const val REASON_LOCKED = "locked"
     const val REASON_DSH_BUSY = "dsh_busy"
@@ -180,7 +307,9 @@ object InterceptRules {
         if (lastTriggerPackage == packageName && lastTriggerAt != 0L && now - lastTriggerAt in 0 until config.cooldownMs) {
             return InterceptDecision.Allow(packageName, REASON_COOLDOWN)
         }
-        return InterceptDecision.Block("", target, "target")
+        // The eventId — and with it the drill — is minted by the guard. This is a decision, not
+        // yet an interception.
+        return InterceptDecision.Block("", target, "target", InterceptDrill.NONE)
     }
 }
 
@@ -197,12 +326,14 @@ data class InterceptState(
     val openPackage: String? = null,
     val openSinceWall: Long = 0,
     val lastReason: String? = null,
+    /** 训练题 for the open interception; null when nothing is open. */
+    val drill: InterceptDrill? = null,
 ) {
     fun toMap(): Map<String, Any?> = linkedMapOf(
         "lastTriggerAt" to lastTriggerAt, "lastTriggerPackage" to lastTriggerPackage,
         "releases" to releases, "dayKey" to dayKey, "countToday" to countToday,
         "openEventId" to openEventId, "openPackage" to openPackage, "openSinceWall" to openSinceWall,
-        "lastReason" to lastReason,
+        "lastReason" to lastReason, "drill" to drill?.toMap(),
     )
 
     companion object {
@@ -213,6 +344,7 @@ data class InterceptState(
             dayKey = M.long(m, "dayKey", Long.MIN_VALUE), countToday = M.int(m, "countToday"),
             openEventId = M.str(m, "openEventId"), openPackage = M.str(m, "openPackage"),
             openSinceWall = M.long(m, "openSinceWall"), lastReason = M.str(m, "lastReason"),
+            drill = InterceptDrill.fromMap(M.map(m, "drill")),
         )
     }
 }
@@ -261,7 +393,7 @@ class InterceptGuard(
                     endedAt = now, outcome = InterceptOutcome.BLOCKED, reason = "process_restart",
                 ),
             )
-            state = s.copy(openEventId = null, openPackage = null, openSinceWall = 0, lastReason = "open_lost")
+            state = s.copy(openEventId = null, openPackage = null, openSinceWall = 0, lastReason = "open_lost", drill = null)
         }
         // The daily bucket is only rolled from [InterceptEnv.dayKey], which the caller reads from the
         // same calendar it uses for quiet hours; computing a second day number here would make the
@@ -288,9 +420,22 @@ class InterceptGuard(
     fun onForeground(packageName: String?, env: InterceptEnv, now: Long): InterceptDecision = synchronized(lock) {
         rollDay(env.dayKey)
         val s = state
-        // One interception at a time: the same app still open is not a new interception.
-        if (s.openEventId != null && s.openPackage == packageName) {
-            return@synchronized InterceptDecision.Allow(packageName.orEmpty(), "already_open")
+        // One interception at a time — whatever app is in front. This is checked *before*
+        // [InterceptRules.decide] because a Block would stamp lastTriggerAt, increment countToday
+        // and, above all, overwrite openEventId: the interception already on screen would then
+        // never get an ending, and the new one could not be shown either (the visible-surface slot
+        // is still held by the old eventId). Both facts are a person's, not ours to spend:
+        // nothing is consumed here, and no receipt is written for a page that never appears.
+        // A package that is not a target at all is none of our business, open interception or not:
+        // returning Allow here would claim a decision about an app this feature never configured.
+        if (packageName.isNullOrBlank()) return@synchronized InterceptDecision.Ignore
+        if (config.targetFor(packageName) == null) return@synchronized InterceptDecision.Ignore
+        if (s.openEventId != null) {
+            val same = s.openPackage == packageName
+            return@synchronized InterceptDecision.Allow(
+                packageName,
+                if (same) InterceptRules.REASON_ALREADY_OPEN else InterceptRules.REASON_ANOTHER_OPEN,
+            )
         }
         val d = InterceptRules.decide(
             config, packageName, env, now,
@@ -303,10 +448,13 @@ class InterceptGuard(
                 openEventId = eventId, openPackage = packageName, openSinceWall = now,
                 lastTriggerAt = now, lastTriggerPackage = packageName, lastReason = d.reason,
                 countToday = s.countToday + 1,
+                // Minted here, at the producing end, from the eventId: the page can only *press*
+                // the drill, never invent or reroll it.
+                drill = InterceptDrill.of(eventId),
             )
             ledger.onTriggered(eventId, now)
             persist()
-            return@synchronized InterceptDecision.Block(eventId, d.target, d.reason)
+            return@synchronized InterceptDecision.Block(eventId, d.target, d.reason, state.drill!!)
         }
         if (state != s) persist()
         d
@@ -319,9 +467,15 @@ class InterceptGuard(
         true
     }
 
-    /** 训练通过 / 授权规则放行. Grants passage for [InterceptConfig.releaseMs] and closes it. */
+    /**
+     * 训练通过 / 授权规则放行. Grants passage for [InterceptConfig.releaseMs] and closes it.
+     *
+     * [RELEASE_TRAINING] is refused while the 训练题 is unsolved: "the page stayed up long enough"
+     * is not training, and a person who leaves the page alone must not come back to a pass.
+     */
     fun onReleased(eventId: String, how: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
+        if (how == RELEASE_TRAINING && state.drill?.solved != true) return@synchronized false
         val pkg = state.openPackage ?: return@synchronized false
         val until = now + config.releaseMs
         state = state.copy(releases = state.releases + (pkg to until))
@@ -378,6 +532,27 @@ class InterceptGuard(
 
     fun openPackage(): String? = synchronized(lock) { state.openPackage }
 
+    /** The 训练题 the page must show, or null when nothing is open. */
+    fun drill(): InterceptDrill? = synchronized(lock) { if (state.openEventId == null) null else state.drill }
+
+    /**
+     * One press of the 训练题. False when the page names an interception that is not the open one —
+     * a stale page cannot drill its way into a pass for somebody else's interception.
+     *
+     * A wrong press resets the progress and is recorded; it never grants anything. The result is
+     * persisted with the rest of the state, so a process that dies mid-drill comes back to the same
+     * sequence rather than to a fresh, easier one.
+     */
+    fun tapDrill(eventId: String, value: Int): Boolean = synchronized(lock) {
+        if (state.openEventId != eventId) return@synchronized false
+        val current = state.drill ?: return@synchronized false
+        val next = current.tap(value)
+        if (next == current) return@synchronized true
+        state = state.copy(drill = next)
+        persist()
+        true
+    }
+
     fun receipts(limit: Int = 50): List<InterceptReceipt> = synchronized(lock) {
         ledger.state.receipts.takeLast(limit.coerceAtLeast(0)).reversed()
     }
@@ -399,7 +574,7 @@ class InterceptGuard(
                 outcome = outcome, reason = reason, releasedUntilWall = releasedUntilWall, releasedBy = releasedBy,
             ),
         )
-        state = s.copy(openEventId = null, openPackage = null, openSinceWall = 0, lastReason = reason)
+        state = s.copy(openEventId = null, openPackage = null, openSinceWall = 0, lastReason = reason, drill = null)
     }
 
     /** The local day only moves forward: setting the clock back cannot refill the daily count. */

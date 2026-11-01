@@ -9,6 +9,7 @@ import io.github.ccch1mneyyy.dsh_app.loop.LoopRuntime
 import io.github.ccch1mneyyy.dsh_app.loop.core.AtomicJsonFile
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDecision
+import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDrill
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptEnv
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptGuard
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptLedger
@@ -128,6 +129,22 @@ object InterceptRuntime {
 
     /** The page proved it is really on screen (attached + shown + laid out + focused). */
     fun onPageShown(eventId: String): Boolean = guard?.onPageShown(eventId, System.currentTimeMillis()) == true
+
+    /**
+     * The 训练题 this interception must show, or null when nothing is open.
+     *
+     * Minted by the guard from the eventId, so the page can only render it: it cannot invent,
+     * reroll or shorten it. Rendering it is the page's job; judging it is the guard's.
+     */
+    fun drill(eventId: String): InterceptDrill? =
+        guard?.drill()?.takeIf { guard?.openEventId() == eventId }
+
+    /**
+     * One press of the 训练题. False when this page names an interception that is not the open one,
+     * so a stale page cannot drill its way into a pass for somebody else's interception.
+     */
+    fun tapDrill(eventId: String, value: Int): Boolean =
+        guard?.tapDrill(eventId, value) == true
 
     /**
      * The page is gone, whichever way it ended (released, exited, paused, timed out, destroyed).

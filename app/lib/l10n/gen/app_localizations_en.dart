@@ -7698,6 +7698,150 @@ class L10nEn extends L10n {
   String get hubPermissionPhoneConfirm => 'Phone control confirmation';
 
   @override
+  String get interceptTitle => 'Entertainment block';
+
+  @override
+  String get interceptSubtitle =>
+      'When you open an app you marked as entertainment, DSH stops you once: solve a short drill or choose an authorization rule. The block and the check-ins keep separate books.';
+
+  @override
+  String get interceptEnabled => 'Turn on entertainment block';
+
+  @override
+  String get interceptEnabledHint =>
+      'Off by default. When on, opening one of the apps below is blocked once; the cooldown stops it from nagging.';
+
+  @override
+  String get interceptTargets => 'Apps to block';
+
+  @override
+  String get interceptTargetsHint =>
+      'These package names are yours, not built in. Removing one stops blocking it at once.';
+
+  @override
+  String get interceptNoTargets => 'No target app yet';
+
+  @override
+  String get interceptAddTarget => 'Add a package name';
+
+  @override
+  String get interceptAddTargetHint => 'An Android package name, e.g. tv.danmaku.bili';
+
+  @override
+  String get interceptAddTargetInvalid => 'A package name cannot be empty or contain spaces';
+
+  @override
+  String get interceptRemoveTarget => 'Remove';
+
+  @override
+  String get interceptWhitelist => 'Whitelist';
+
+  @override
+  String get interceptWhitelistHint => 'A whitelisted package is never blocked, even if it is a target.';
+
+  @override
+  String get interceptWhitelistEmpty => 'The whitelist is empty';
+
+  @override
+  String get interceptMode => 'Parameters';
+
+  @override
+  String get interceptRelease => 'Pass duration (minutes)';
+
+  @override
+  String get interceptTraining => 'Drill length (seconds)';
+
+  @override
+  String get interceptCooldown => 'Cooldown (minutes)';
+
+  @override
+  String get interceptDailyMax => 'Daily limit';
+
+  @override
+  String get interceptDailyMaxOff => 'No limit';
+
+  @override
+  String get interceptPause => 'Pause and resume';
+
+  @override
+  String get interceptPauseHint => 'Nothing is blocked while paused; it resumes on its own.';
+
+  @override
+  String get interceptPauseNow => 'Pause for 30 minutes';
+
+  @override
+  String get interceptResume => 'Resume blocking';
+
+  @override
+  String interceptPausedUntil(String time) {
+    return 'Paused until $time';
+  }
+
+  @override
+  String get interceptLedger => 'Block ledger';
+
+  @override
+  String get interceptLedgerTriggers => 'Triggered';
+
+  @override
+  String get interceptLedgerBlocked => 'Actually blocked';
+
+  @override
+  String get interceptLedgerReleased => 'Let through';
+
+  @override
+  String get interceptLedgerExited => 'Left';
+
+  @override
+  String get interceptLedgerPaused => 'Paused';
+
+  @override
+  String get interceptReceipts => 'Recent receipts';
+
+  @override
+  String get interceptReceiptsEmpty => 'No receipts yet';
+
+  @override
+  String interceptActive(String package) {
+    return 'Blocking now: $package';
+  }
+
+  @override
+  String interceptStorageError(String error) {
+    return 'Could not write state: $error';
+  }
+
+  @override
+  String interceptRecoveryIssue(String error) {
+    return 'Unreadable state at start-up: $error';
+  }
+
+  @override
+  String get interceptUnavailable => 'This build has no block kernel';
+
+  @override
+  String get interceptUnavailableHint =>
+      'Only the full phone build has it. Desktop and this build have no dsh/intercept channel.';
+
+  @override
+  String get interceptRefresh => 'Refresh';
+
+  @override
+  String get interceptOutcomeBlocked => 'Blocked, no ending yet';
+
+  @override
+  String get interceptOutcomeReleased => 'Let through';
+
+  @override
+  String get interceptOutcomeExited => 'Emergency exit';
+
+  @override
+  String get interceptOutcomePaused => 'Paused';
+
+  @override
+  String get interceptOutcomeNotShown => 'Never shown';
+
+  @override
   String get launchScreenTitle => 'Launch screen';
 
   @override

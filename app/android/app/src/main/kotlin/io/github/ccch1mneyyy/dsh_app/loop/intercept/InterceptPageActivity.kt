@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import io.github.ccch1mneyyy.dsh_app.R
+import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDrill
 import io.github.ccch1mneyyy.dsh_app.i18n.AppStrings
 
 /**
@@ -44,16 +45,15 @@ class InterceptPageActivity : Activity() {
     private var attempts = 0
     private val proof = Runnable { proveVisible() }
 
-    /** Training countdown: the only "wait a moment" door, and it is a real wait. */
-    private var trainingLeftMs = 0L
+    /**
+     * 训练题: the checkable door. The guard mints it from the eventId and only accepts
+     * [InterceptRuntime.RELEASE_TRAINING] once every candidate was pressed in order, so this page
+     * renders and forwards presses - it never decides whether training was passed.
+     */
+    private var drill: InterceptDrill? = null
     private var trainingButton: Button? = null
-    private val trainingTick = object : Runnable {
-        override fun run() {
-            trainingLeftMs = (trainingLeftMs - TICK_MS).coerceAtLeast(0L)
-            render()
-            if (trainingLeftMs > 0) main.postDelayed(this, TICK_MS) else trainingButton?.let { it.isEnabled = true }
-        }
-    }
+    private var drillStatus: TextView? = null
+    private val drillButtons = LinkedHashMap<Int, Button>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,7 +80,7 @@ class InterceptPageActivity : Activity() {
         }
         eventId = id
         packageName = start.getStringExtra(EXTRA_PACKAGE)
-        trainingLeftMs = start.getLongExtra(EXTRA_TRAINING_MS, 60_000L).coerceIn(0L, 30 * 60_000L)
+        drill = InterceptRuntime.drill(id)
         live[id] = this
         setContentView(content(label))
         awaitVisible()
@@ -113,7 +113,7 @@ class InterceptPageActivity : Activity() {
             shown = true
             main.removeCallbacks(proof)
             InterceptRuntime.onPageShown(id)
-            if (trainingLeftMs > 0) main.postDelayed(trainingTick, TICK_MS) else trainingButton?.let { it.isEnabled = true }
+            render()
             return
         }
         if (++attempts <= MAX_PROOF_ATTEMPTS) main.postDelayed(proof, PROOF_STEP_MS)
@@ -131,7 +131,6 @@ class InterceptPageActivity : Activity() {
 
     override fun onDestroy() {
         main.removeCallbacks(proof)
-        main.removeCallbacks(trainingTick)
         // Free the shared visible-surface slot before unregistering: whichever way this page ended
         // (released, exited, paused, back-press, destroyed by the system), the screen is free again.
         InterceptRuntime.onPageGone(eventId)
@@ -145,7 +144,6 @@ class InterceptPageActivity : Activity() {
         if (reported) return
         reported = true
         main.removeCallbacks(proof)
-        main.removeCallbacks(trainingTick)
         val opened = InterceptRuntime.onReleased(id, how)
         val pkg = packageName
         if (!isFinishing) finish()
@@ -158,7 +156,6 @@ class InterceptPageActivity : Activity() {
         if (reported) return
         reported = true
         main.removeCallbacks(proof)
-        main.removeCallbacks(trainingTick)
         InterceptRuntime.onExited(id)
         if (!isFinishing) finish()
         // The emergency exit goes home, never back into the app it just refused.
@@ -174,7 +171,6 @@ class InterceptPageActivity : Activity() {
         if (reported) return
         reported = true
         main.removeCallbacks(proof)
-        main.removeCallbacks(trainingTick)
         InterceptRuntime.onPaused(id)
         val pkg = packageName
         if (!isFinishing) finish()
@@ -184,14 +180,61 @@ class InterceptPageActivity : Activity() {
     private fun unregister() { eventId?.let { if (live[it] === this) live.remove(it) } }
 
     private fun render() {
+        val d = drill
+        val solved = d?.solved == true
         trainingButton?.let { b ->
-            b.text = if (trainingLeftMs > 0) {
-                AppStrings.get(this, R.string.intercept_training, ((trainingLeftMs + 999) / 1000).toInt())
-            } else {
-                AppStrings.get(this, R.string.intercept_training_done)
-            }
-            b.isEnabled = shown && trainingLeftMs == 0L
+            b.text = AppStrings.get(
+                this,
+                if (solved) R.string.intercept_training else R.string.intercept_training_locked,
+            )
+            // The button only ever offers what the guard will accept: a solved drill.
+            b.isEnabled = shown && solved
         }
+        drillStatus?.let { t ->
+            t.text = when {
+                d == null -> ""
+                solved -> AppStrings.get(this, R.string.intercept_training)
+                d.wrongAttempts > 0 && d.cursor == 0 -> AppStrings.get(this, R.string.intercept_drill_wrong)
+                else -> AppStrings.get(this, R.string.intercept_drill_progress, d.cursor, d.candidates.size)
+            }
+        }
+        renderDrillButtons()
+    }
+
+    /** The candidate buttons: pressed ones go quiet, and the order is never hinted. */
+    private fun renderDrillButtons() {
+        val d = drill ?: return
+        val order = if (d.ascending) d.candidates.sorted() else d.candidates.sortedDescending()
+        val done = order.take(d.cursor).toSet()
+        drillButtons.forEach { (value, button) ->
+            button.isEnabled = shown && !d.solved && value !in done
+        }
+    }
+
+    /** One press: forwarded to the guard, which is the only thing that can accept a pass. */
+    private fun tapDrill(value: Int) {
+        val id = eventId ?: return
+        if (InterceptRuntime.tapDrill(id, value)) {
+            drill = InterceptRuntime.drill(id)
+            render()
+        }
+    }
+
+    private fun drillRow(ctx: android.content.Context, dp: (Int) -> Int): LinearLayout {
+        val d = drill ?: return LinearLayout(ctx)
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, dp(12))
+        }
+        for (value in d.candidates) {
+            row.addView(Button(ctx).apply {
+                text = value.toString()
+                minimumWidth = dp(56)
+                setOnClickListener { tapDrill(value) }
+                drillButtons[value] = this
+            })
+        }
+        return row
     }
 
 
@@ -211,13 +254,32 @@ class InterceptPageActivity : Activity() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 setPadding(0, dp(8), 0, dp(16))
             })
-            // The ways out, in increasing order of commitment: wait, timed pass, standing pass,
+            // The 训练题: the only door that does not spend money or time, and it has to be earned.
+            drill?.let { d ->
+                addView(TextView(ctx).apply {
+                    text = AppStrings.get(
+                        ctx, R.string.intercept_drill_prompt,
+                        AppStrings.get(
+                            ctx,
+                            if (d.ascending) R.string.intercept_drill_ascending else R.string.intercept_drill_descending,
+                        ),
+                    )
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    setPadding(0, 0, 0, dp(8))
+                })
+                addView(drillRow(ctx, ::dp))
+                addView(TextView(ctx).apply {
+                    drillStatus = this
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setPadding(0, 0, 0, dp(12))
+                })
+            }
+            // The ways out, in increasing order of commitment: the drill, timed pass, standing pass,
             // pause everything, leave. Every button names this page's eventId, never a new one.
             addView(Button(ctx).apply {
                 trainingButton = this
                 isEnabled = false
-                setOnClickListener { if (trainingLeftMs <= 0L) release(InterceptRuntime.RELEASE_TRAINING) }
-                render()
+                setOnClickListener { if (drill?.solved == true) release(InterceptRuntime.RELEASE_TRAINING) }
             })
             addView(Button(ctx).apply {
                 text = AppStrings.get(ctx, R.string.intercept_rule, releaseMinutes)
@@ -252,7 +314,6 @@ class InterceptPageActivity : Activity() {
         /** ~2 s of retries for the visibility proof, like the proactive page. */
         private const val PROOF_STEP_MS = 100L
         private const val MAX_PROOF_ATTEMPTS = 20
-        private const val TICK_MS = 1_000L
 
         /** Pages on screen by eventId, so a withdrawal can close them. Main thread only. */
         private val live = HashMap<String, InterceptPageActivity>()
