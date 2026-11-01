@@ -162,7 +162,7 @@ enum class InterceptOutcome {
 #### 四扇放行门
 
 ```kotlin
-// Intercept.kt:594  onReleased
+// Intercept.kt:599  onReleased
 fun onReleased(eventId: String, how: String, now: Long): Boolean = synchronized(lock) {
     if (state.openEventId != eventId) return@synchronized false
 
@@ -191,7 +191,7 @@ fun onReleased(eventId: String, how: String, now: Long): Boolean = synchronized(
 #### 训练题的确定性铸造
 
 ```kotlin
-// Intercept.kt:203
+// Intercept.kt:204
 fun of(eventId: String): InterceptDrill {
     var state = seedOf(eventId)
     fun next(bound: Int): Int {
@@ -210,7 +210,7 @@ fun of(eventId: String): InterceptDrill {
 **从 eventId 派生**，所以页面只能"按"，不能"造"或"重摇"。同一事件永远同一道题。
 
 ```kotlin
-// Intercept.kt:745
+// Intercept.kt:754
 fun tapDrill(eventId: String, value: Int): Boolean = synchronized(lock) {
     if (state.openEventId != eventId) return@synchronized false
     val current = state.drill ?: return@synchronized false
@@ -405,7 +405,7 @@ if (config.trainingMs > 0L && shownAt != 0L && now - shownAt < config.trainingMs
 ### 5.1 P0-5：展示证明是所有门的前提
 
 ```kotlin
-// Intercept.kt:612 —— 加在 when(how) 之前
+// Intercept.kt:617 —— 加在 when(how) 之前
 if (state.openShownAt == 0L) return@synchronized false
 ```
 
@@ -450,7 +450,7 @@ private fun proveVisible() {
 #### 修复：把到期判定从页面搬到运行时
 
 ```kotlin
-// InterceptDeadline.kt:49 —— 纯函数，无时钟，无 Android
+// InterceptDeadline.kt:65 —— 纯函数，无时钟，无 Android
 fun due(open: Open?, now: Long,
         proofWindowMs: Long = DEFAULT_PROOF_WINDOW_MS,
         pageTtlMs: Long = DEFAULT_PAGE_TTL_MS): Due {
@@ -475,7 +475,7 @@ fun due(open: Open?, now: Long,
 #### 运行时怎么驱动
 
 ```kotlin
-// InterceptRuntime.kt:207
+// InterceptRuntime.kt:210
 fun settleIfDue() {
     val open = if (requestedAtMono == 0L) null
                else InterceptDeadline.Open(requestedAtMono, shownAtMono)
@@ -649,7 +649,7 @@ override fun write(map: Map<String, Any?>) {
 #### 提交协议（本轮的核⼼）
 
 ```kotlin
-// InterceptRepository.kt:101
+// InterceptRepository.kt:115
 fun commit(config, guardState, ledgerState, appliedEventIds): Boolean {
     val next = Snapshot(..., lastCommittedTransactionId = transactions + 1)
 
@@ -859,7 +859,7 @@ if (backoff.isHoldingOff(packageName, mono())) {
 ```
 
 ```kotlin
-// InterceptRuntime.kt:246
+// InterceptRuntime.kt:253
 private fun enforceLeave(packageName: String, code: String) {
     if (!goHome()) { reportEnforcementUnavailable(packageName, code, 0); return }
     main.postDelayed({
@@ -914,7 +914,7 @@ if (lastTriggerPackage == packageName && lastTriggerAt != 0L &&
 #### 修改后
 
 ```kotlin
-// Intercept.kt:322
+// Intercept.kt:324
 if (config.dailyMax > 0 && countToday >= config.dailyMax) {
     return InterceptDecision.Ignore    // 不提问题，也不许可
 }
@@ -1222,3 +1222,180 @@ attempt" —— **期望完全正确**，但它实现这个期望的方式是依
 
 不能说的是：它在手机上表现如何。**它从来没在手机上跑过。**
 
+## 附录 A · 精确地址索引
+
+> 全部行号在 `3529fd4328fc82acfb706c811f53a93393686ba2` 上用 `Select-String -SimpleMatch`
+> 逐条实测得出，不是估的。仓库根 = `D:\code\R4\p4b`（等价于 GitHub 上的仓库根）。
+>
+> 路径前缀：**K/** = `app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/`
+> **T/** = `app/android/app/src/test/kotlin/io/github/ccch1mneyyy/dsh_app/`
+
+### A.1 拦截内核
+
+| 内容 | 精确地址 |
+|---|---|
+| `InterceptDecision` sealed 接口 | `K/loop/core/Intercept.kt:236` |
+| `InterceptRules` 决策函数所在 object | `K/loop/core/Intercept.kt:255` |
+| `decide()` 全部放行判定 | `K/loop/core/Intercept.kt:288` |
+| ├ disabled → Allow | `K/loop/core/Intercept.kt:298` |
+| ├ whitelist → Allow | `K/loop/core/Intercept.kt:299` |
+| ├ pause → Allow | `K/loop/core/Intercept.kt:300` |
+| ├ released → Allow | `K/loop/core/Intercept.kt:301` |
+| ├ authorized window → Allow | `K/loop/core/Intercept.kt:302` |
+| └ **dailyMax → Ignore（D5）** | `K/loop/core/Intercept.kt:324` |
+| └ **cooldown → Ignore（D5）** | `K/loop/core/Intercept.kt:327` |
+| `InterceptGuard` 类声明 | `K/loop/core/Intercept.kt:387` |
+| `recover()` 进程恢复 | `K/loop/core/Intercept.kt:426` |
+| ├ recover 里 NOT_SHOWN 的退还 | `K/loop/core/Intercept.kt:479` |
+| `onForeground()` 主决策入口 | `K/loop/core/Intercept.kt:515` |
+| ├ **P0-3 捕获扣费** | `K/loop/core/Intercept.kt:545` |
+| `onReleased()` 四扇门 | `K/loop/core/Intercept.kt:599` |
+| ├ **P0-5 展示证明闸门** | `K/loop/core/Intercept.kt:617` |
+| ├ trainingMs 停留检查 | `K/loop/core/Intercept.kt:624` |
+| ├ RELEASE_RULE 窗口校验 | `K/loop/core/Intercept.kt:628` |
+| `onExited()` | `K/loop/core/Intercept.kt:651` |
+| `onPaused()` | `K/loop/core/Intercept.kt:671` |
+| `expireOpen()` P0-1 TTL 结局 | `K/loop/core/Intercept.kt:716` |
+| `onUnavailable()` | `K/loop/core/Intercept.kt:723` |
+| ├ **P0-3 退还扣费** | `K/loop/core/Intercept.kt:728` |
+| `tapDrill()` | `K/loop/core/Intercept.kt:754` |
+| `endOpen()` 统一终止出口 | `K/loop/core/Intercept.kt:770` |
+| ├ **D5 清冷却（exit/blocked/notshown）** | `K/loop/core/Intercept.kt:795` |
+| `persist()` 路由到仓库 | `K/loop/core/Intercept.kt:832` |
+| `InterceptDrill.of()` SplitMix64 铸题 | `K/loop/core/Intercept.kt:204` |
+
+### A.2 持久化
+
+| 内容 | 精确地址 |
+|---|---|
+| `AtomicJsonFile` 原子写 | `K/loop/core/SnapshotStore.kt:41` |
+| ├ `write()` 完整协议 | `K/loop/core/SnapshotStore.kt:70` |
+| ├ `keepPrevious()` 备份 | `K/loop/core/SnapshotStore.kt:85` |
+| ├ `replace()` 原子替换 | `K/loop/core/SnapshotStore.kt:92` |
+| └ `syncDirectory()` 目录 fsync | `K/loop/core/SnapshotStore.kt:114` |
+| `InterceptRepository` 事务所有者 | `K/loop/core/InterceptRepository.kt:22` |
+| ├ `Snapshot` 数据结构 | `K/loop/core/InterceptRepository.kt:27` |
+| ├ `load()` | `K/loop/core/InterceptRepository.kt:85` |
+| ├ **`commit()` 提交协议** | `K/loop/core/InterceptRepository.kt:115` |
+| ├ `validate()` 自洽校验 | `K/loop/core/InterceptRepository.kt:185` |
+| └ `SCHEMA` 版本常量 | `K/loop/core/InterceptRepository.kt:204` |
+| `InterceptLedgerBook` | `K/loop/core/Ledgers.kt:223` |
+| ├ `checkConsistency()` | `K/loop/core/Ledgers.kt:265` |
+| └ `appliedIds()` | `K/loop/core/Ledgers.kt:361` |
+| `InterceptLedger` 数据结构 | `K/loop/core/Ledgers.kt:189` |
+| `InterceptMigration` | `K/loop/core/InterceptMigration.kt:20` |
+| ├ `Result` sealed | `K/loop/core/InterceptMigration.kt:23` |
+| ├ `RecoveryRequired` | `K/loop/core/InterceptMigration.kt:34` |
+| ├ `run()` 迁移入口 | `K/loop/core/InterceptMigration.kt:42` |
+| └ **白名单 vs 放行数检查** | `K/loop/core/InterceptMigration.kt:118` |
+
+### A.3 截止与降级策略
+
+| 内容 | 精确地址 |
+|---|---|
+| `InterceptDeadline` | `K/loop/core/InterceptDeadline.kt:26` |
+| ├ 证明窗口 5 秒 | `K/loop/core/InterceptDeadline.kt:29` |
+| ├ 页面 TTL 10 分钟 | `K/loop/core/InterceptDeadline.kt:32` |
+| ├ **`due()` 纯判定函数** | `K/loop/core/InterceptDeadline.kt:65` |
+| ├ `nextDeadline()` 单定时器 | `K/loop/core/InterceptDeadline.kt:83` |
+| ├ `Attempts` 每分钟 3 次 | `K/loop/core/InterceptDeadline.kt:96` |
+| └ `Backoff` 15 秒退避（**不是放行**） | `K/loop/core/InterceptDeadline.kt:126` |
+| `EnforcementOutcome` | `K/loop/core/EnforcementOutcome.kt:18` |
+| ├ `afterShowFailure()` | `K/loop/core/EnforcementOutcome.kt:32` |
+| └ **`stillInFront()` null = 未离开** | `K/loop/core/EnforcementOutcome.kt:50` |
+
+### A.4 适配层（Android）
+
+| 内容 | 精确地址 |
+|---|---|
+| `InterceptRuntime` | `K/loop/intercept/InterceptRuntime.kt:39` |
+| ├ **`mono()` 单调时钟** | `K/loop/intercept/InterceptRuntime.kt:56` |
+| ├ `recheckForeground` 接缝 | `K/loop/intercept/InterceptRuntime.kt:64` |
+| ├ `onForeground()` + 退避检查 | `K/loop/intercept/InterceptRuntime.kt:115` |
+| ├ `show()` 启动页面 | `K/loop/intercept/InterceptRuntime.kt:147` |
+| ├ `armDeadline()` 单定时器 | `K/loop/intercept/InterceptRuntime.kt:194` |
+| ├ **`settleIfDue()`** | `K/loop/intercept/InterceptRuntime.kt:210` |
+| ├ **`enforceLeave()` D2 降级链** | `K/loop/intercept/InterceptRuntime.kt:253` |
+| ├ `goHome` 接缝 | `K/loop/intercept/InterceptRuntime.kt:284` |
+| ├ `currentForeground` 接缝 | `K/loop/intercept/InterceptRuntime.kt:289` |
+| ├ `enforcementUnavailable` 字段 | `K/loop/intercept/InterceptRuntime.kt:304` |
+| ├ `notifyEnforcementUnavailable` | `K/loop/intercept/InterceptRuntime.kt:308` |
+| ├ `onPageShown()` 记录证明 | `K/loop/intercept/InterceptRuntime.kt:317` |
+| └ `onPageGone()` 清状态 + 重判 | `K/loop/intercept/InterceptRuntime.kt:356` |
+| `InterceptPageActivity` | `K/loop/intercept/InterceptPageActivity.kt` |
+| ├ `onCreate()` | `K/loop/intercept/InterceptPageActivity.kt:58` |
+| ├ `bind()` | `K/loop/intercept/InterceptPageActivity.kt:75` |
+| ├ **`proveVisible()` 五条件证明** | `K/loop/intercept/InterceptPageActivity.kt:106` |
+| ├ `onStop()` | `K/loop/intercept/InterceptPageActivity.kt:131` |
+| ├ `onDestroy()` | `K/loop/intercept/InterceptPageActivity.kt:153` |
+| ├ `release()` 尊重守卫裁决 | `K/loop/intercept/InterceptPageActivity.kt:172` |
+| ├ `withdraw()` | `K/loop/intercept/InterceptPageActivity.kt:387` |
+| └ `goHome()` | `K/loop/intercept/InterceptPageActivity.kt:390` |
+| `LoopRuntime` | `K/loop/LoopRuntime.kt:44` |
+| ├ `verifyNow()` | `K/loop/LoopRuntime.kt:219` |
+| └ **`recheckForeground()`** | `K/loop/LoopRuntime.kt:281` |
+| `VisibleSurface` 槽位 | `K/loop/core/SurfaceSlot.kt` |
+| ├ `claim()` | `K/loop/core/SurfaceSlot.kt:56` |
+| ├ `release()` | `K/loop/core/SurfaceSlot.kt:77` |
+| └ `OWNER_INTERCEPT` | `K/loop/core/SurfaceSlot.kt:102` |
+| `Engagement` 六态 | `K/loop/core/CoreModel.kt:68` |
+
+### A.5 测试
+
+| 测试 | 精确地址 |
+|---|---|
+| `InterceptRepositoryCrashTest` 崩溃注入（11 项） | `T/loop/core/InterceptRepositoryCrashTest.kt:20` |
+| ├ 临时文件失败 | `T/loop/core/InterceptRepositoryCrashTest.kt:98` |
+| ├ 静默丢弃写入 | `T/loop/core/InterceptRepositoryCrashTest.kt:177` |
+| └ 白名单写失败 | `T/loop/core/InterceptRepositoryCrashTest.kt:283` |
+| `InterceptMigrationTest`（8 项） | `T/loop/core/InterceptMigrationTest.kt:16` |
+| └ 白名单无放行来源 | `T/loop/core/InterceptMigrationTest.kt:153` |
+| `InterceptAuthorizationSemanticsTest`（10 项） | `T/loop/core/InterceptAuthorizationSemanticsTest.kt:18` |
+| ├ EXITED 后必须再拦 | `T/loop/core/InterceptAuthorizationSemanticsTest.kt:55` |
+| └ 无 Allow 引用冷却/日上限 | `T/loop/core/InterceptAuthorizationSemanticsTest.kt:155` |
+| `InterceptDeadlineTest`（10 项） | `T/loop/core/InterceptDeadlineTest.kt:16` |
+| └ 未证明 → NOT_SHOWN | `T/loop/core/InterceptDeadlineTest.kt:23` |
+| `InterceptVisibilityGateTest`（6 项） | `T/loop/core/InterceptVisibilityGateTest.kt:25` |
+| └ 无证明拒绝训练门 | `T/loop/core/InterceptVisibilityGateTest.kt:58` |
+| `EnforcementOutcomeTest`（5 项） | `T/loop/core/EnforcementOutcomeTest.kt:14` |
+| └ null 前台算未离开 | `T/loop/core/EnforcementOutcomeTest.kt:40` |
+
+### A.6 工具与文档
+
+| 内容 | 精确地址 |
+|---|---|
+| 内核测试运行器 | `tooling/run-kernel-tests.sh`（153 行） |
+| ├ 自动发现测试类 | `tooling/run-kernel-tests.sh` 的 `find "$TEST/loop" -name '*Test.kt'` |
+| └ 排除 LoopHardeningTest | 同上 `! -name 'LoopHardeningTest.kt'` |
+| ADR（持久化 + 授权 + D2） | `docs/adr/0001-intercept-persistence-and-authorization.md` |
+| 本档案 | `R4-TECHNICAL-ARCHIVE.md` |
+
+### A.7 复制即可用的查看命令
+
+```bash
+# 定位仓库
+cd /d/code/R4/p4b            # WSL
+# 或   cd D:\code\R4\p4b     # PowerShell
+
+# 看某个精确位置（例如 P0-5 的闸门）
+sed -n '610,632p' app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/loop/core/Intercept.kt
+
+# 看 commit() 的提交协议
+sed -n '115,160p' app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/loop/core/InterceptRepository.kt
+
+# 看 D2 的降级链
+sed -n '247,275p' app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/loop/intercept/InterceptRuntime.kt
+
+# 找任意符号
+grep -rn "openShownAt" app/android/app/src/main/kotlin/ | head
+```
+
+### A.8 一个诚实说明
+
+**这份索引是我核对出来的，不是估的** —— 但正因为如此，我要说明：
+
+上一版档案文档里有 9 处行号是**凭记忆写的、错的**（例如 `onReleased` 我写成 594，实为 599；
+`decide()` 的 dailyMax 分支写成 322，实为 324）。已全部更正，并在提交里留了记录。
+
+**行号会随代码变动失效。** 如果发现对不上，请以符号名（函数名 / 常量名）为准搜索，
+不要以行号为准。行号只是"这个版本上的快捷方式"。
