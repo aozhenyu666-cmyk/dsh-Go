@@ -274,4 +274,133 @@ class InterceptProductionPathTest {
             k.recoveryIssue!!.contains("whitelist"),
         )
     }
+
+    // ---- F7: the production path regression pack ---------------------------------------
+    //
+    // Every case below opens a real temp directory through InterceptKernel.open, asserts the commit
+    // succeeded, then re-opens and asserts the state survived. A case that only checks memory would
+    // pass even if nothing was written - which is what this file exists to prevent.
+
+    private fun openFresh(): Pair<File, InterceptKernel.Opened> {
+        val dir = tmpDir()
+        val k = open(dir)
+        configure(k.guard)
+        return dir to k
+    }
+
+    @Test
+    fun p1_training_release_grants_a_window_and_one_receipt() {
+        val (dir, k) = openFresh()
+        val b = trigger(k.guard)
+        assertTrue(k.guard.onPageShown(b.eventId, wall))
+        solve(k.guard, b)
+        assertTrue(k.guard.onReleased(b.eventId, InterceptGuard.RELEASE_TRAINING, wall + 1_000L))
+        assertNull(k.guard.storageError)
+
+        val again = open(dir)
+        assertEquals("one RELEASED receipt", 1, again.ledger.state.receipts.count {
+            it.outcome == InterceptOutcome.RELEASED
+        })
+        assertEquals(1L, again.ledger.state.userReleasedCount)
+        assertNull(again.guard.storageError)
+    }
+
+    @Test
+    fun p2_whitelist_survives_a_restart() {
+        val (dir, k) = openFresh()
+        val b = trigger(k.guard)
+        assertTrue(k.guard.onPageShown(b.eventId, wall))
+        assertTrue(k.guard.onReleased(b.eventId, InterceptGuard.RELEASE_WHITELIST, wall + 1_000L))
+        assertNull(k.guard.storageError)
+
+        assertTrue("the whitelist survived", bili in open(dir).guard.config.whitelist)
+    }
+
+    @Test
+    fun p3_page_pause_survives_a_restart() {
+        val (dir, k) = openFresh()
+        val b = trigger(k.guard)
+        assertTrue(k.guard.onPageShown(b.eventId, wall))
+        assertTrue(k.guard.onPaused(b.eventId, 10 * 60_000L, wall + 1_000L))
+        assertNull(k.guard.storageError)
+
+        assertTrue("the pause window survived", open(dir).guard.config.pauseUntilWall > wall)
+    }
+
+    @Test
+    fun p4_resuming_clears_the_pause_window() {
+        val (dir, k) = openFresh()
+        assertTrue(k.guard.onPaused(null, 10 * 60_000L, wall))
+        k.guard.setConfig(k.guard.config.copy(pauseUntilWall = 0), wall + 1_000L)
+        assertNull(k.guard.storageError)
+
+        assertEquals("resume cleared it", 0L, open(dir).guard.config.pauseUntilWall)
+    }
+
+    @Test
+    fun p5_a_page_that_never_appeared_refunds_the_charge() {
+        val (dir, k) = openFresh()
+        val b = trigger(k.guard)
+        assertTrue(k.guard.onUnavailable(b.eventId, "no_visibility_proof", wall + 1_000L))
+        assertNull(k.guard.storageError)
+
+        val again = open(dir)
+        assertEquals("nothing was blocked", 0L, again.ledger.state.blockedCount)
+        assertEquals("and no cooldown is running", 0L, again.guard.state.lastTriggerAt)
+    }
+
+    @Test
+    fun p6_a_process_death_before_the_proof_records_not_shown() {
+        val dir = tmpDir()
+        val first = open(dir)
+        configure(first.guard)
+        trigger(first.guard)   // never shown, then everything is dropped
+
+        val again = open(dir)
+        assertEquals(1, again.ledger.state.receipts.size)
+        assertEquals(InterceptOutcome.NOT_SHOWN, again.ledger.state.receipts.first().outcome)
+        assertEquals(0L, again.ledger.state.blockedCount)
+    }
+
+    @Test
+    fun p7_a_process_death_after_the_proof_records_blocked() {
+        val dir = tmpDir()
+        val first = open(dir)
+        configure(first.guard)
+        val b = trigger(first.guard)
+        assertTrue(first.guard.onPageShown(b.eventId, wall))
+
+        val again = open(dir)
+        assertEquals(1, again.ledger.state.receipts.size)
+        assertEquals(InterceptOutcome.BLOCKED, again.ledger.state.receipts.first().outcome)
+        assertEquals(1L, again.ledger.state.blockedCount)
+    }
+
+    @Test
+    fun p8_removing_a_target_applies_the_new_config() {
+        val (dir, k) = openFresh()
+        val next = k.guard.setConfig(k.guard.config.copy(targets = emptyList()), wall + 1_000L)
+        assertNull(k.guard.storageError)
+        assertTrue("the target is gone from the applied config", next.targets.isEmpty())
+
+        assertTrue("and it stayed gone", open(dir).guard.config.targets.isEmpty())
+    }
+
+    @Test
+    fun p9_one_hundred_and_twenty_rounds_keep_every_commit_and_cap_the_receipts() {
+        val (dir, k) = openFresh()
+        repeat(120) {
+            val t = wall + it * 1_000L
+            val d = k.guard.onForeground(bili, env(), t)
+            assertTrue("round $it blocks", d is InterceptDecision.Block)
+            val b = d as InterceptDecision.Block
+            assertTrue(k.guard.onPageShown(b.eventId, t))
+            assertTrue(k.guard.onExited(b.eventId, t + 1L))
+            assertNull("round $it committed: " + k.guard.storageError, k.guard.storageError)
+        }
+        val again = open(dir)
+        assertEquals("receipts are capped at 100", 100, again.ledger.state.receipts.size)
+        assertEquals("but every trigger is counted", 120L, again.ledger.state.triggerCount)
+        assertNull(again.guard.storageError)
+    }
 }
