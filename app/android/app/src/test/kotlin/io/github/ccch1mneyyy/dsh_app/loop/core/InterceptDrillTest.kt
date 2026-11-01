@@ -57,7 +57,12 @@ class InterceptDrillTest {
 
         for (v in block.drill.order()) assertTrue(g.tapDrill(block.eventId, v))
         assertTrue("solved", g.drill()!!.solved)
-        assertTrue(g.onReleased(block.eventId, InterceptGuard.RELEASE_TRAINING, wall))
+        // Solved is not enough on its own: trainingMs says the drill must have been up that long.
+        assertFalse(
+            "solved but not yet dwelled: still no pass",
+            g.onReleased(block.eventId, InterceptGuard.RELEASE_TRAINING, wall + g.config.trainingMs - 1),
+        )
+        assertTrue(g.onReleased(block.eventId, InterceptGuard.RELEASE_TRAINING, wall + g.config.trainingMs))
         assertEquals(InterceptOutcome.RELEASED, g.receipts().first().outcome)
     }
 

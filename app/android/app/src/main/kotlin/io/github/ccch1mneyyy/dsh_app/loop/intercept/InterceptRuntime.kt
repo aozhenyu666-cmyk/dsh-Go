@@ -151,6 +151,14 @@ object InterceptRuntime {
      * Freeing the shared slot here - not in the guard - keeps "who owns the screen" a property of
      * the adapter rather than of the intercept book.
      */
+    /**
+     * The page could not be shown (the system refused the start, or it was stopped before the
+     * visibility proof). Recorded as NOT_SHOWN: the interception did not happen, so nothing is owed
+     * to the block ledger and no cooldown is charged against a block that never existed.
+     */
+    fun onUnavailable(eventId: String, code: String): Boolean =
+        guard?.onUnavailable(eventId, code, System.currentTimeMillis()) == true
+
     fun onPageGone(eventId: String?) {
         VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, eventId)
     }

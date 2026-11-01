@@ -59,7 +59,9 @@ data class InterceptConfig(
             .distinctBy { it.packageName }.take(MAX_TARGETS),
         whitelist = whitelist.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 255 }.toSet(),
         releaseMs = releaseMs.coerceIn(0, 6 * 3_600_000L),
-        trainingMs = trainingMs.coerceIn(5_000L, 30 * 60_000L),
+        // 0 is allowed and means "no dwell requirement": the drill alone decides. Without the 0
+        // the setting could never be turned off, and a floor of 5 s silently overrode the person.
+        trainingMs = trainingMs.coerceIn(0L, 30 * 60_000L),
         cooldownMs = cooldownMs.coerceIn(0, 24 * 3_600_000L),
         dailyMax = dailyMax.coerceIn(0, 200),
         authorizedWindows = authorizedWindows
@@ -325,6 +327,13 @@ data class InterceptState(
     val openEventId: String? = null,
     val openPackage: String? = null,
     val openSinceWall: Long = 0,
+    /**
+     * When the page was *proved* on screen (the adapter's attached+shown+laid-out+focused proof),
+     * 0 while it has only been triggered. This is the fact that separates "triggered" from
+     * "really blocked", and it is what recovery reads: a process killed before the proof must not
+     * come back claiming the person was blocked.
+     */
+    val openShownAt: Long = 0,
     val lastReason: String? = null,
     /** 训练题 for the open interception; null when nothing is open. */
     val drill: InterceptDrill? = null,
@@ -333,6 +342,7 @@ data class InterceptState(
         "lastTriggerAt" to lastTriggerAt, "lastTriggerPackage" to lastTriggerPackage,
         "releases" to releases, "dayKey" to dayKey, "countToday" to countToday,
         "openEventId" to openEventId, "openPackage" to openPackage, "openSinceWall" to openSinceWall,
+        "openShownAt" to openShownAt,
         "lastReason" to lastReason, "drill" to drill?.toMap(),
     )
 
@@ -343,7 +353,7 @@ data class InterceptState(
                 .mapNotNull { (k, v) -> if (k is String && v is Number) k to v.toLong() else null }.toMap(),
             dayKey = M.long(m, "dayKey", Long.MIN_VALUE), countToday = M.int(m, "countToday"),
             openEventId = M.str(m, "openEventId"), openPackage = M.str(m, "openPackage"),
-            openSinceWall = M.long(m, "openSinceWall"), lastReason = M.str(m, "lastReason"),
+            openSinceWall = M.long(m, "openSinceWall"), openShownAt = M.long(m, "openShownAt"), lastReason = M.str(m, "lastReason"),
             drill = InterceptDrill.fromMap(M.map(m, "drill")),
         )
     }
@@ -386,14 +396,23 @@ class InterceptGuard(
         }
         val s = state
         if (s.openEventId != null) {
-            // The page is gone: record how it ended rather than forgetting it happened.
+            // The page died with the process. What it was is decided by whether it was ever
+            // proved on screen: a trigger that never reached the screen is NOT_SHOWN (nothing was
+            // owed), one that did is BLOCKED (it really did stop the person). Recording both as
+            // BLOCKED is how "the app was killed before showing anything" turned into a block.
+            val shown = s.openShownAt != 0L
             ledger.onEnded(
                 InterceptReceipt(
                     eventId = s.openEventId, packageName = s.openPackage.orEmpty(), triggeredAt = s.openSinceWall,
-                    endedAt = now, outcome = InterceptOutcome.BLOCKED, reason = "process_restart",
+                    endedAt = now,
+                    outcome = if (shown) InterceptOutcome.BLOCKED else InterceptOutcome.NOT_SHOWN,
+                    reason = if (shown) "process_restart" else "process_restart_before_shown",
                 ),
             )
-            state = s.copy(openEventId = null, openPackage = null, openSinceWall = 0, lastReason = "open_lost", drill = null)
+            state = s.copy(
+                openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
+                lastReason = if (shown) "open_lost" else "open_lost_unshown", drill = null,
+            )
         }
         // The daily bucket is only rolled from [InterceptEnv.dayKey], which the caller reads from the
         // same calendar it uses for quiet hours; computing a second day number here would make the
@@ -452,6 +471,10 @@ class InterceptGuard(
                 // the drill, never invent or reroll it.
                 drill = InterceptDrill.of(eventId),
             )
+            // triggerCount counts ATTEMPTS, not blocks: it is incremented the moment a Block is
+            // decided, before anything is on screen. blockedCount is what the shown proof adds.
+            // dailyMax therefore limits attempts; the settings page says so in those words, and
+            // the ledger keeps the two numbers apart so nobody has to guess which one it is.
             ledger.onTriggered(eventId, now)
             persist()
             return@synchronized InterceptDecision.Block(eventId, d.target, d.reason, state.drill!!)
@@ -460,10 +483,28 @@ class InterceptGuard(
         d
     }
 
+    /**
+     * Whether an "authorization rule" pass exists at all: the person must have configured at least
+     * one window, and this moment must be inside one. An empty rule list is not a rule — offering
+     * the door anyway is exactly the bypass this round removes.
+     */
+    fun hasUsableRule(now: Long): Boolean =
+        config.authorizedWindows.isNotEmpty() && InterceptRules.inAuthorizedWindow(config, minuteOfDayOf(now))
+
+    /** Whether the settings page should even offer the rule door. */
+    fun ruleDoorExists(): Boolean = config.authorizedWindows.isNotEmpty()
+
+
     /** The blocking page is provably on screen (the adapter's visibility proof, not "resumed"). */
     fun onPageShown(eventId: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
-        ledger.onBlocked(eventId, now)
+        // The evidence of the only fact the block ledger counts as a block: the page was proved
+        // on screen. Recorded once, so a repeated Shown cannot inflate blockedCount.
+        if (state.openShownAt == 0L) {
+            state = state.copy(openShownAt = now)
+            ledger.onBlocked(eventId, now)
+            persist()
+        }
         true
     }
 
@@ -475,7 +516,31 @@ class InterceptGuard(
      */
     fun onReleased(eventId: String, how: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
-        if (how == RELEASE_TRAINING && state.drill?.solved != true) return@synchronized false
+        // Every way through is earned here, and only here. The page reports *which* door the
+        // person chose; whether that door exists is the guard's decision, because the page is
+        // the one surface an untrusted build could fake.
+        //
+        //   training   the drill minted for this event is solved
+        //   rule       the person configured at least one authorization window, and this moment
+        //              is inside one (a "rule" with no rules is not a rule, it is a free pass)
+        //   whitelist  an explicit standing decision: the package leaves the target list
+        //
+        // Anything else (an unknown code, a typo, a future value) grants nothing.
+        when (how) {
+            RELEASE_TRAINING -> {
+                if (state.drill?.solved != true) return@synchronized false
+                // trainingMs was a setting that did nothing. It now means what its name says: the
+                // drill must have been on screen at least that long before the pass is granted, so
+                // speed-tapping through four buttons is not a substitute for stopping. 0 disables it.
+                val shownAt = state.openShownAt
+                if (config.trainingMs > 0L && shownAt != 0L && now - shownAt < config.trainingMs) {
+                    return@synchronized false
+                }
+            }
+            RELEASE_RULE -> if (!hasUsableRule(now)) return@synchronized false
+            RELEASE_WHITELIST -> Unit
+            else -> return@synchronized false
+        }
         val pkg = state.openPackage ?: return@synchronized false
         val until = now + config.releaseMs
         state = state.copy(releases = state.releases + (pkg to until))
@@ -574,7 +639,10 @@ class InterceptGuard(
                 outcome = outcome, reason = reason, releasedUntilWall = releasedUntilWall, releasedBy = releasedBy,
             ),
         )
-        state = s.copy(openEventId = null, openPackage = null, openSinceWall = 0, lastReason = reason, drill = null)
+        state = s.copy(
+            openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
+            lastReason = reason, drill = null,
+        )
     }
 
     /** The local day only moves forward: setting the clock back cannot refill the daily count. */
@@ -598,5 +666,14 @@ class InterceptGuard(
 
         /** How long a 暂停 lasts by default when the page asks for one. */
         const val DEFAULT_PAUSE_MS = 30 * 60_000L
+
+        /**
+         * Local minute of the day, on the same calendar the daily bucket uses. One calendar, so a
+         * rule window and a day rollover can never disagree about what time it is.
+         */
+        fun minuteOfDayOf(wall: Long): Int = java.util.Calendar.getInstance(java.util.TimeZone.getDefault()).run {
+            timeInMillis = wall
+            get(java.util.Calendar.HOUR_OF_DAY) * 60 + get(java.util.Calendar.MINUTE)
+        }
     }
 }

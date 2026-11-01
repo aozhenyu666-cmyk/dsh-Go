@@ -10,6 +10,10 @@
     <string name="intercept_drill_wrong">Not that one. Start again.</string>
     <string name="intercept_training">Training passed: open it</string>
     <string name="intercept_training_locked">Finish the drill first</string>
+    <string name="intercept_refused_drill">The drill is not finished yet.</string>
+    <string name="intercept_refused_dwell">Solved too fast - stay with the drill a little longer.</string>
+    <string name="intercept_refused_rule">No authorization rule is set, or this is outside its window.</string>
+    <string name="intercept_refused_unknown">That way through does not exist.</string>
     <string name="intercept_rule">Authorization rule: open it for %1$d min</string>
     <string name="intercept_whitelist">Add to whitelist</string>
     <string name="intercept_pause">Pause interception</string>

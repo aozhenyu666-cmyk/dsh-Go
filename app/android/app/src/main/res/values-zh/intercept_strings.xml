@@ -10,6 +10,10 @@
     <string name="intercept_drill_wrong">点错了，重新来一遍。</string>
     <string name="intercept_training">训练通过，放行</string>
     <string name="intercept_training_locked">先把上面的题做完</string>
+    <string name="intercept_refused_drill">题还没做完。</string>
+    <string name="intercept_refused_dwell">做得太快了，再待一会儿。</string>
+    <string name="intercept_refused_rule">没有设置授权规则，或者现在不在规则时段内。</string>
+    <string name="intercept_refused_unknown">这条放行方式不存在。</string>
     <string name="intercept_rule">授权规则：放行 %1$d 分钟</string>
     <string name="intercept_whitelist">加入白名单</string>
     <string name="intercept_pause">暂停拦截</string>

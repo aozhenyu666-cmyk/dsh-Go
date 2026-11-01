@@ -122,8 +122,18 @@ class ProactivePageActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        if (reported || isChangingConfigurations || isFinishing) return
+        // A page that was never proved on screen cannot have been "dismissed" by anybody: the
+        // person never saw it. Closing it must not become an act of theirs, because Dismissed is
+        // what resets the ignored streak and counts as user activity. Until the proof lands there
+        // is nothing to report — the coordinator settles the event on its own deadline.
+        if (!shown) return
         val screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
-        if (!reported && !isChangingConfigurations && screenOn && !isFinishing) report(SurfaceReport.Dismissed)
+        // Screen off is not the person turning away: they are not looking at anything. The kernel
+        // keeps the event; its reply window, not this lifecycle callback, decides what it becomes.
+        if (!screenOn) return
+        // Leaving a page the person really did see is a dismissal — that one is theirs.
+        report(SurfaceReport.Dismissed)
     }
 
     override fun onDestroy() {
