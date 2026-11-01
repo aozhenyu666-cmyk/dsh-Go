@@ -220,4 +220,59 @@ class InterceptMigrationTest {
         assertNotNull(g.bytes)
         assertNotNull(l.bytes)
     }
+
+    // ---- F3: a long-lived install must not be mistaken for corruption -------------------
+    //
+    // Receipts are capped at 100 but the counters keep accumulating forever, so after a year of use
+    // blockedCount=150 with 100 receipts is exactly what an honest install looks like. The earlier
+    // check compared a counter against the receipt count and called it corruption.
+
+    @Test
+    fun a_long_lived_install_with_a_capped_receipt_list_still_migrates() {
+        val snap = Disk()
+        val r = InterceptMigration.run(
+            snap,
+            Disk(guardJson()),
+            Disk(ledgerJson(triggerCount = 150, blockedCount = 150, released = 150, receipts = 100)),
+        )
+        assertTrue("a capped receipt list is normal, not corruption: " + r, r is InterceptMigration.Result.Migrated)
+        assertNotNull("a snapshot was written", snap.bytes)
+    }
+
+    @Test
+    fun legacy_settings_pauses_do_not_look_like_missing_triggers() {
+        val snap = Disk()
+        // Two settings-page pause receipts, no interceptions at all: nothing was ever triggered.
+        val withPauses = json(
+            linkedMapOf(
+                "version" to 1,
+                "ledger" to linkedMapOf(
+                    "triggerCount" to 0L,
+                    "blockedCount" to 0L,
+                    "userReleasedCount" to 0L,
+                    "userExitedCount" to 0L,
+                    "pausedCount" to 2L,
+                    "receipts" to listOf("pause-1", "pause-2").map { id ->
+                        linkedMapOf(
+                            "eventId" to id,
+                            "packageName" to "",
+                            "triggeredAt" to 1L,
+                            "endedAt" to 2L,
+                            "outcome" to "PAUSED",
+                            "reason" to "paused",
+                            "releasedBy" to null,
+                            "releasedUntilWall" to 0L,
+                        )
+                    },
+                    "lastRecordedAt" to 0L,
+                ),
+                "applied" to emptyList<String>(),
+            ),
+        )
+        val r = InterceptMigration.run(snap, Disk(guardJson()), Disk(withPauses))
+        assertTrue(
+            "settings pauses are not triggers: " + r,
+            r is InterceptMigration.Result.Migrated,
+        )
+    }
 }
