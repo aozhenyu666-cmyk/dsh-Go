@@ -22,6 +22,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { ledgerPanel, stripData } from './views.mjs'
+import { createRegistry, provideRegistry, readRegistry, REGISTRY_SERVICE } from './registry.mjs'
 import {
   describeEntry, deserialize, emptyEntry, emptyLedger, entryOf, markInstalled, markLoaded,
   markToolRegistered, markRun, normalizeLedger, putEntry, serialize, summarize,
@@ -377,11 +378,38 @@ export function apply(ctx, options = {}) {
     summary: () => summarize(ledger),
   }
 
+  // ── 统一能力登记接口：把 api 作为宿主服务 provide 出去 ───────────────────────
+  // 这是本轮的核心接线：cordis 原生支持插件间服务注入（reflect.ts:277 ctx.provide /
+  // reflect.ts:233 ctx.get / registry.ts:176 ctx.inject）。bili 注入这个服务登记自己，
+  // 于是两份台账合成一份，且只有一个写者（本插件），不存在无锁共写。
+  const registryApi = createRegistry({
+    get: (plugin) => describeEntry(entryOf(ledger, plugin)),
+    register: (plugin, evidence) => api.register(plugin, evidence),
+    record: (plugin, run) => api.record(plugin, run),
+    all: () => normalizeLedger(ledger),
+    summary: () => summarize(ledger),
+  })
+  const published = provideRegistry(ctx, { api: registryApi })
+  // 提供失败（宿主没 ctx.provide / 重名）不崩：如实记进自己的 lastRun*，面板能看见原因。
+  //
+  // 为什么走 markRun 而不是直接写 lastRunCode：normalizeEntry 规定 runs=0 时
+  // lastRun* 必须全空（「没跑过」不能挂着错误码）。而「提供失败」是一次真实发生
+  // 且失败了的尝试，和 E_REGISTER 同一类 —— 用同一套记法，别发明第二套半残的状态。
+  // ⚠️ 不覆盖更具体的原因：注册失败留下的 E_REGISTER 比「没有登记服务」更可行动。
+  if (!published.provided) {
+    console.error('[cap-ledger] 统一台账未对外提供：' + String(published.reason))
+    if (selfEntry.lastRunCode === null) {
+      markRun(selfEntry, { ok: false, code: 'E_NO_REGISTRY', message: '统一台账未对外提供：' + String(published.reason), at: now() })
+      putEntry(ledger, selfEntry)
+    }
+  }
+
   // ── 清理 ───────────────────────────────────────────────────────────────────
   if (typeof ctx.effect === 'function') {
     try {
       ctx.effect(() => () => {
         saveNow()
+        if (published.dispose !== null) published.dispose()
         listeners.clear()
       })
     } catch (error) {
@@ -463,6 +491,12 @@ export function apply(ctx, options = {}) {
     describe: () => describeEntry(entryOf(ledger, SELF)),
     save: saveNow,
     ledgerPath,
+    /** 统一台账服务的提供结果（provided / reason）—— 测试与排查用，不是猜的。 */
+    registry: () => ({ ...published }),
+    /** 服务名常量，别处要 inject 时用同一个字面量。 */
+    registryServiceName: REGISTRY_SERVICE,
+    /** 对外 API 对象（与本插件 provide 出去的是同一形状）。 */
+    registryApi: registryApi,
   }
 }
 

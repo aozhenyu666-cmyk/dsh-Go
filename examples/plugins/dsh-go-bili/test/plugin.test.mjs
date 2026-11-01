@@ -452,3 +452,145 @@ test('台账：recordRun 成功会清掉上一次的失败原因', () => {
   assert.equal(l.runs, 2)
   assert.equal(l.fails, 1)
 })
+
+// ── 6. 统一台账（跨插件服务注入）────────────────────────────────────────────
+// 宿主（cordis 4.0.5）原生支持插件间服务注入：cap-ledger ctx.provide 一个登记接口，
+// 本插件 ctx.get 拿到它并把「已安装/已加载/工具注册/每次执行」都记到同一份台账。
+// 以前两份 ledger.json 各写一份 —— 那不是统一台账，是本轮要消除的问题。
+const unifiedCtx = (shape = {}) => {
+  const toolMap = new Map()
+  const published = {}
+  // 与 cordis 一致：依赖没就绪就**挂起**回调，服务 provide 出来的那一刻唤醒
+  // （registry.ts:176 ctx.inject → reflect.ts:314 notify）。
+  const parked = []
+  const wake = (name) => {
+    for (const item of [...parked]) {
+      if (!item.missing.includes(name)) continue
+      item.missing = item.missing.filter((n) => n !== name && !(n in published))
+      if (item.missing.length > 0) continue
+      parked.splice(parked.indexOf(item), 1)
+      item.cb({ get: ctx.get })
+    }
+  }
+  const ctx = {
+    inject(deps, cb) {
+      const names = Array.isArray(deps) ? deps : Object.keys(deps ?? {})
+      const missing = names.filter((n) => !(n in published))
+      if (missing.length === 0) { cb({ get: ctx.get }); return () => {} }
+      const item = { missing, cb }
+      parked.push(item)
+      return () => { const i = parked.indexOf(item); if (i >= 0) parked.splice(i, 1) }
+    },
+    on() {},
+    effect: (fn) => { fn(); return () => {} },
+    get: (n) => (n === 'tools' ? ctx.tools : published[n]),
+    ...(shape.provide === false ? {} : {
+      provide(n, v) {
+        if (n in published) throw new Error('service "' + n + '" has already been registered')
+        published[n] = v
+        wake(n)
+        return () => { delete published[n] }
+      },
+    }),
+  }
+  ctx.tools = { register: (def) => { toolMap.set(def.name, def); return () => toolMap.delete(def.name) } }
+  return { ctx, published, toolMap }
+}
+
+/** cap-ledger 形状的假登记服务：只有记录，不做真实台账演算。 */
+const fakeRegistry = () => {
+  const calls = { register: [], record: [] }
+  return {
+    calls,
+    v: 1,
+    register: (plugin, evidence) => { calls.register.push([plugin, evidence]); return { plugin } },
+    record: (plugin, run) => { calls.record.push([plugin, run]); return { plugin } },
+    get: () => ({}),
+    all: () => ({}),
+    summary: () => ({}),
+  }
+}
+
+test('统一台账：宿主上有登记服务 —— 加载即登记，执行即记账', async () => {
+  const { ctx, published } = unifiedCtx()
+  const registry = fakeRegistry()
+  published.dshGoCapabilityLedger = registry
+
+  const plugin = await import('../lib/index.js')
+  const h = plugin.apply(ctx, { fetch: okFetch(), now: () => NOW, ledgerPath: null })
+
+  // ① 加载那一刻就把三件事实推过去（不是等第一次执行）
+  assert.equal(registry.calls.register.length, 1)
+  const [who, evidence] = registry.calls.register[0]
+  assert.equal(who, 'dsh-go-bili')
+  assert.deepEqual(evidence, { installed: true, loaded: true, toolRegistered: true })
+  assert.deepEqual(h.unified(), { plugin: 'dsh-go-bili', registered: true })
+
+  // ② 每一次真实执行都记进同一份台账
+  await h.peek('BV1uv411q7Mv')
+  assert.equal(registry.calls.record.length, 1)
+  assert.equal(registry.calls.record[0][0], 'dsh-go-bili')
+  assert.equal(registry.calls.record[0][1].ok, true)
+  assert.equal(registry.calls.record[0][1].at, NOW)
+})
+
+test('统一台账：失败的执行也带 code + message 过去（失败原因不许在跨插件时丢掉）', async () => {
+  const { ctx, published } = unifiedCtx()
+  const registry = fakeRegistry()
+  published.dshGoCapabilityLedger = registry
+  const plugin = await import('../lib/index.js')
+  const h = plugin.apply(ctx, { fetch: fakeFetch(() => { throw new TypeError('fetch failed') }), now: () => NOW, ledgerPath: null })
+
+  await h.peek('BV1uv411q7Mv')
+  assert.equal(registry.calls.record.length, 1)
+  const run = registry.calls.record[0][1]
+  assert.equal(run.ok, false)
+  assert.equal(run.code, 'E_NETWORK')
+  assert.match(String(run.message), /失败|网络|fetch/i)
+})
+
+test('统一台账：注册失败时，推给统一台账的是 toolRegistered=false + 原因（不报假绿）', async () => {
+  const { ctx, published } = unifiedCtx()
+  const registry = fakeRegistry()
+  published.dshGoCapabilityLedger = registry
+  ctx.tools.register = () => { throw new TypeError('schema 被拒') }
+  const plugin = await import('../lib/index.js')
+  plugin.apply(ctx, { ledgerPath: null })
+
+  const [, evidence] = registry.calls.register[0]
+  assert.equal(evidence.toolRegistered, false)
+  assert.equal(evidence.error, 'schema 被拒')
+})
+
+test('统一台账：宿主没有登记服务 —— 不崩，也不假装接上了', async () => {
+  const { ctx } = unifiedCtx()
+  const plugin = await import('../lib/index.js')
+  let h
+  assert.doesNotThrow(() => { h = plugin.apply(ctx, { fetch: okFetch(), now: () => NOW, ledgerPath: null }) })
+  assert.equal(h.unified(), null, '没接上就是 null，不是 {}')
+  const value = await h.peek('BV1uv411q7Mv')
+  assert.equal(value.ok, true, '本地台账与工具照常工作')
+  assert.equal(h.ledger.runs, 1)
+})
+
+test('统一台账：服务晚于本插件提供时，ctx.inject 回补 —— 迟到也要接上', async () => {
+  const { ctx, published } = unifiedCtx()
+  // 故意先不提供，让 apply 那一刻读不到
+  const plugin = await import('../lib/index.js')
+  const h = plugin.apply(ctx, { fetch: okFetch(), now: () => NOW, ledgerPath: null })
+  assert.equal(h.unified(), null)
+
+  // 之后 cap-ledger 才加载并把服务 provide 出来 → 本插件的 inject 回调被唤醒
+  const registry = fakeRegistry()
+  ctx.provide('dshGoCapabilityLedger', registry)
+  assert.equal(registry.calls.register.length, 1, '迟到提供也要补登记')
+  assert.deepEqual(registry.calls.register[0][1], { installed: true, loaded: true, toolRegistered: true })
+  assert.ok(h.unified() !== null)
+})
+
+test('统一台账：服务名两边不许漂移（契约靠一个字面量）', async () => {
+  const bili = await import('../lib/index.js')
+  const cap = await import('../../dsh-go-cap-ledger/lib/registry.mjs')
+  assert.equal(bili.REGISTRY_SERVICE, cap.REGISTRY_SERVICE)
+  assert.equal(bili.REGISTRY_SERVICE, 'dshGoCapabilityLedger')
+})

@@ -126,6 +126,8 @@ export function ledgerPanel(s = {}) {
   const names = Object.keys(plugins).sort()
   const sum = summarize(ledger)
 
+  // 三个数必须分开报：登记了几个 / 真的验证过几个 / 还有几个没验证过。
+  // 「能调用」不等于「验证过」，把后者并进 healthy 就是假绿。
   const children = [
     {
       type: 'row',
@@ -133,10 +135,17 @@ export function ledgerPanel(s = {}) {
         { type: 'metric', label: '登记', value: String(sum.total), caption: '个插件' },
         {
           type: 'metric',
-          label: '能用',
+          label: '已验证',
           value: String(sum.healthy),
           ...(sum.total > 0 && sum.healthy === sum.total ? { tone: 'good' } : {}),
-          caption: sum.total === 0 ? '还没有记录' : Math.round((sum.healthy / sum.total) * 100) + '%',
+          caption: sum.total === 0 ? '还没有记录' : '真跑通过 ' + sum.healthy + '/' + sum.total,
+        },
+        {
+          type: 'metric',
+          label: '未验证',
+          value: String(sum.unverified),
+          ...(sum.unverified > 0 ? { tone: 'warn' } : {}),
+          caption: sum.unverified > 0 ? '已加载但没跑过' : '没有',
         },
         {
           type: 'metric',
@@ -153,7 +162,7 @@ export function ledgerPanel(s = {}) {
     children.push({
       type: 'callout',
       tone: 'info',
-      text: '还没有任何记录。插件第一次跑起来、工具注册成功之后，这里就会出现它。',
+      text: '还没有任何记录。插件注册进台账、并且真的跑过一次之后，这里才会把它算作已验证。',
     })
     children.push({
       type: 'actions',
@@ -173,9 +182,14 @@ export function ledgerPanel(s = {}) {
         ['installed（已安装）', d.installed],
         ['loaded（已加载）', d.loaded],
         ['toolRegistered（工具已注册）', d.toolRegistered],
+        ['available（现在能调用）', d.available],
+        ['executed（执行过）', d.executed],
+        ['verified（验证过实际执行）', d.verified],
         ['lastRunOk（最近一次）', d.lastRunOk],
       ],
     })
+    // 一句话结论：**没跑过就说没跑过**，不许拿「已加载」冒充健康。
+    children.push({ type: 'text', text: d.headline, tone: d.healthy ? 'good' : d.callable ? 'warn' : 'muted' })
     if (entry.lastRunOk === false) {
       failing.push({
         title: clamp(name, 30) + ' · ' + String(entry.lastRunCode === null ? 'E_UNKNOWN' : entry.lastRunCode),
@@ -211,7 +225,7 @@ export function ledgerPanel(s = {}) {
     ],
   })
 
-  return { v: 1, type: 'stack', title: '能力台账 · ' + sum.healthy + '/' + sum.total + ' 能用', children }
+  return { v: 1, type: 'stack', title: '能力台账 · ' + sum.healthy + '/' + sum.total + ' 已验证', children }
 }
 
 // ── 状态条 ──────────────────────────────────────────────────────────────────
@@ -226,8 +240,10 @@ export function stripData(s = {}) {
 
   if (sum.total === 0) return { text: '台账 · 空', icon: 'list', tone: 'muted' }
   if (sum.failing > 0) return { text: clamp(sum.failing + ' 个上次失败', 24), icon: 'warning', tone: 'warn' }
-  if (sum.healthy === sum.total) return { text: clamp('能用 ' + sum.healthy + '/' + sum.total, 24), icon: 'check', tone: 'good' }
-  return { text: clamp('能用 ' + sum.healthy + '/' + sum.total, 24), icon: 'list', tone: 'muted' }
+  // 有插件「能调用但一次没跑」时，状态条不许报成一切正常。
+  if (sum.unverified > 0) return { text: clamp(sum.unverified + ' 个尚未验证', 24), icon: 'question', tone: 'muted' }
+  if (sum.healthy === sum.total && sum.total > 0) return { text: clamp('全部已验 ' + sum.healthy + '/' + sum.total, 24), icon: 'check', tone: 'good' }
+  return { text: clamp('已验证 ' + sum.healthy + '/' + sum.total, 24), icon: 'list', tone: 'muted' }
 }
 
 // ── 自测 ────────────────────────────────────────────────────────────────────

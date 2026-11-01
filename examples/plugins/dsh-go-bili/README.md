@@ -3,8 +3,8 @@
 > R4「插件生态与能力扩展」的第一件：让 **Agent 主动调用一个 B 站信息查询工具**，
 > 拿到**结构化 JSON**，结果在 dsh-go App 里画成**原生卡片**，并且那个结果能**交回给 Agent 继续分析**。
 >
-> 同一份代码里带一个最小实现的**能力台账（cap-ledger）**：区分 installed / loaded /
-> toolRegistered / lastRunOk 四个状态，失败时把原因也记下来。
+> 每次都把结果上报到**统一能力台账**（`dshGoCapabilityLedger` 服务，由 dsh-go-cap-ledger 提供）：
+> 全进程一份台账、一个写者，失败时连原因一起记下来。
 
 ## 一句话能力
 
@@ -51,9 +51,29 @@
 | `E_NETWORK` | 连接失败（含 DNS） | 原始报错 + 检查网络 |
 | `E_HTTP` | 非 2xx | HTTP 状态码 |
 | `E_NOT_JSON` | 返回不是 JSON（网关页/劫持页） | 拿到的那一小段原文 |
+| `E_BANNED` | 被 B站风控挡了（HTTP 412 / `code:-412`） | 「出口 IP 被拦了，换网络再试」——**不是** BV 号错 |
 | `E_BIZ` | B站业务码 ≠ 0（视频不存在等） | `code=-404 啥都木有` |
 | `E_NO_DATA` | 有 `code:0` 但没数据 | 稍后重试 |
 | `E_INTERNAL` | 插件自己的 bug | 「请把错误信息反馈」 |
+
+### 真实网络才暴露的两个坑（打桩测试全绿也发现不了）
+
+**① 自造 UA 会被风控判 412。** 同 IP 实测：
+
+| User-Agent | 结果 |
+| --- | --- |
+| `Mozilla/5.0 (Linux; Android 14) dsh-go-bili-peek/0.1` | **412 request was banned** |
+| `Mozilla/5.0 (Windows NT 10.0; Win64; x64) … Chrome/131` | **200 OK** |
+
+所以 `BROWSER_UA` 用的是浏览器形状的 UA。
+
+**② HTTP 412 的响应体里才有 `{"code":-412}`。** 老代码先判 `res.ok === false` 就抛 `E_HTTP`，
+body 根本没被读，后续的匿名指纹重试一次都不会触发 —— 真机 100% 查不到。
+现在**先读 body 再判状态码**。
+
+绕风控用**懒补匿名指纹**：正常路径不多打一个请求；被 -412 挡了才去
+`x/frontend/finger/spi` 取匿名 `buvid3/buvid4` 重试一次，成功就进程内缓存。
+**这不是登录**：不带账号、不带 token、不读用户 cookies、不落盘。
 
 **失败不是异常**：`execute` 不抛，而是返回 `{ ok:false, code, message, hint }`。
 抛异常会让模型看不到原因；返回结构化失败，模型才能真正告诉用户「下一步怎么办」。
@@ -68,27 +88,33 @@
 
 面板放在 `session.tab` / `chat.panel` / `features` 三处，由清单里的 `placement` 决定。
 
-## 能力台账（cap-ledger）
+## 上报到统一能力台账
 
-`lib/ledger.mjs` 是**纯 JS、零依赖、可单测**的最小实现：
+宿主 cordis 4.0.5 原生支持插件间服务注入，所以**不再各写一份 `ledger.json`**：
 
-| 状态 | 谁来定 | 拿不到时 |
-| --- | --- | --- |
-| `installed` | 插件包在磁盘上、被 profile 列出（本插件起来就为 true） | `null`（写「未知」，不猜） |
-| `loaded` | `apply()` 真的跑到了 | `null` |
-| `toolRegistered` | `ctx.tools.register` **返回了 disposer** | `null` / `false` |
-| `lastRunOk` | 每次 `execute` 结束 | `null` = **还没跑过**（不是失败） |
+| 时刻 | 做什么 |
+| --- | --- |
+| `apply()` 跑到 | `ctx.get('dshGoCapabilityLedger')` 拿服务；拿到就 `register('dsh-go-bili', {installed, loaded, toolRegistered, error?})` |
+| 服务晚于本插件提供 | `ctx.inject(['dshGoCapabilityLedger'], …)` 回补 —— 两种加载顺序都能接上 |
+| 每次 `execute` 结束 | `record('dsh-go-bili', { ok, code?, message?, at })` —— 成功与失败都记，失败必带原因 |
+| 宿主没有这个服务 | **不崩、不假装**：`handle.unified()` 返回 `null`，本地照常工作 |
 
-- 失败时同时记 `lastRunCode` + `lastRunMessage` —— 只记「失败了」等于没记。
-- 落盘位置 `$DSH_HOME/cache/dsh-go-bili/ledger.json`（`DSH_HOME` **延迟读**，不是模块级常量）。
-- 落盘失败（只读 home / 手机没权限）不改任何行为，只在内存里记 —— 观测本身不该变成故障源。
-- `describe()` 在四态任一项不全时判 `healthy=false`：宁可保守，不报假绿。
+服务契约由 `dsh-go-cap-ledger` 生产（`lib/registry.mjs`），本插件只持有服务名
+`REGISTRY_SERVICE = 'dshGoCapabilityLedger'` + 一个读取函数 —— **不做跨包 import**，
+这样本插件可以单独安装。名字两边不许漂移，由 `test/plugin.test.mjs` 守。
+
+本地仍保留 `$DSH_HOME/cache/dsh-go-bili/ledger.json` 作为**离线回退存档**
+（`DSH_HOME` 延迟读；落盘失败只在内存里记，观测本身不该变成故障源），
+但它**不再是**「统一台账」——统一台账只有一份，在 cap-ledger 里。
 
 ## 测试
 
 ```sh
-node --test            # 69 项，纯 Node、零依赖、离线；不碰真网络、不碰真 home
-node lib/views.mjs     # 视图预算自测（面板/卡片/状态条）
+node --test test/*.test.mjs   # 80 项，纯 Node、零依赖、离线；不碰真网络、不碰真 home
+node lib/views.mjs            # 视图预算自测（面板/卡片/状态条）
+
+# 真跑（真 cordis + 真 dsh-tools + 真连 api.bilibili.com），与上面的打桩测试**不同**
+node --import ./verify/hooks.mjs verify/live-host.mjs
 ```
 
 覆盖：
@@ -101,6 +127,8 @@ node lib/views.mjs     # 视图预算自测（面板/卡片/状态条）
 | 插件加载 | 有/无 `ctx.tools`、register 抛错、无 `ctx.effect`、无桥接 |
 | 工具调用 | 注入 fetch 端口、卡片/文字/值三件套、失败不抛、卡片超 8 KiB 返回 `{}` |
 | 台账 | 四态彼此独立、失败原因落盘后可读回、坏文件不崩、`normalizeLedger` 不信输入 |
+| 统一台账 | 有服务就登记+记账、失败带 code、没服务不崩、服务晚到能回补、服务名两边不漂移 |
+| 风控 | `-412` → 取匿名指纹重试成功、带指纹仍被挡 → `E_BANNED`、正常路径不多打请求 |
 | 视图 | 工具卡白名单、面板四态文字、状态条 ≤24 字、30 条记录不超预算 |
 | 桥接 | 用 `sdk/plugin-kit` 的**真测试宿主**跑清单解析 / 视图 / 数据推送 / 动作效果 |
 
@@ -123,7 +151,8 @@ dsh plugin --profile web add /绝对路径/dsh-go-bili
 | `lib/index.js` | 插件本体：宿主探测、工具注册、台账、原生界面注册 |
 | `lib/bili.mjs` | 纯逻辑：输入解析、可注入 fetch 的查询、错误码 |
 | `lib/views.mjs` | 纯函数：工具卡 / 面板 / 状态条 + 预算校验（与 partner 那份同一套判据） |
-| `lib/ledger.mjs` | cap-ledger 最小实现（四态 + 计数 + 规整 + 落盘序列化） |
+| `lib/ledger.mjs` | 本地离线回退存档（四态 + 计数 + 规整 + 序列化）；统一台账请到 cap-ledger |
+| `verify/*.mjs` | 真实宿主 + 真实网络的验证脚本（不是测试替身） |
 | `support/dsh-tools.js` | 测试辅助：让 `@deepseek-ai/dsh-tools` 在 DSH 之外可解析（找得到真包就用真的） |
 | `test/*.test.mjs` | `node --test` |
 

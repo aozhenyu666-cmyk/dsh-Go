@@ -272,13 +272,20 @@ test('callPeek: 成功和失败都是 ok 字段明确的结果，从不抛', asy
   assert.equal(netErr.code, 'E_NETWORK')
 })
 
-test('getJson: 有 headers 的 UA / Referer，且不带 cookie', async () => {
+test('getJson: 浏览器形状的 UA / Referer；默认不带 cookie，只有显式给匿名指纹才带', async () => {
   const f = fakeFetch(() => jsonResponse({ code: 0 }))
   await getJson('https://api.bilibili.com/x/web-interface/view?bvid=BV1uv411q7Mv', { fetch: f, timeoutMs: 1000 })
   const init = f.calls[0].init
   assert.equal(typeof init.headers['user-agent'], 'string')
+  // 自造 UA 会被 B站风控判 -412（真机实测）。必须是浏览器形状的。
+  assert.match(init.headers['user-agent'], /^Mozilla\/5\.0 .*Chrome\//, init.headers['user-agent'])
   assert.equal(init.headers.referer, 'https://www.bilibili.com/')
-  assert.equal('cookie' in init.headers, false, '不登录、不带 cookie')
+  assert.equal('cookie' in init.headers, false, '默认不登录、不带 cookie')
+
+  // 显式传入的只有匿名设备号（不是账号 cookie）
+  const g = fakeFetch(() => jsonResponse({ code: 0 }))
+  await getJson('https://x', { fetch: g, timeoutMs: 1000, cookie: 'buvid3=abc' })
+  assert.equal(g.calls[0].init.headers.cookie, 'buvid3=abc')
 })
 
 // ── 4. 展示小工具 ───────────────────────────────────────────────────────────
@@ -291,4 +298,65 @@ test('compact / hhmmss：大数与时长', () => {
   assert.equal(hhmmss(314), '5:14')
   assert.equal(hhmmss(3725), '1:02:05')
   assert.equal(hhmmss(undefined), '?')
+})
+
+// ── 5. -412 风控：真实网络才暴露的那条路径 ────────────────────────────────────
+// 实测（2026-11-01，本机直连 api.bilibili.com）：
+//   无 cookie 的 x/web-interface/view -> HTTP 200 + {"code":-412,"message":"request was banned"}
+//   自造 UA "dsh-go-bili-peek/0.1"    -> 同样 -412（与 BV 号无关）
+//   带 finger/spi 发的匿名 buvid3      -> 立刻 {"code":0}
+// 下面这几条把这个行为钉住，免得以后有人把 fallback 删掉还以为单测是绿的。
+const bannedResponse = () => jsonResponse({ code: -412, message: 'request was banned', ttl: 1 })
+const spiResponse = () => jsonResponse({ code: 0, message: 'ok', data: { b_3: 'B3-ANON', b_4: 'B4-ANON' } })
+
+test('peek: 第一次被 -412 挡了 -> 取匿名指纹重试一次就成功', async () => {
+  let viewHits = 0
+  const f = fakeFetch((url, init) => {
+    if (url.includes('/finger/spi')) return spiResponse()
+    viewHits += 1
+    const cookie = init?.headers?.cookie
+    return cookie === undefined ? bannedResponse() : jsonResponse(OK_BODY)
+  })
+
+  const value = await peek('BV1uv411q7Mv', { fetch: f, now: () => NOW, anonymousCookie: true })
+  assert.equal(value.ok, true)
+  assert.equal(value.bvid, 'BV1uv411q7Mv')
+  assert.equal(viewHits, 2, '被挡一次、带指纹重试一次')
+  const spi = f.calls.find((c) => c.url.includes('/finger/spi'))
+  assert.ok(spi, '应该去取了匿名设备号')
+  const retryCall = f.calls.filter((c) => c.url.includes('web-interface/view'))[1]
+  assert.match(String(retryCall.init.headers.cookie), /buvid3=/, '重试必须带匿名 buvid3')
+  assert.equal('buvid4' in retryCall.init.headers ? true : /buvid4/.test(retryCall.init.headers.cookie), true)
+})
+
+test('peek: 带了指纹还是 -412 -> E_BANNED（不是 E_BIZ，也不是怪 BV 号）', async () => {
+  const f = fakeFetch((url) => (url.includes('/finger/spi') ? spiResponse() : bannedResponse()))
+  const value = await callPeek('BV1uv411q7Mv', { fetch: f, now: () => NOW, anonymousCookie: true })
+  assert.equal(value.ok, false)
+  assert.equal(value.code, 'E_BANNED')
+  assert.match(value.hint, /网络|IP|风控/)
+  assert.ok(CODES.E_BANNED.length > 0)
+})
+
+test('peek: 正常路径不该多打请求（懒补，不是每次都取指纹）', async () => {
+  const f = fakeFetch((url) => (url.includes('/finger/spi') ? spiResponse() : jsonResponse(OK_BODY)))
+  await peek('BV1uv411q7Mv', { fetch: f, now: () => NOW, anonymousCookie: true })
+  assert.equal(f.calls.length, 1, '一次成功就只有一个请求')
+  assert.equal(f.calls.some((c) => c.url.includes('/finger/spi')), false, '没被挡就不该去取指纹')
+})
+
+test('peek: anonymousCookie=false 时一次都不去打指纹接口（可预测的网络行为）', async () => {
+  const f = fakeFetch((url) => (url.includes('/finger/spi') ? spiResponse() : bannedResponse()))
+  const value = await callPeek('BV1uv411q7Mv', { fetch: f, now: () => NOW, anonymousCookie: false })
+  assert.equal(value.code, 'E_BANNED')
+  assert.equal(f.calls.some((c) => c.url.includes('/finger/spi')), false)
+})
+
+test('peek: 指纹接口自己挂了也不影响主流程的错误归类', async () => {
+  const f = fakeFetch((url) => {
+    if (url.includes('/finger/spi')) throw new TypeError('spi down')
+    return bannedResponse()
+  })
+  const value = await callPeek('BV1uv411q7Mv', { fetch: f, now: () => NOW, anonymousCookie: true })
+  assert.equal(value.code, 'E_BANNED', '被挡还是被挡，别把手指纹的失败当成视频不存在')
 })

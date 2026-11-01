@@ -21,6 +21,7 @@ const NOW = 1_700_000_000_000
 function fakeCtx(shape = {}) {
   const tools = new Map()
   const registrations = []
+  const published = {}
   const ctx = {
     inject(names, cb) {
       if (!names.includes('dshGo')) return
@@ -34,7 +35,18 @@ function fakeCtx(shape = {}) {
     },
     on() {},
     effect: shape.effect === false ? undefined : (fn) => { const d = fn(); return () => { if (typeof d === 'function') d() } },
-    get: (n) => (n === 'tools' && shape.tools !== false ? ctx.tools : undefined),
+    get: (n) => {
+      if (n === 'tools' && shape.tools !== false) return ctx.tools
+      return published[n]
+    },
+    // 真 cordis 的 ctx.provide（reflect.ts:277）。shape.provide === false 模拟「宿主没有 provide」。
+    ...(shape.provide === false ? {} : {
+      provide(name, value) {
+        if (Object.hasOwn(published, name)) throw new Error('service "' + name + '" has already been registered')
+        published[name] = value
+        return () => { delete published[name] }
+      },
+    }),
   }
   if (shape.tools !== false) {
     ctx.tools = {
@@ -90,7 +102,10 @@ test('加载：apply 后自己那条台账 installed/loaded 都是 true', () => 
   assert.equal(self.loaded, '是')
   assert.equal(self.toolRegistered, '是', '工具注册成功')
   assert.equal(self.lastRunOk, '还没跑过', '注册成功 ≠ 跑过一次')
-  assert.equal(self.healthy, true)
+  // 注册成功 ≠ 跑过一次 ≠ 已验证。装上+注册只说明「当前可以调用」。
+  assert.equal(self.usable, true, '当前可以调用')
+  assert.equal(self.verified, '尚未验证实际执行')
+  assert.equal(self.healthy, false, '没跑过不许算健康（本轮修正）')
 })
 
 test('加载：工具 cap_ledger_status 注册成功（register 返回了 disposer）', () => {
@@ -324,10 +339,15 @@ test('视图：25 个插件不超预算（靠截断）', () => {
   assert.ok(r.nodes <= 120)
 })
 
-test('视图：状态条一眼能看出有没有事（三种情况三种话）', () => {
+test('视图：状态条一眼能看出有没有事（四种情况四种话）', () => {
   const good = stripData({ ledger: { v: 2, plugins: { a: { plugin: 'a', installed: true, loaded: true, toolRegistered: true, lastRunOk: true, runs: 1, fails: 0 } } } })
-  assert.ok(good.text.includes('能用 1/1'))
+  assert.ok(good.text.includes('全部已验 1/1'), good.text)
   assert.equal(good.tone, 'good')
+
+  // 装上、能调用、但一次都没跑过 —— 状态条不许说「全部正常」
+  const unverified = stripData({ ledger: { v: 2, plugins: { a: { plugin: 'a', installed: true, loaded: true, toolRegistered: true, runs: 0, fails: 0 } } } })
+  assert.ok(unverified.text.includes('尚未验证'), unverified.text)
+  assert.notEqual(unverified.tone, 'good')
 
   const bad = stripData({ ledger: { v: 2, plugins: { a: { plugin: 'a', installed: true, loaded: true, toolRegistered: true, lastRunOk: false, lastRunCode: 'E_X', runs: 1, fails: 1 } } } })
   assert.ok(bad.text.includes('失败'))
@@ -402,4 +422,62 @@ test('桥接：面板数据推送带完整台账（不是只有名字）', async
   assert.equal(entry.installed, true)
   assert.equal(entry.loaded, true)
   assert.equal(entry.toolRegistered, true)
+})
+
+// ── 8. 统一能力登记接口（跨插件服务注入，本轮核心）───────────────────────────
+test('统一台账：cap-ledger 真的把登记接口 provide 出去了（ctx.provide）', () => {
+  const { ctx } = fakeCtx()
+  const h = applyLedger(ctx, { now: () => NOW, ledgerPath: null })
+  const r = h.registry()
+  assert.equal(r.provided, true, '提供失败原因：' + String(r.reason))
+  const svc = ctx.get(h.registryServiceName)
+  assert.ok(svc, '服务在宿主上取得到')
+  assert.equal(svc.v, 1)
+  for (const m of ['register', 'record', 'get', 'all', 'summary']) assert.equal(typeof svc[m], 'function', '缺方法 ' + m)
+})
+
+test('统一台账：宿主没有 ctx.provide —— 不崩，如实记下原因（不假装提供了）', () => {
+  const { ctx } = fakeCtx({ provide: false })
+  let h
+  assert.doesNotThrow(() => { h = applyLedger(ctx, { now: () => NOW, ledgerPath: null }) })
+  const r = h.registry()
+  assert.equal(r.provided, false)
+  assert.match(String(r.reason), /provide/)
+  assert.equal(h.api.get(SELF_PLUGIN).loaded, '是', '插件本体照常起来')
+  assert.equal(h.ledger.plugins[SELF_PLUGIN].lastRunCode, 'E_NO_REGISTRY', '面板能看见原因')
+})
+
+test('统一台账：服务就是本插件那份台账 —— 外面 register/record 之后面板立刻读得到', () => {
+  const { ctx } = fakeCtx()
+  const h = applyLedger(ctx, { now: () => NOW, ledgerPath: null })
+  const svc = ctx.get(h.registryServiceName)
+  svc.register('dsh-go-bili', { installed: true, loaded: true, toolRegistered: true })
+  let d = svc.get('dsh-go-bili')
+  assert.equal(d.healthy, false, '登记完还没跑过 -> 未验证')
+  assert.equal(d.verified, '尚未验证实际执行')
+
+  svc.record('dsh-go-bili', { ok: true, at: NOW })
+  d = svc.get('dsh-go-bili')
+  assert.equal(d.healthy, true, '跑成功一次之后才算健康')
+  assert.equal(svc.summary().healthy, 1)
+  // 面板与 API 是同一份数据（同一个 ledger 实例）
+  assert.equal(h.ledger.plugins['dsh-go-bili'].runs, 1)
+})
+
+test('统一台账：接口对烂入参说不（不静默写脏数据）', () => {
+  const { ctx } = fakeCtx()
+  const h = applyLedger(ctx, { now: () => NOW, ledgerPath: null })
+  const svc = ctx.get(h.registryServiceName)
+  assert.throws(() => svc.register(''), TypeError)
+  assert.throws(() => svc.register(null), TypeError)
+  assert.throws(() => svc.record('p', null), TypeError)
+  assert.throws(() => svc.get(undefined), TypeError)
+})
+
+test('统一台账：服务随 fiber 卸载一起撤掉（不残留悬空服务）', () => {
+  const { ctx } = fakeCtx()
+  const h = applyLedger(ctx, { now: () => NOW, ledgerPath: null })
+  assert.ok(ctx.get(h.registryServiceName))
+  h.registry().dispose()   // cordis 的 provide 返回的那个 disposer
+  assert.equal(ctx.get(h.registryServiceName), undefined)
 })
