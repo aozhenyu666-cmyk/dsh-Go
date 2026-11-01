@@ -370,6 +370,13 @@ class InterceptGuard(
     private val store: SnapshotStore,
     private val ledger: InterceptLedgerBook,
     private val clock: () -> Long,
+    /**
+     * 第四阶段 4B: 有仓库时，**所有**持久化都经它一次提交（P0-4）。
+     *
+     * 没有仓库时保持旧的「守卫自己写 guard.json」行为，现有的纯逻辑测试因此不需要改。
+     * 生产路径（InterceptRuntime）永远建仓库，所以真实运行只有一条写路径。
+     */
+    private val repository: InterceptRepository? = null,
     private val ids: () -> String = { java.util.UUID.randomUUID().toString() },
 ) {
     private val lock = Any()
@@ -399,12 +406,26 @@ class InterceptGuard(
 
     /** Process start. An interception that was on screen died with the old process. */
     fun recover(now: Long): InterceptState = synchronized(lock) {
-        when (val r = store.read()) {
-            SnapshotStore.Read.Empty -> Unit
-            is SnapshotStore.Read.Unreadable -> recoveryIssue = "intercept_unreadable: ${r.error}"
-            is SnapshotStore.Read.Loaded -> {
-                M.map(r.map, "config")?.let { config = InterceptConfig.fromMap(it) }
-                M.map(r.map, "state")?.let { state = InterceptState.fromMap(it) }
+        // 第四阶段 4B: with a repository the snapshot is authoritative, because it is the only thing
+        // that was ever committed atomically. Reading guard.json here as well would resurrect the
+        // split this class exists to remove - and would read a file that is no longer written.
+        val repo = repository
+        if (repo != null) {
+            val snap = repo.load()
+            if (snap != null) {
+                M.map(snap.toMap(), "config")?.let { config = InterceptConfig.fromMap(it) }
+                M.map(snap.toMap(), "guardState")?.let { state = InterceptState.fromMap(it) }
+            } else {
+                repo.recoveryIssue?.let { recoveryIssue = it }
+            }
+        } else {
+            when (val r = store.read()) {
+                SnapshotStore.Read.Empty -> Unit
+                is SnapshotStore.Read.Unreadable -> recoveryIssue = "intercept_unreadable: ${r.error}"
+                is SnapshotStore.Read.Loaded -> {
+                    M.map(r.map, "config")?.let { config = InterceptConfig.fromMap(it) }
+                    M.map(r.map, "state")?.let { state = InterceptState.fromMap(it) }
+                }
             }
         }
         val s = state
@@ -760,7 +781,25 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         if (day > state.dayKey) state = state.copy(dayKey = day, countToday = 0)
     }
 
+    /**
+     * 持久化。有仓库时**只**经仓库提交一次（P0-4）：config、guard state、ledger state、已应用事件
+     * 一起写进同一份快照。没有仓库时退化为旧的单文件写，供纯逻辑测试使用。
+     *
+     * storageError 记录的是「这一次写有没有成功」。仓库模式下提交是同步回读验证的，所以这里的
+     * 失败意味着磁盘上仍然是上一份快照 —— 内存与新值不一致是由调用方负责的（见各 mutating 方法）。
+     */
     private fun persist() {
+        val repo = repository
+        if (repo != null) {
+            val ok = repo.commit(
+                config = config.toMap(),
+                guardState = state.toMap(),
+                ledgerState = ledger.state.toMap(),
+                appliedEventIds = ledger.appliedIds(),
+            )
+            storageError = if (ok) null else (repo.lastCommitError ?: "commit failed")
+            return
+        }
         storageError = try {
             store.write(linkedMapOf("version" to 1, "config" to config.toMap(), "state" to state.toMap())); null
         } catch (t: Throwable) {

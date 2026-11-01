@@ -131,6 +131,7 @@ class ProactiveLedgerBook(private val store: SnapshotStore) {
         }
     }
 
+
     companion object {
         /** Enough event ids to cover a day of receipts; oldest are dropped first. */
         const val APPLIED_CAP = 1024
@@ -219,7 +220,19 @@ data class InterceptLedger(
  * ended — each keyed by the eventId and applied once, so a page that reports twice (double tap,
  * retried intent, restart) adds nothing.
  */
-class InterceptLedgerBook(private val store: SnapshotStore) {
+class InterceptLedgerBook(
+    private val store: SnapshotStore,
+    /**
+     * When true, this book does NOT write to [store] itself: it is owned by an [InterceptRepository]
+     * that commits the guard and the ledger together in one atomic snapshot (P0-4). Its persist()
+     * then only touches memory, and the repository's single commit carries the result.
+     *
+     * Default false keeps the standalone behaviour the existing tests rely on.
+     */
+    private val sharedWithRepository: Boolean = false,
+    /** 仓库模式下的快照视图：由仓库在 load() 之后设置，避免这门课反过来依赖仓库类型。 */
+    var repositoryView: (() -> Map<*, *>?)? = null,
+) {
     private val lock = Any()
     private val applied = LinkedHashSet<String>()
 
@@ -271,7 +284,17 @@ class InterceptLedgerBook(private val store: SnapshotStore) {
         }
         splitWrite = null
     }
-fun recover(): InterceptLedger = synchronized(lock) {
+    fun recover(): InterceptLedger = synchronized(lock) {
+        // Owned by a repository: the snapshot is the only copy committed atomically. Reading the old
+        // ledger.json here would resurrect the split (and read a file nobody writes any more).
+        if (sharedWithRepository) {
+            val view = repositoryView?.invoke()
+            if (view != null) {
+                M.map(view, "ledgerState")?.let { state = InterceptLedger.fromMap(it) }
+                M.list(view, "appliedEventIds").filterIsInstance<String>().let(applied::addAll)
+            }
+            return@synchronized state
+        }
         when (val r = store.read()) {
             SnapshotStore.Read.Empty -> Unit
             is SnapshotStore.Read.Unreadable -> recoveryIssue = "intercept_ledger_unreadable: ${r.error}"
@@ -324,12 +347,18 @@ fun recover(): InterceptLedger = synchronized(lock) {
     }
 
     private fun persist() {
+        // Owned by a repository: the write belongs to its transaction, not to this book. Writing here
+        // as well would reintroduce exactly the two-file split P0-4 removes.
+        if (sharedWithRepository) return
         storageError = try {
             store.write(linkedMapOf("version" to 1, "ledger" to state.toMap(), "applied" to applied.toList())); null
         } catch (t: Throwable) {
             "${t.javaClass.simpleName}: ${t.message}".take(300)
         }
     }
+
+    /** Read by the repository when it commits: the applied-event keys. */
+    fun appliedIds(): List<String> = applied.toList()
 
     companion object {
         const val APPLIED_CAP = 1024
