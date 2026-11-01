@@ -258,7 +258,9 @@ class _InterceptPageState extends State<InterceptPage> {
                   title: t.label,
                   subtitle: t.packageName,
                   trailing: IconButton(
-                    icon: const Icon(Icons.close, size: 20),
+                    // AppIcons.remove, not Icons.*: widget code names icons only through the
+                    // role table (test/icons/app_icons_test.dart enforces it).
+                    icon: const Icon(AppIcons.remove, size: 20),
                     tooltip: l10n.interceptRemoveTarget,
                     onPressed: status == null ? null : () => unawaited(_removeTarget(t.packageName)),
                   ),
