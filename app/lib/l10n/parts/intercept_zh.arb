@@ -70,5 +70,13 @@
   "interceptOutcomeReleased": "放行",
   "interceptOutcomeExited": "紧急退出",
   "interceptOutcomePaused": "暂停",
-  "interceptOutcomeNotShown": "没显示出来"
+  "interceptOutcomeNotShown": "没显示出来",
+  "interceptEnforcementUnavailable": "上次拦截没有真正生效：{detail}",
+  "@interceptEnforcementUnavailable": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  }
 }

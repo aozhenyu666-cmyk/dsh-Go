@@ -19,4 +19,7 @@
     <string name="intercept_pause">Pause interception</string>
     <string name="intercept_exit">Emergency exit</string>
     <string name="intercept_channel">Interception</string>
+    <string name="intercept_alert_title">That block did not happen</string>
+    <string name="intercept_alert_channel">Block failures</string>
+    <string name="intercept_alert_channel_desc">Tells you when an interception could not be enforced</string>
 </resources>

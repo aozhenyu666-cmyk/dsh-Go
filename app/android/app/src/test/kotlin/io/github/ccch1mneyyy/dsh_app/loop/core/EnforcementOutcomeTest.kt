@@ -46,6 +46,19 @@ class EnforcementOutcomeTest {
     }
 
     @Test
+    fun an_unreadable_foreground_is_reported_as_unreadable() {
+        assertEquals(EnforcementOutcome.REASON_UNREADABLE, EnforcementOutcome.failureKind(null, "tv.danmaku.bili"))
+    }
+
+    @Test
+    fun a_target_still_in_front_is_reported_as_such() {
+        assertEquals(
+            EnforcementOutcome.REASON_STILL_IN_FRONT,
+            EnforcementOutcome.failureKind("tv.danmaku.bili", "tv.danmaku.bili"),
+        )
+    }
+
+    @Test
     fun the_unavailable_reason_names_the_code_and_the_attempt_count() {
         val r = EnforcementOutcome.unavailableReason("start_failed", 2);
         assertTrue(r.contains("start_failed"));

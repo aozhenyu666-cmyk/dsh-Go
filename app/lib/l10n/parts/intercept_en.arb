@@ -70,5 +70,13 @@
   "interceptOutcomeReleased": "Let through",
   "interceptOutcomeExited": "Emergency exit",
   "interceptOutcomePaused": "Paused",
-  "interceptOutcomeNotShown": "Never shown"
+  "interceptOutcomeNotShown": "Never shown",
+  "interceptEnforcementUnavailable": "The last block did not take effect: {detail}",
+  "@interceptEnforcementUnavailable": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  }
 }

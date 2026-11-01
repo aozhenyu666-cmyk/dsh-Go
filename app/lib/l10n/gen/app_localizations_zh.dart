@@ -1354,7 +1354,11 @@ class L10nZh extends L10n {
   }
 
   @override
-  String activityTraceSpanSemantics(String title, String detail, String duration) {
+  String activityTraceSpanSemantics(
+    String title,
+    String detail,
+    String duration,
+  ) {
     return '$title $detail，用时 $duration';
   }
 
@@ -2078,7 +2082,8 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get botsDuplicateBody => '新 Bot 沿用职责、指令和模型设置，对话与个人记忆从头开始，名称由主机分配。模型可用时，它会先发送一句问候。';
+  String get botsDuplicateBody =>
+      '新 Bot 沿用职责、指令和模型设置，对话与个人记忆从头开始，名称由主机分配。模型可用时，它会先发送一句问候。';
 
   @override
   String get botsChooseModelStart => '选一个模型开始';
@@ -2808,7 +2813,8 @@ class L10nZh extends L10n {
   String get botsRelayLimit => 'Bot 互叫上限';
 
   @override
-  String get botsRelayLimitHint => '从你最近一次发言起，Bot 之间互叫达到此次数后暂停。填写 1–200 的整数，留空使用默认值。';
+  String get botsRelayLimitHint =>
+      '从你最近一次发言起，Bot 之间互叫达到此次数后暂停。填写 1–200 的整数，留空使用默认值。';
 
   @override
   String botsRelayLimitDefault(int count) {
@@ -3898,7 +3904,13 @@ class L10nZh extends L10n {
   String get chatCommandGoalBlocked => '等待处理';
 
   @override
-  String chatCommandGoalSummary(String title, String objective, String status, int rounds, int max) {
+  String chatCommandGoalSummary(
+    String title,
+    String objective,
+    String status,
+    int rounds,
+    int max,
+  ) {
     return '$title\n$objective\n$status · 第 $rounds/$max 轮';
   }
 
@@ -4418,7 +4430,8 @@ class L10nZh extends L10n {
   String get engineAccountSignOutBusy => '有任务正在使用账号模型，退出会立即中断它们。对话和文件都会保留。';
 
   @override
-  String get engineAccountSignOutBody => '账号模型将不可用。对话、文件和 API Key 都会保留，随时可以重新登录。';
+  String get engineAccountSignOutBody =>
+      '账号模型将不可用。对话、文件和 API Key 都会保留，随时可以重新登录。';
 
   @override
   String get engineAccountSignOutUnknown => '无法确认是否有任务在使用账号模型；如果有，退出会中断它们。';
@@ -4481,7 +4494,8 @@ class L10nZh extends L10n {
   String get engineAccountClearKeyTitle => '清除 API Key？';
 
   @override
-  String get engineAccountClearKeyBody => '删除 App 里保存的 Key。本机引擎运行时，引擎里的 Key 也会一并删除。';
+  String get engineAccountClearKeyBody =>
+      '删除 App 里保存的 Key。本机引擎运行时，引擎里的 Key 也会一并删除。';
 
   @override
   String get engineAccountBrowserFailed => '没能打开浏览器';
@@ -6071,12 +6085,20 @@ class L10nZh extends L10n {
   }
 
   @override
-  String featuresCronMonthDaysAndWeekdays(String days, String weekdays, String months) {
+  String featuresCronMonthDaysAndWeekdays(
+    String days,
+    String weekdays,
+    String months,
+  ) {
     return '每月 $days 日且$weekdays$months';
   }
 
   @override
-  String featuresCronMonthDaysOrWeekdays(String days, String weekdays, String months) {
+  String featuresCronMonthDaysOrWeekdays(
+    String days,
+    String weekdays,
+    String months,
+  ) {
     return '每月 $days 日或$weekdays$months';
   }
 
@@ -6764,7 +6786,12 @@ class L10nZh extends L10n {
   }
 
   @override
-  String featuresPresetUpdateRequest(String name, String id, String replacing, String directory) {
+  String featuresPresetUpdateRequest(
+    String name,
+    String id,
+    String replacing,
+    String directory,
+  ) {
     return '更新 Agent 预设「$name」（$id）：在工作区写下这两个文件（内容原样），用 plugin_manager 先移除组合包 `$replacing`，再用 install_bundle 安装 `$directory` 目录。只做这些。\n\n';
   }
 
@@ -6900,7 +6927,8 @@ class L10nZh extends L10n {
   String get hubSettingsStorageAllow => '允许读写';
 
   @override
-  String get hubSettingsStorageDenied => '没有拿到存储权限。到系统设置里给 DSH Go 开启「所有文件访问」后再试';
+  String get hubSettingsStorageDenied =>
+      '没有拿到存储权限。到系统设置里给 DSH Go 开启「所有文件访问」后再试';
 
   @override
   String get hubSettingsRestartRequired => '重启引擎后生效';
@@ -7289,7 +7317,8 @@ class L10nZh extends L10n {
   String get interceptTitle => '娱乐拦截';
 
   @override
-  String get interceptSubtitle => '你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。';
+  String get interceptSubtitle =>
+      '你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。';
 
   @override
   String get interceptEnabled => '开启娱乐拦截';
@@ -7405,7 +7434,8 @@ class L10nZh extends L10n {
   String get interceptUnavailable => '这个版本没有接入拦截内核';
 
   @override
-  String get interceptUnavailableHint => '只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。';
+  String get interceptUnavailableHint =>
+      '只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。';
 
   @override
   String get interceptRefresh => '刷新';
@@ -7424,6 +7454,11 @@ class L10nZh extends L10n {
 
   @override
   String get interceptOutcomeNotShown => '没显示出来';
+
+  @override
+  String interceptEnforcementUnavailable(String detail) {
+    return '上次拦截没有真正生效：$detail';
+  }
 
   @override
   String get launchScreenTitle => '启动画面';
@@ -7515,7 +7550,8 @@ class L10nZh extends L10n {
   String get iconShortcutAdd => '添加到桌面';
 
   @override
-  String get iconShortcutNote => '系统不允许把桌面图标换成任意图片，这里会另放一个打开 DSH Go 的快捷方式；部分桌面会在它的角上加一个小标';
+  String get iconShortcutNote =>
+      '系统不允许把桌面图标换成任意图片，这里会另放一个打开 DSH Go 的快捷方式；部分桌面会在它的角上加一个小标';
 
   @override
   String get iconShortcutAdded => '已添加到桌面';
@@ -7636,7 +7672,8 @@ class L10nZh extends L10n {
   String get loopEntrySubtitle => '打开指定 APP 时弹出测试页（实验）';
 
   @override
-  String get loopPageSubtitle => '第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。';
+  String get loopPageSubtitle =>
+      '第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。';
 
   @override
   String get loopEnabled => '开启触发测试';
@@ -7845,13 +7882,15 @@ class L10nZh extends L10n {
   String get marketFlagInstallScripts => '安装时运行脚本';
 
   @override
-  String get marketFlagInstallScriptsBody => '安装时会自动运行包里的脚本（preinstall、install 或 postinstall）';
+  String get marketFlagInstallScriptsBody =>
+      '安装时会自动运行包里的脚本（preinstall、install 或 postinstall）';
 
   @override
   String get marketFlagNativeCode => '含原生程序';
 
   @override
-  String get marketFlagNativeCodeBody => '包里有编译好的原生程序（.node、binding.gyp 或二进制文件），没法直接阅读';
+  String get marketFlagNativeCodeBody =>
+      '包里有编译好的原生程序（.node、binding.gyp 或二进制文件），没法直接阅读';
 
   @override
   String get marketFlagShell => '执行命令';
@@ -7967,7 +8006,8 @@ class L10nZh extends L10n {
   String get marketVerificationUnavailableTitle => '暂时无法核对版本';
 
   @override
-  String get marketVerificationUnavailableBody => '没能取得 npm 的版本校验信息，尚未开始安装。请检查网络后重试。';
+  String get marketVerificationUnavailableBody =>
+      '没能取得 npm 的版本校验信息，尚未开始安装。请检查网络后重试。';
 
   @override
   String marketCombinedCount(int count) {
@@ -8689,7 +8729,8 @@ class L10nZh extends L10n {
   String get phoneDndEnabled => '不打扰模式已启用';
 
   @override
-  String get phoneDndShizukuPermissionFailed => '没有拿到授权。可以在 Shizuku 的「应用管理」里给 DSH Go 授权';
+  String get phoneDndShizukuPermissionFailed =>
+      '没有拿到授权。可以在 Shizuku 的「应用管理」里给 DSH Go 授权';
 
   @override
   String get phoneDndPairedConnect => '配对成功，点「连接」';
@@ -8731,13 +8772,15 @@ class L10nZh extends L10n {
   String get phoneDndDirectAdb => '自连 ADB';
 
   @override
-  String get phoneDndInstallShizuku => '先装 Shizuku（免费、开源）。已经在用冰箱、黑阈这类工具的话，多半已经装了。';
+  String get phoneDndInstallShizuku =>
+      '先装 Shizuku（免费、开源）。已经在用冰箱、黑阈这类工具的话，多半已经装了。';
 
   @override
   String get phoneDndOpenShizukuSite => '打开 Shizuku 官网';
 
   @override
-  String get phoneDndStartShizuku => '打开 Shizuku，按里面「通过无线调试启动」的说明做一遍（要连 Wi‑Fi）。回到这里会自动刷新。';
+  String get phoneDndStartShizuku =>
+      '打开 Shizuku，按里面「通过无线调试启动」的说明做一遍（要连 Wi‑Fi）。回到这里会自动刷新。';
 
   @override
   String get phoneDndGrantShizukuHint => 'Shizuku 已在运行，还要给 DSH Go 授权。';
@@ -8773,16 +8816,19 @@ class L10nZh extends L10n {
   String get phoneDndPairOnce => '配对一次（不用装别的 App）';
 
   @override
-  String get phoneDndDeveloperOptionsStep => '打开开发者选项：在「关于手机」里连点「版本号」7 次。小米在「我的设备 → 全部参数与信息」里点「OS 版本」，vivo 点「软件版本号」。';
+  String get phoneDndDeveloperOptionsStep =>
+      '打开开发者选项：在「关于手机」里连点「版本号」7 次。小米在「我的设备 → 全部参数与信息」里点「OS 版本」，vivo 点「软件版本号」。';
 
   @override
-  String get phoneDndWirelessDebuggingStep => '在开发者选项里打开「无线调试」，要连着 Wi‑Fi。开发者选项一般在「系统」或「其他设置」里。';
+  String get phoneDndWirelessDebuggingStep =>
+      '在开发者选项里打开「无线调试」，要连着 Wi‑Fi。开发者选项一般在「系统」或「其他设置」里。';
 
   @override
   String get phoneDndStartPairingStep => '回到这里点「开始配对」，DSH 会发一条通知。';
 
   @override
-  String get phoneDndGetPairingCodeStep => '在「无线调试」里点「使用配对码配对设备」，屏幕上会出现 6 位配对码。';
+  String get phoneDndGetPairingCodeStep =>
+      '在「无线调试」里点「使用配对码配对设备」，屏幕上会出现 6 位配对码。';
 
   @override
   String get phoneDndEnterPairingCodeStep => '下拉通知栏，把配对码填进 DSH 的通知。配对成功后点「连接」。';
@@ -8944,7 +8990,8 @@ class L10nZh extends L10n {
   String get phoneControlAccessibilityBlocked => '无障碍开关点不动？';
 
   @override
-  String get phoneControlRestrictedAfterAttempt => '看起来没开成。侧载的 App 要先「允许受限制的设置」';
+  String get phoneControlRestrictedAfterAttempt =>
+      '看起来没开成。侧载的 App 要先「允许受限制的设置」';
 
   @override
   String get phoneControlRestrictedHint => '侧载安装的 App 要先「允许受限制的设置」';
@@ -9050,7 +9097,8 @@ class L10nZh extends L10n {
   String get phoneDisclosureNeverTitle => '默认不做';
 
   @override
-  String get phoneDisclosureNeverBody => '不输密码和验证码，不改系统设置，遇到就交还给你。银行、支付类 App 也不碰。';
+  String get phoneDisclosureNeverBody =>
+      '不输密码和验证码，不改系统设置，遇到就交还给你。银行、支付类 App 也不碰。';
 
   @override
   String get phoneDisclosureStopTitle => '你随时能停';
@@ -9098,7 +9146,8 @@ class L10nZh extends L10n {
   String get phoneRestrictedOpenOverlay => '去开悬浮窗';
 
   @override
-  String get phoneRestrictedTryAccessibility => '先去「无障碍」里点一次 DSH 的开关，看到「受限制的设置」提示后点「确定」。做过这一步，下面的选项才会出现。';
+  String get phoneRestrictedTryAccessibility =>
+      '先去「无障碍」里点一次 DSH 的开关，看到「受限制的设置」提示后点「确定」。做过这一步，下面的选项才会出现。';
 
   @override
   String get phoneRestrictedOpenInfoStep => '回到这里，点「打开应用信息」。';
@@ -9110,25 +9159,30 @@ class L10nZh extends L10n {
   String get phoneRestrictedMenuStep => '点右上角的三个点，选「允许受限制的设置」，按提示验证锁屏密码。';
 
   @override
-  String get phoneRestrictedTryOverlay => '先去「悬浮窗」设置里点一次 DSH Go 的开关，看到「受限制的设置」提示后点「确定」。做过这一步，下面的选项才会出现。';
+  String get phoneRestrictedTryOverlay =>
+      '先去「悬浮窗」设置里点一次 DSH Go 的开关，看到「受限制的设置」提示后点「确定」。做过这一步，下面的选项才会出现。';
 
   @override
   String get phoneRestrictedBackOverlay => '回到「悬浮窗」设置，打开 DSH Go。';
 
   @override
-  String get phoneRestrictedHuaweiOverlay => '华为 HarmonyOS 4 及更早的系统大多没有这一步，直接去「悬浮窗」设置打开 DSH Go。';
+  String get phoneRestrictedHuaweiOverlay =>
+      '华为 HarmonyOS 4 及更早的系统大多没有这一步，直接去「悬浮窗」设置打开 DSH Go。';
 
   @override
-  String get phoneRestrictedHuaweiAccessibility => '华为 HarmonyOS 4 及更早的系统大多没有这一步，直接去「无障碍」打开 DSH。';
+  String get phoneRestrictedHuaweiAccessibility =>
+      '华为 HarmonyOS 4 及更早的系统大多没有这一步，直接去「无障碍」打开 DSH。';
 
   @override
-  String get phoneRestrictedVivoNote => '不同 OriginOS 版本位置可能不同。右上角没有三个点时，把应用信息页往下翻到底找一找。';
+  String get phoneRestrictedVivoNote =>
+      '不同 OriginOS 版本位置可能不同。右上角没有三个点时，把应用信息页往下翻到底找一找。';
 
   @override
   String get phoneRestrictedAdvancedStep => '在「高级设置」里找到「允许受限制的设置」，打开它。';
 
   @override
-  String get phoneRestrictedOppoNote => 'ColorOS 有时找不到这个选项。这时用系统自带的「文件管理」找到 DSH 的安装包，点它覆盖安装一次（不用卸载，对话和设置都在），再去开无障碍。';
+  String get phoneRestrictedOppoNote =>
+      'ColorOS 有时找不到这个选项。这时用系统自带的「文件管理」找到 DSH 的安装包，点它覆盖安装一次（不用卸载，对话和设置都在），再去开无障碍。';
 
   @override
   String get phoneRestrictedHuaweiNote => '如果在无障碍里看到「受限制的设置」提示，按「原生 / 其他」的步骤做。';
@@ -9149,7 +9203,8 @@ class L10nZh extends L10n {
   String get phoneRestrictedOpenOverlayFailed => '打不开悬浮窗设置，请到「设置」里搜索「悬浮窗」';
 
   @override
-  String get phoneRestrictedOpenAccessibilityFailed => '打不开无障碍设置，请到「设置」里搜索「无障碍」';
+  String get phoneRestrictedOpenAccessibilityFailed =>
+      '打不开无障碍设置，请到「设置」里搜索「无障碍」';
 
   @override
   String get phoneRestrictedFootnote => '名称因系统而异，找不到就在设置里搜「受限制」；仍打不开时重启手机再试';
@@ -9517,10 +9572,12 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get phoneAppRulesLoosenBody => '银行、支付类 App 会检测自动操作，可能限制登录甚至冻结账号；DSH 默认不输密码、不付款。';
+  String get phoneAppRulesLoosenBody =>
+      '银行、支付类 App 会检测自动操作，可能限制登录甚至冻结账号；DSH 默认不输密码、不付款。';
 
   @override
-  String get phoneAppRulesSkipStepsBody => '微信这类 App 有风控，曾有手机助手操作后账号被强制下线。改成照常后，只有发消息这类操作还会先问你。';
+  String get phoneAppRulesSkipStepsBody =>
+      '微信这类 App 有风控，曾有手机助手操作后账号被强制下线。改成照常后，只有发消息这类操作还会先问你。';
 
   @override
   String get phoneResetDeletesChatsWorkspaces => '对话和工作区';
@@ -9585,7 +9642,8 @@ class L10nZh extends L10n {
   String get phoneDirectEngine => '直接启动本机引擎';
 
   @override
-  String get phoneDirectHint => '实验功能，默认关闭，下次启动生效。部分手机（例如 Android 16）会拦截直接启动，届时自动改用兼容启动，数据不受影响。';
+  String get phoneDirectHint =>
+      '实验功能，默认关闭，下次启动生效。部分手机（例如 Android 16）会拦截直接启动，届时自动改用兼容启动，数据不受影响。';
 
   @override
   String get phoneDirectFailedHint => '这台手机上直接启动没有成功，已改用兼容启动。停止引擎后打开可再试一次。';
@@ -9662,13 +9720,16 @@ class L10nZh extends L10n {
   String get phoneBackgroundGuideSubtitle => '让确认卡和任务结果及时出现';
 
   @override
-  String get phoneBackgroundGuideBody => '需要你确认时，会显示 DSH Go 卡片。卡片不可用时会尝试通知或回到 App。请在系统设置中允许手机操控通知和弹出提醒。';
+  String get phoneBackgroundGuideBody =>
+      '需要你确认时，会显示 DSH Go 卡片。卡片不可用时会尝试通知或回到 App。请在系统设置中允许手机操控通知和弹出提醒。';
 
   @override
-  String get phoneBackgroundOemHint => '在 DSH Go 的系统权限页检查「后台弹出界面」（若提供）。允许后可改善自动返回；菜单名称随系统版本变化。';
+  String get phoneBackgroundOemHint =>
+      '在 DSH Go 的系统权限页检查「后台弹出界面」（若提供）。允许后可改善自动返回；菜单名称随系统版本变化。';
 
   @override
-  String get phoneBackgroundReturnHint => '如果任务完成后没有自动返回，可点通知「任务完成 · 查看结果」。系统关闭通知或限制后台弹出时，可能需要手动打开 DSH Go。';
+  String get phoneBackgroundReturnHint =>
+      '如果任务完成后没有自动返回，可点通知「任务完成 · 查看结果」。系统关闭通知或限制后台弹出时，可能需要手动打开 DSH Go。';
 
   @override
   String get phoneBackgroundGotIt => '知道了';
@@ -9701,10 +9762,12 @@ class L10nZh extends L10n {
   String get phoneModeAutoNoteTitle => '这些仍由你来操作';
 
   @override
-  String get phoneModeAutoNote => '系统设置和权限页面、密码和验证码、DSH Go 自身仍由你来操作；银行、支付类 App 默认不碰，可在设置里调整。';
+  String get phoneModeAutoNote =>
+      '系统设置和权限页面、密码和验证码、DSH Go 自身仍由你来操作；银行、支付类 App 默认不碰，可在设置里调整。';
 
   @override
-  String get phoneModeAutoUnlockNote => '如需让 AI 操作系统设置、密码等，可在 设置 › 手机操控 › 解除限制 中开启。';
+  String get phoneModeAutoUnlockNote =>
+      '如需让 AI 操作系统设置、密码等，可在 设置 › 手机操控 › 解除限制 中开启。';
 
   @override
   String get phoneModeConfirmAuto => '开启全程自动';
@@ -9765,7 +9828,11 @@ class L10nZh extends L10n {
 
   @override
   String phoneUnlockCount(int count) {
-    String _temp0 = intl.Intl.pluralLogic(count, locale: localeName, other: '已开启 $count 项');
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已开启 $count 项',
+    );
     return '$_temp0';
   }
 
@@ -9800,7 +9867,8 @@ class L10nZh extends L10n {
   String get phoneUnlockSystemCan3 => '在安全中心和通知栏里点按，包括通知上的按钮';
 
   @override
-  String get phoneUnlockSystemRisk1 => '网页、消息或文件里的恶意指令可能诱导 AI 关掉保护、给其他应用授权或安装应用';
+  String get phoneUnlockSystemRisk1 =>
+      '网页、消息或文件里的恶意指令可能诱导 AI 关掉保护、给其他应用授权或安装应用';
 
   @override
   String get phoneUnlockSystemRisk2 => '改错的网络、账号或安全设置，需要你自己改回来';
@@ -9839,7 +9907,8 @@ class L10nZh extends L10n {
   String get phoneUnlockDisclaimer2 => 'AI 可能被网页、消息或文件中的内容误导。';
 
   @override
-  String get phoneUnlockDisclaimer3 => '由此造成的账号、资金、数据或设备损失由你自行承担，DSH Go 及其开发者不承担责任。';
+  String get phoneUnlockDisclaimer3 =>
+      '由此造成的账号、资金、数据或设备损失由你自行承担，DSH Go 及其开发者不承担责任。';
 
   @override
   String get phoneUnlockDisclaimer4 => '建议只在需要时临时开启，用完关闭。';
@@ -10626,7 +10695,10 @@ class L10nZh extends L10n {
   String get pluginsIncompatible => '与当前 DSH 版本不兼容，未加载';
 
   @override
-  String pluginsRequiresDshVersion(String requiredVersion, String currentVersion) {
+  String pluginsRequiresDshVersion(
+    String requiredVersion,
+    String currentVersion,
+  ) {
     return '需要 DSH $requiredVersion，当前 $currentVersion，未加载';
   }
 
@@ -10904,7 +10976,8 @@ class L10nZh extends L10n {
   String get pluginsNotifications => '通知';
 
   @override
-  String get pluginsNotificationSettingsFailed => '没能打开系统设置。到「设置 → 应用 → DSH Go → 通知」里开启';
+  String get pluginsNotificationSettingsFailed =>
+      '没能打开系统设置。到「设置 → 应用 → DSH Go → 通知」里开启';
 
   @override
   String get pluginsSystemNotificationsOff => '系统通知已关闭';
@@ -11245,13 +11318,16 @@ class L10nZh extends L10n {
       '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key 和已授权的手机存储，不受工作区沙箱限制。由第三方提供，DSH 官方未审核。';
 
   @override
-  String get pluginsPermissionLocalTrusted => '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key 和已授权的手机存储，不受工作区沙箱限制。只装你信任的插件。';
+  String get pluginsPermissionLocalTrusted =>
+      '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key 和已授权的手机存储，不受工作区沙箱限制。只装你信任的插件。';
 
   @override
-  String get pluginsPermissionRemoteThirdParty => '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key，不受工作区沙箱限制。由第三方提供，DSH 官方未审核。';
+  String get pluginsPermissionRemoteThirdParty =>
+      '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key，不受工作区沙箱限制。由第三方提供，DSH 官方未审核。';
 
   @override
-  String get pluginsPermissionRemoteTrusted => '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key，不受工作区沙箱限制。只装你信任的插件。';
+  String get pluginsPermissionRemoteTrusted =>
+      '插件以 DSH 的权限运行：能读写文件、执行命令、读取 API Key，不受工作区沙箱限制。只装你信任的插件。';
 
   @override
   String pluginsSelectedQrCount(int count) {
@@ -11699,7 +11775,8 @@ class L10nZh extends L10n {
   String get plugViewOnePrimary => '一张视图只能有一个主按钮，这个按普通按钮画';
 
   @override
-  String get plugViewBadImageSource => '图片只收插件资源 asset:<路径>（png、jpg、webp、gif）或 data:image/…';
+  String get plugViewBadImageSource =>
+      '图片只收插件资源 asset:<路径>（png、jpg、webp、gif）或 data:image/…';
 
   @override
   String get plugViewBadAspect => 'aspect 应该是 0.25 到 4 之间的数，已忽略';
@@ -11743,7 +11820,12 @@ class L10nZh extends L10n {
   String get plugViewStyleTextOnly => '此样式仅用于 text、metric 和 callout';
 
   @override
-  String plugViewContrastAdjusted(String mode, String before, String after, String minimum) {
+  String plugViewContrastAdjusted(
+    String mode,
+    String before,
+    String after,
+    String minimum,
+  ) {
     return '$mode：$before 已校正为 $after，对比度至少 $minimum:1';
   }
 
@@ -11764,13 +11846,15 @@ class L10nZh extends L10n {
   String get proactiveTitle => '主动搭话';
 
   @override
-  String get proactiveSubtitle => 'DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。';
+  String get proactiveSubtitle =>
+      'DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。';
 
   @override
   String get proactiveEnabled => '开启主动搭话';
 
   @override
-  String get proactiveEnabledHint => '默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。';
+  String get proactiveEnabledHint =>
+      '默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。';
 
   @override
   String get proactiveGap => '最短间隔';
@@ -11885,7 +11969,8 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get proactiveWakeRestricted => '这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。';
+  String get proactiveWakeRestricted =>
+      '这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。';
 
   @override
   String proactiveWakeMode(String mode) {
@@ -12088,7 +12173,8 @@ class L10nZh extends L10n {
   String get remoteErrDshMissing => '主机上没有 dsh，装好后重试，或在启动命令里填完整路径';
 
   @override
-  String get remoteStartCommandExample => '启动命令示例：~/.nvm/versions/node/v22.0.0/bin/dsh web';
+  String get remoteStartCommandExample =>
+      '启动命令示例：~/.nvm/versions/node/v22.0.0/bin/dsh web';
 
   @override
   String get remoteErrDshStartTimeout => '远端 DSH 启动超时';
@@ -12730,7 +12816,8 @@ class L10nZh extends L10n {
   String get remoteSelfHostedServer => '自建服务器';
 
   @override
-  String get remoteSelfHostedSignInHelp => '用邮箱和密码登录自己部署的 liguobao/ds-harness-remote';
+  String get remoteSelfHostedSignInHelp =>
+      '用邮箱和密码登录自己部署的 liguobao/ds-harness-remote';
 
   @override
   String get remoteServerAddress => '服务器地址';
@@ -12898,7 +12985,8 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get remoteDeleteHostBody => '这台主机的设置和保存在手机上的密码、私钥都会删除。主机上的 DSH 和对话不受影响。';
+  String get remoteDeleteHostBody =>
+      '这台主机的设置和保存在手机上的密码、私钥都会删除。主机上的 DSH 和对话不受影响。';
 
   @override
   String remoteErrReadKey(String error) {
@@ -12942,7 +13030,8 @@ class L10nZh extends L10n {
   String get remotePasswordStorageHelp => '只保存在这台手机上，由 Android Keystore 加密';
 
   @override
-  String get remoteKeyStorageHelp => '只保存在这台手机上，由 Android Keystore 加密。支持 Ed25519、RSA、ECDSA';
+  String get remoteKeyStorageHelp =>
+      '只保存在这台手机上，由 Android Keystore 加密。支持 Ed25519、RSA、ECDSA';
 
   @override
   String get remotePrivateKey => '私钥';
@@ -13245,19 +13334,31 @@ class L10nZh extends L10n {
   }
 
   @override
-  String remoteHostKeyMismatchDetail(String saved, String received, String type) {
+  String remoteHostKeyMismatchDetail(
+    String saved,
+    String received,
+    String type,
+  ) {
     return '确认主机重装或更换后，可在主机设置中重置指纹。\n已记住：$saved\n这次收到：$received（$type）';
   }
 
   @override
   String remoteForumCompactReplies(int count, String label) {
-    String _temp0 = intl.Intl.pluralLogic(count, locale: localeName, other: '$label 回复');
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$label 回复',
+    );
     return '$_temp0';
   }
 
   @override
   String remoteForumCompactViews(int count, String label) {
-    String _temp0 = intl.Intl.pluralLogic(count, locale: localeName, other: '$label 浏览');
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$label 浏览',
+    );
     return '$_temp0';
   }
 
@@ -13324,7 +13425,8 @@ class L10nZh extends L10n {
   String get remoteNetworkDetails => '网络详情';
 
   @override
-  String get remoteNetworkAutomatic => '自动依次尝试 LAN → P2P → TURN → Relay，连接全程端到端加密。';
+  String get remoteNetworkAutomatic =>
+      '自动依次尝试 LAN → P2P → TURN → Relay，连接全程端到端加密。';
 
   @override
   String get remoteNetworkCurrentPath => '当前路径';
@@ -13365,7 +13467,8 @@ class L10nZh extends L10n {
   String get remoteNetworkFallbackUnknown => '直连未能建立，已自动使用可用路径';
 
   @override
-  String get remoteNetworkFallbackWebrtcUnavailable => '设备暂不支持 WebRTC，已使用 Relay 中继';
+  String get remoteNetworkFallbackWebrtcUnavailable =>
+      '设备暂不支持 WebRTC，已使用 Relay 中继';
 
   @override
   String get remoteNetworkFallbackDirectFailed => 'LAN / P2P 直连未成功，已自动尝试后续路径';
@@ -13422,7 +13525,8 @@ class L10nZh extends L10n {
   String get riskPetOverlayTitle => '显示在其他应用上层？';
 
   @override
-  String get riskPetOverlayBody => '要在系统设置里为 DSH Go 打开「显示在其他应用上层」，宠物才能出现在别的 App 上。';
+  String get riskPetOverlayBody =>
+      '要在系统设置里为 DSH Go 打开「显示在其他应用上层」，宠物才能出现在别的 App 上。';
 
   @override
   String get riskPetOverlayAction => '去设置';
@@ -13550,7 +13654,8 @@ class L10nZh extends L10n {
   String get searchKwBackground => '后台保活,保活,后台,电池优化,自启动,被杀,杀后台,省电';
 
   @override
-  String get searchKwSystemAccess => '权限一览,授权,悬浮窗,无障碍,后台弹出界面,麦克风,文件访问,通知权限,受限制的设置,补开权限';
+  String get searchKwSystemAccess =>
+      '权限一览,授权,悬浮窗,无障碍,后台弹出界面,麦克风,文件访问,通知权限,受限制的设置,补开权限';
 
   @override
   String get searchKwDiagnostics => '日志,排障,诊断包,问题反馈,报错';
@@ -14731,7 +14836,8 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get starPromptBody => '这是一个免费开源的项目，如果它让你的移动端体验更好了一点，拜托点个 Star 支持一下，这对本鱼是很大的鼓励！';
+  String get starPromptBody =>
+      '这是一个免费开源的项目，如果它让你的移动端体验更好了一点，拜托点个 Star 支持一下，这对本鱼是很大的鼓励！';
 
   @override
   String get starPromptPlea => '拜托你啦~ 这真的很重要！！';
@@ -15091,7 +15197,8 @@ class L10nZh extends L10n {
   String get stateChatStopSteered => '没能停下本轮，已作为插话发送';
 
   @override
-  String get stateChatTextOnlyModel => '当前模型只能读文字，图片已作为文件发给 AI。想让 AI 直接看图，请换成 V4.1 Flash';
+  String get stateChatTextOnlyModel =>
+      '当前模型只能读文字，图片已作为文件发给 AI。想让 AI 直接看图，请换成 V4.1 Flash';
 
   @override
   String get stateAttachmentUploadFailed => '附件上传失败';
@@ -15881,7 +15988,11 @@ class L10nZh extends L10n {
   }
 
   @override
-  String statePluginRegistryProgress(String registry, int attempt, int attempts) {
+  String statePluginRegistryProgress(
+    String registry,
+    int attempt,
+    int attempts,
+  ) {
     return '换用$registry下载（第 $attempt/$attempts 个源）';
   }
 
@@ -16057,7 +16168,8 @@ class L10nZh extends L10n {
   String get updateSettingsOpenFailed => '没能打开系统设置';
 
   @override
-  String get updateSettingsOpenFailedMessage => '到「设置 → 应用 → DSH Go」里允许「安装未知应用」，再回来安装。';
+  String get updateSettingsOpenFailedMessage =>
+      '到「设置 → 应用 → DSH Go」里允许「安装未知应用」，再回来安装。';
 
   @override
   String get updateInstallCancelled => '已取消安装';
@@ -16069,7 +16181,8 @@ class L10nZh extends L10n {
   String get updateSignatureMismatch => '签名不一致，不能直接覆盖';
 
   @override
-  String get updateSignatureMismatchMessage => '手机上的 DSH Go 签名不同（多半是测试包），需要先卸载旧版再装新版。卸载会清空对话、Linux 环境和设置。';
+  String get updateSignatureMismatchMessage =>
+      '手机上的 DSH Go 签名不同（多半是测试包），需要先卸载旧版再装新版。卸载会清空对话、Linux 环境和设置。';
 
   @override
   String get updateWrongPackage => '不是 DSH 的安装包';
@@ -16796,19 +16909,22 @@ class L10nZh extends L10n {
   String get viewSuggestWordCount => '写个词频统计脚本';
 
   @override
-  String get viewSuggestWordCountPrompt => '写一个 Python 脚本：统计一个文本文件里出现最多的 20 个词，并运行一次给我看结果。';
+  String get viewSuggestWordCountPrompt =>
+      '写一个 Python 脚本：统计一个文本文件里出现最多的 20 个词，并运行一次给我看结果。';
 
   @override
   String get viewSuggestNode => '新建 Node.js 项目';
 
   @override
-  String get viewSuggestNodePrompt => '在工作区新建一个 Node.js 项目，配好 TypeScript 和一个最小的单元测试。';
+  String get viewSuggestNodePrompt =>
+      '在工作区新建一个 Node.js 项目，配好 TypeScript 和一个最小的单元测试。';
 
   @override
   String get viewSuggestGit => 'rebase 还是 merge';
 
   @override
-  String get viewSuggestGitPrompt => '用一个具体例子解释 git rebase 和 git merge 的区别，各自什么时候用。';
+  String get viewSuggestGitPrompt =>
+      '用一个具体例子解释 git rebase 和 git merge 的区别，各自什么时候用。';
 
   @override
   String get viewGreetingMorning => '早上好';
@@ -17454,7 +17570,11 @@ class L10nZh extends L10n {
   }
 
   @override
-  String viewMetricCaptionSemantics(String label, String value, String caption) {
+  String viewMetricCaptionSemantics(
+    String label,
+    String value,
+    String caption,
+  ) {
     return '$label $value，$caption';
   }
 
@@ -17813,7 +17933,8 @@ class L10nZh extends L10n {
   String get wallpaperPreview => '预览';
 
   @override
-  String get wallpaperFooter => '用于首页、对话和抽屉。提亮在浅色模式、压暗在深色模式下各自生效，文字始终清晰。PNG、JPEG、WebP，15 MB 以内';
+  String get wallpaperFooter =>
+      '用于首页、对话和抽屉。提亮在浅色模式、压暗在深色模式下各自生效，文字始终清晰。PNG、JPEG、WebP，15 MB 以内';
 
   @override
   String get wallpaperChanged => '壁纸已更换';

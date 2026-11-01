@@ -25,6 +25,7 @@ class InterceptStatus {
     required this.active,
     this.storageError,
     this.recoveryIssue,
+    this.enforcementUnavailable,
   });
 
   final InterceptConfig config;
@@ -40,6 +41,10 @@ class InterceptStatus {
   /// The kernel found unreadable state at process start and started over.
   final String? recoveryIssue;
 
+  /// The last interception that could not be enforced, or null. The person has to know: the app
+  /// stayed open and nothing was blocked.
+  final String? enforcementUnavailable;
+
   bool get paused => config.pauseUntilWall > DateTime.now().millisecondsSinceEpoch;
 
   static InterceptStatus from(Object? raw) {
@@ -54,6 +59,8 @@ class InterceptStatus {
       active: m['active'] is String ? m['active'] as String : null,
       storageError: m['storageError'] is String ? m['storageError'] as String : null,
       recoveryIssue: m['recoveryIssue'] is String ? m['recoveryIssue'] as String : null,
+      enforcementUnavailable:
+          m['enforcementUnavailable'] is String ? m['enforcementUnavailable'] as String : null,
     );
   }
 }

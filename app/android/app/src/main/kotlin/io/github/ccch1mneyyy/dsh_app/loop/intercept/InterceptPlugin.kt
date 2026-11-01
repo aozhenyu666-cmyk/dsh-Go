@@ -83,6 +83,7 @@ class InterceptPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "migration" to InterceptRuntime.migrationResult?.javaClass?.simpleName,
             "snapshot" to InterceptRuntime.snapshotActive,
             "ledgerStorageError" to InterceptRuntime.ledgerBookStorageError(),
+            "enforcementUnavailable" to InterceptRuntime.enforcementUnavailable,
         )
     }
 }

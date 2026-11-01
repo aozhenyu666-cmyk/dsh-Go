@@ -53,7 +53,19 @@ object EnforcementOutcome {
     }
 
     /** 降级处理用的一句话理由，进日志与用户可见提示。 */
-    fun unavailableReason(code: String, attempts: Int): String =
-        "could not show the block page (" + code + ") and could not leave the app after " +
+    /** 失败的两类原因，设置页要能区分"读不到"和"没走"。 */
+    const val REASON_UNREADABLE = "foreground_unreadable"
+    const val REASON_STILL_IN_FRONT = "still_in_front"
+
+    /**
+     * 把一次前台读取结果分成两类。**两类都不是成功**，只是原因不同：
+     *   * `foreground_unreadable` —— 我们不知道在哪，不能声称离开了；
+     *   * `still_in_front`       —— 明确还在目标 APP 里。
+     */
+    fun failureKind(foregroundAfterHome: String?, target: String): String =
+        if (foregroundAfterHome == null) REASON_UNREADABLE else REASON_STILL_IN_FRONT
+
+    fun unavailableReason(code: String, attempts: Int, kind: String = REASON_UNREADABLE): String =
+        "could not show the block page (" + code + ") and " + kind + " after " +
             attempts + " attempt(s); this interception did not take effect"
 }

@@ -2250,6 +2250,7 @@
   "interceptOutcomeExited": "Emergency exit",
   "interceptOutcomePaused": "Paused",
   "interceptOutcomeNotShown": "Never shown",
+  "interceptEnforcementUnavailable": "The last block did not take effect: {detail}",
   "launchScreenTitle": "Launch screen",
   "launchDefault": "Default",
   "launchCustom": "Custom",

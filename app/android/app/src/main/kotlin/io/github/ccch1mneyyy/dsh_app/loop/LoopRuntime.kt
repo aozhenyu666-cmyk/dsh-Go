@@ -287,6 +287,17 @@ object LoopRuntime {
         main.post { runCatching { verifyNow() }.onFailure { Log.w(TAG, "recheck " + reason, it) } }
     }
 
+    /**
+     * W2: 立刻读一次前台包名；没有无障碍服务或读失败时返回 null。**主线程调用。**
+     *
+     * 不能用 `lastForeground`：它有 350ms 去抖，回 HOME 之后读到的还是切换前的旧值，
+     * 那样"确认已经离开"就永远失败，D2 会每次都报错。
+     */
+    fun readForegroundNow(): String? {
+        val s = service?.get() ?: return null
+        return runCatching { foreground(s) }.getOrNull()
+    }
+
     private fun foreground(s: AccessibilityService): String? {
         val windows = try { s.windows } catch (t: Throwable) {
             diagnostics.fault(LoopDiagnostics.KIND_READ_FOREGROUND, t, "windows")

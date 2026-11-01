@@ -219,6 +219,20 @@ class _InterceptPageState extends State<InterceptPage> {
           ]),
           const SizedBox(height: 16),
         ],
+        // W2: an interception that did not take effect. The app stayed open and nothing was
+        // blocked, so saying nothing would be the same lie the notification exists to fix.
+        if (status?.enforcementUnavailable != null) ...[
+          ListPageCard(children: [
+            ListPageRow(
+              icon: AppIcons.stopped,
+              iconColor: colors.danger,
+              title: l10n.interceptEnforcementUnavailable(
+                  status!.enforcementUnavailable!),
+              titleMaxLines: 4,
+            ),
+          ]),
+          const SizedBox(height: 16),
+        ],
         ListPageCard(children: [
           MergeSemantics(
             child: ListPageRow(

@@ -297,7 +297,10 @@ object InterceptRuntime {
             main.postDelayed({
                 val second = currentForeground()
                 if (EnforcementOutcome.stillInFront(second, packageName)) {
-                    reportEnforcementUnavailable(packageName, code, 2)
+                    reportEnforcementUnavailable(
+                        packageName, code, 2,
+                        EnforcementOutcome.failureKind(second, packageName),
+                    )
                 } else {
                     recheckForeground("intercept_enforced_exit")
                 }
@@ -311,13 +314,18 @@ object InterceptRuntime {
     }
 
     /** 读当前前台包名。读不到返回 null —— 由 EnforcementOutcome 决定这算不算离开。 */
-    var currentForeground: () -> String? = { null }
+    var currentForeground: () -> String? = { LoopRuntime.readForegroundNow() }
 
     /**
      * 如实报告"这次没拦住"。**不记 BLOCKED、不写放行**：技术失败不等于拦截成功。
      */
-    private fun reportEnforcementUnavailable(packageName: String, code: String, attempts: Int) {
-        val why = EnforcementOutcome.unavailableReason(code, attempts)
+    private fun reportEnforcementUnavailable(
+        packageName: String,
+        code: String,
+        attempts: Int,
+        kind: String = EnforcementOutcome.REASON_UNREADABLE,
+    ) {
+        val why = EnforcementOutcome.unavailableReason(code, attempts, kind)
         Log.w(TAG, "ENFORCEMENT_UNAVAILABLE " + packageName + ": " + why)
         enforcementUnavailable = why
         // Surface it: the person must know the block did not happen. This is a notification, not a
@@ -330,7 +338,9 @@ object InterceptRuntime {
         private set
 
     /** 用户可见的提醒。接缝，便于测试与不同 UI 形态。 */
-    var notifyEnforcementUnavailable: (String) -> Unit = { }
+    var notifyEnforcementUnavailable: (String) -> Unit = { why ->
+        EnforcementAlert.notify(app, why)
+    }
 
     private fun clearDeadlineState() {
         requestedAtMono = 0L
