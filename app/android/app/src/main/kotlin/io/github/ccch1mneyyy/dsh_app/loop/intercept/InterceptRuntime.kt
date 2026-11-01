@@ -15,6 +15,7 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptLedger
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptLedgerBook
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptReceipt
 import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
+import io.github.ccch1mneyyy.dsh_app.loop.core.VisibleSurface
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
 import java.io.File
 import java.util.Calendar
@@ -86,6 +87,15 @@ object InterceptRuntime {
         val g = guard ?: return
         if (packageName.isNullOrBlank()) return
         if (!enabled()) return
+        // One visible DSH surface at a time. Checked *before* asking the guard, because a Block
+        // decision immediately spends the cooldown and the daily count ([InterceptGuard.onForeground]
+        // stamps lastTriggerAt and increments countToday). Refusing afterwards would charge the
+        // person for an interception that never reached the screen, and the next attempt would be
+        // swallowed by the cooldown. So: while someone else holds the screen, decide nothing at all.
+        if (!VisibleSurface.isFree() && !VisibleSurface.isHeldBy(VisibleSurface.OWNER_INTERCEPT)) {
+            Log.i(TAG, "surface busy (" + VisibleSurface.holder() + "); no decision for " + packageName)
+            return
+        }
         val now = System.currentTimeMillis()
         when (val d = g.onForeground(packageName, env(now), now)) {
             is InterceptDecision.Block -> show(d, now)
@@ -95,11 +105,21 @@ object InterceptRuntime {
     }
 
     private fun show(block: InterceptDecision.Block, now: Long) {
+        // Race guard: onForeground already refused to decide while another feature held the screen,
+        // so reaching here with the slot taken means the proactive page claimed it in between. The
+        // decision has been made by then, so the honest record is NOT_SHOWN rather than pretending
+        // the block happened.
+        if (!VisibleSurface.claim(VisibleSurface.OWNER_INTERCEPT, block.eventId)) {
+            guard?.onUnavailable(block.eventId, "surface_busy", System.currentTimeMillis())
+            Log.i(TAG, "surface busy (" + VisibleSurface.holder() + "); " + block.target.packageName + " passes this time")
+            return
+        }
         val ok = InterceptPageActivity.start(
             app, block.eventId, block.target.packageName, block.target.label,
             config().trainingMs, now + PAGE_TTL_MS,
         )
         if (!ok) {
+            VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, block.eventId)
             // The system refused the page: the interception did not happen, so nothing is owed.
             guard?.onUnavailable(block.eventId, "start_failed", System.currentTimeMillis())
             Log.w(TAG, "could not show the block page for " + block.target.packageName)
@@ -108,6 +128,15 @@ object InterceptRuntime {
 
     /** The page proved it is really on screen (attached + shown + laid out + focused). */
     fun onPageShown(eventId: String): Boolean = guard?.onPageShown(eventId, System.currentTimeMillis()) == true
+
+    /**
+     * The page is gone, whichever way it ended (released, exited, paused, timed out, destroyed).
+     * Freeing the shared slot here - not in the guard - keeps "who owns the screen" a property of
+     * the adapter rather than of the intercept book.
+     */
+    fun onPageGone(eventId: String?) {
+        VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, eventId)
+    }
 
     /** 训练通过 / 授权规则 / 白名单. True when the guard accepted it. */
     fun onReleased(eventId: String, how: String): Boolean =

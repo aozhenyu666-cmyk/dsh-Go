@@ -132,6 +132,9 @@ class InterceptPageActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacks(proof)
         main.removeCallbacks(trainingTick)
+        // Free the shared visible-surface slot before unregistering: whichever way this page ended
+        // (released, exited, paused, back-press, destroyed by the system), the screen is free again.
+        InterceptRuntime.onPageGone(eventId)
         unregister()
         super.onDestroy()
     }
@@ -267,7 +270,11 @@ class InterceptPageActivity : Activity() {
 
         fun withdraw(eventId: String) { live.remove(eventId)?.let { it.reported = true; it.finish() } }
 
-        fun withdrawAll() { live.values.toList().forEach { it.reported = true; it.finish() }; live.clear() }
+        fun withdrawAll() {
+            live.values.toList().forEach { it.reported = true; it.finish() }
+            live.clear()
+            InterceptRuntime.onPageGone(null)
+        }
     }
 }
 

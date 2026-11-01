@@ -30,6 +30,7 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.ReplyWindow
 import io.github.ccch1mneyyy.dsh_app.loop.core.SchedulerConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.Step
 import io.github.ccch1mneyyy.dsh_app.loop.core.Submit
+import io.github.ccch1mneyyy.dsh_app.loop.core.VisibleSurface
 import io.github.ccch1mneyyy.dsh_app.loop.core.Surface
 import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
 import io.github.ccch1mneyyy.dsh_app.loop.core.SurfaceReport
@@ -317,18 +318,38 @@ object ProactiveRuntime {
             }
             is Command.CancelAgent -> agentPort?.cancel(cmd.requestId)
             is Command.Present -> when (cmd.surface) {
-                Surface.ACTIVITY -> ProactivePageActivity.start(app, cmd.token, cmd.content.text, cmd.deadline)
-                    .let { ok -> if (ok) dispatch(c.onSurface(cmd.token, SurfaceReport.Posted)) else dispatch(c.onSurface(cmd.token, SurfaceReport.Failed("start_failed"))) }
+                Surface.ACTIVITY -> {
+                    // One visible DSH surface at a time (round-4 integration): the intercept page is
+                    // its own activity in its own task, so without this slot the two stack. A
+                    // refusal is reported as a surface failure, which the coordinator already knows
+                    // how to handle (it falls back to the notification when one is allowed).
+                    val claimed = VisibleSurface.claim(VisibleSurface.OWNER_PROACTIVE, cmd.token)
+                    if (!claimed) {
+                        Log.i(TAG, "activity surface busy (" + VisibleSurface.holder() + "); not stacking")
+                        dispatch(c.onSurface(cmd.token, SurfaceReport.Failed("surface_busy")))
+                    } else {
+                        val ok = ProactivePageActivity.start(app, cmd.token, cmd.content.text, cmd.deadline)
+                        if (!ok) VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, cmd.token)
+                        dispatch(c.onSurface(cmd.token, if (ok) SurfaceReport.Posted else SurfaceReport.Failed("start_failed")))
+                    }
+                }
                 Surface.NOTIFICATION -> {
                     val ok = notificationPort?.post(cmd.token, cmd.content.text, cmd.deadline) == true
                     dispatch(c.onSurface(cmd.token, if (ok) SurfaceReport.Posted else SurfaceReport.Failed("no_notification")))
                 }
             }
             is Command.Withdraw -> when (cmd.surface) {
-                Surface.ACTIVITY -> ProactivePageActivity.withdraw(cmd.token)
+                Surface.ACTIVITY -> {
+                    ProactivePageActivity.withdraw(cmd.token)
+                    VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, cmd.token)
+                }
                 Surface.NOTIFICATION -> notificationPort?.cancel(cmd.token)
             }
-            Command.ClearLeftovers -> { ProactivePageActivity.withdrawAll(); notificationPort?.cancelAll() }
+            Command.ClearLeftovers -> {
+                ProactivePageActivity.withdrawAll()
+                VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, null)
+                notificationPort?.cancelAll()
+            }
         }
     }
 

@@ -15,6 +15,7 @@ import android.widget.TextView
 import io.github.ccch1mneyyy.dsh_app.R
 import io.github.ccch1mneyyy.dsh_app.i18n.AppStrings
 import io.github.ccch1mneyyy.dsh_app.loop.core.SurfaceReport
+import io.github.ccch1mneyyy.dsh_app.loop.core.VisibleSurface
 
 /**
  * The proactive page. It knows only its token: every report carries it, and the coordinator refuses
@@ -127,6 +128,9 @@ class ProactivePageActivity : Activity() {
 
     override fun onDestroy() {
         main.removeCallbacks(proof)
+        // Free the shared visible-surface slot for this token. Withdraw already does it; this covers
+        // the page dying on its own (deadline, system kill, back press) with no command behind it.
+        VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, token)
         unregister()
         super.onDestroy()
     }
