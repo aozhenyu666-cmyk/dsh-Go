@@ -685,7 +685,7 @@ class InterceptGuard(
         } else {
             ledger.onEnded(
                 InterceptReceipt(
-                    eventId = "pause-${now}", packageName = "", triggeredAt = now, endedAt = now,
+                    eventId = InterceptLedger.SETTINGS_PAUSE_PREFIX + now, packageName = "", triggeredAt = now, endedAt = now,
                     outcome = InterceptOutcome.PAUSED, reason = "paused", releasedUntilWall = until,
                 ),
             )

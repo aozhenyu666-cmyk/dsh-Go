@@ -205,6 +205,14 @@ data class InterceptLedger(
     companion object {
         const val RECEIPT_CAP = 100
 
+        /**
+         * 设置页「暂停」写回执时用的 eventId 前缀。
+         *
+         * 这类回执**没有对应的拦截触发**（它不是从 onForeground 的 Block 来的），所以任何"每次回执
+         * 都该有一次触发"的检查都必须把它排除在外 —— 否则一次设置页暂停就会让快照永久提交失败。
+         */
+        const val SETTINGS_PAUSE_PREFIX = "pause-"
+
         fun fromMap(m: Map<*, *>) = InterceptLedger(
             triggerCount = M.long(m, "triggerCount"), blockedCount = M.long(m, "blockedCount"),
             userReleasedCount = M.long(m, "userReleasedCount"), userExitedCount = M.long(m, "userExitedCount"),

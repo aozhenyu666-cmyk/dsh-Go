@@ -186,8 +186,15 @@ class InterceptRepository(
         val ledger = s.ledgerState
         val receipts = M.list(ledger, "receipts")
         val trigger = M.long(ledger, "triggerCount")
-        if (trigger < receipts.size) {
-            return "triggerCount (" + trigger + ") is smaller than receipts (" + receipts.size + ")"
+        // A settings-page pause writes a receipt without a trigger, by design: nobody tried to open a
+        // target app, so there is nothing to have triggered. Counting it here made one pause reject
+        // every subsequent commit for the next ~100 interceptions.
+        val triggered = receipts.count { r ->
+            val id = (r as? Map<*, *>)?.let { M.str(it, "eventId") }
+            id == null || !id.startsWith(InterceptLedger.SETTINGS_PAUSE_PREFIX)
+        }
+        if (trigger < triggered) {
+            return "triggerCount (" + trigger + ") is smaller than receipts (" + triggered + ")"
         }
         if (s.appliedEventIds.distinct().size != s.appliedEventIds.size) {
             return "appliedEventIds has duplicates"

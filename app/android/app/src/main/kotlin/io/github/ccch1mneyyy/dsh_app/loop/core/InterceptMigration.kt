@@ -117,10 +117,15 @@ object InterceptMigration {
                 "max=" + maxSingle + " receipts=" + receipts.size,
             )
         }
-        if (triggerCount < receipts.size) {
+        // Settings-page pauses write a receipt without a trigger (see InterceptLedger.SETTINGS_PAUSE_PREFIX).
+        val triggered = receipts.count { r ->
+            val id = (r as? Map<*, *>)?.let { M.str(it, "eventId") }
+            id == null || !id.startsWith(InterceptLedger.SETTINGS_PAUSE_PREFIX)
+        }
+        if (triggerCount < triggered) {
             return Result.RecoveryRequired(
                 "the ledger has more receipts than triggers",
-                "triggerCount=" + triggerCount + " receipts=" + receipts.size,
+                "triggerCount=" + triggerCount + " receipts=" + triggered,
             )
         }
 
