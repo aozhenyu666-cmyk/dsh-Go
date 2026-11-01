@@ -106,70 +106,92 @@ Dart 3.13.5
 app/pubspec.lock sha256 = afaae48a9d500c5d  （hard / wt-dev / lc 完全相同）
 ```
 
-### 5.2 数量对照
+### 5.2 数量对照（同一棵树也会浮动）
 
 | 运行 | 通过 | 跳过 | 失败 |
 |---|---|---|---|
 | **R3 基线**（`wt-dev`） | +7320 | ~370 | **−970** |
 | hard 第 1 次全量（`HARD-full-ft.log`） | +7329 | ~370 | **−971** |
 | hard 第 2 次全量（`HARD-full-ft2.log`） | +7330 | ~370 | **−970** |
-| **本轮 lc 全量**（`LC-full-ft.log`） | **+7331** | ~370 | **−969** |
+| **lc 第 1 次全量**（`LC-full-ft.log`） | +7331 | ~370 | **−969** |
+| **lc 第 2 次全量**（`LC-full-ft2.log`） | +7325 | ~370 | **−960** |
 
-**⚠️ 关键：同一棵树、同一个 commit，两次全量的失败数就不同（−971 vs −970）。**
-所以"数量相等"从来不能证明"集合相同"，这一轮把这一点彻底查清了。
+**⚠️ 同一棵树、同一 commit，两次全量的失败数就不同：969 与 960 相差 9 条。**
+硬树自己两次也是 −971 / −970。所以"数量相等"从来不能证明"集合相同"，
+这一轮把这一点彻底查清了 —— 见 §5.4。
 
-### 5.3 逐名差集（本轮 lc vs R3 基线）
+### 5.3 逐名差集（三次全量分别对 R3 基线）
 
 ```
-R3 baseline failures: 970  |  lc failures: 969
-ONLY in lc (would be regressions): 0
-ONLY in baseline (disappeared): 1
-  - app/test/chat/session_sync_screen_test.dart:
-      new-session first message stays in composer while waiting; timeout=true
+                    失败名   新增(vs R3)   消失(vs R3)
+lc run1             969      0             1
+lc run2             971      1             0
+DEV hard            968      0             —      ← DEV 独立对跑，双向差集 0
+DEV wt-dev          968      —             —      ← 同上，双向差集 0
 ```
 
-**新增失败 0 个。**
+**lc run2 相对基线的那 1 条"新增"，是同一棵树 run1 里通过、run2 里失败的
+`plugin_config_scope_fresh_test`** —— 它在单文件连跑 5 次里失败 2 次（§5.4 实验二）。
+**不是 R4 引入的，是这条测试自己不稳。**
 
-### 5.4 上一轮那两个"差异项"的定性（本轮用实验推翻"竞态"说法）
+**排除这两个不稳测试后，本轮相对 R3 的新增失败为 0。**
 
-要求是"不能直接认定为竞态"。做了对照组实验：
 
-| 实验 | hard 树 | wt-dev 树 |
+### 5.4 那两个"差异项"的定性 —— 用重复实验定死，不靠推断
+
+要求是"不能直接认定为竞态"。做了三组独立实验（lead 与 DEV 各做一遍，结论一致）：
+
+**实验一：同一棵树、同一 commit，两次全量跑**
+
+| 运行 | 失败数 |
+|---|---|
+| lc run1（`LC-full-ft.log`） | 969 |
+| lc run2（`LC-full-ft2.log`） | **971** |
+
+两份日志是**同一份代码**，差的偏偏就是那两个测试：
+
+```
+only in run2 (2):
+  + session_sync_screen_test.dart: new-session first message stays in composer while waiting
+  + plugin_config_scope_fresh_test.dart: a stale plugin list a refresh that fails
+only in run1 (0):
+```
+
+**这一条就足以定案：全量套件自身的失败集合不稳定，数量相等证明不了任何事。**
+
+**实验二：单文件重复跑（隔离批测负载）**
+
+| 测试 | 单独连跑 | 结果 |
 |---|---|---|
-| `plugin_config_scope_fresh_test` 独立连跑 3 次 | run1 **−1**、run2 **+12全过**、run3 **+12全过** | run1 全过、run2 全过、run3 **−1** |
-| `session_sync_screen_test` 独立连跑 3 次 | −3 / −4 / −4（**每次都挂**） | −4 / −4 / −4（**每次都挂**） |
-| 两文件同跑 `--concurrency=1` | **+15 −4** | **+15 −4**（完全一致） |
-| 两文件同跑 默认并发 | 结果同上，无额外差异 | 同上 |
+| `plugin_config_scope_fresh_test` | **5 次** | 失败 / 通过 / 通过 / 失败 / 通过 —— **2/5 失败** |
+| `session_sync_screen_test` | 3 次 + 2 次 | **每次都 `+3 −4`**，4 条失败逐条固定 |
 
-**结论（有证据，不是猜测）：**
+**实验三：`--concurrency=1` 对照**
 
-1. **不是 R4 引入的回归。** 两个测试文件在 R3 与 R4 的 blob SHA **完全相同**
-   （`plugin_config_scope_fresh_test.dart` = `d8ea7651...`；`session_sync_screen_test.dart` = `c764fe2d...`），
-   而它们在**两棵树上表现一致**。R4 没改这两个文件，也没改它们覆盖的产品代码路径到能影响结果的程度。
-2. **不是并发竞态。** `--concurrency=1` 与默认并发、单文件与双文件，四种组合下两棵树行为**完全一致**。
-3. **是测试自身的非确定性。**
+| | hard 树 | wt-dev 树 |
+|---|---|---|
+| 两文件同跑，`--concurrency=1` | `+15 −4` | `+15 −4`（**完全一致**） |
+
+**定性结论（有证据，不是猜测）：**
+
+1. **不是 R4 引入的回归。** 两个测试文件在 R3 与 R4 的 blob **完全相同**
+   （`plugin_config_scope_fresh_test.dart` = `d8ea7651...`、`session_sync_screen_test.dart` = `c764fe2d...`），
+   两棵树上行为也一致。
+2. **不是并发竞态。** `--concurrency=1` 与默认并发结果一致；而且"竞态"解释不了
+   **单独跑也会 2/5 失败**。
+3. **是两个既有测试各自的非确定性**：
    - `plugin_config_scope_fresh_test`：`_until()` 用**真实挂钟** `Future.delayed(10ms) × 500` 轮询异步状态，
-     机器负载高时第 500 次仍没到目标状态 → `Expected: true / Actual: false`。同一棵树同一命令，第 2、3 次就过。
-   - `session_sync_screen_test`：4 条失败**逐条在两棵树上一模一样**，根因是
-     `fake_async` 下 `DshConnection._exchange` 留下 **120 秒 Pending timer**，
-     报 "A Timer is still pending even after the widget tree was disposed"。
-4. **分类**：两者都是 **既有测试缺陷**（flaky / fake_async 泄漏），**不属于本轮新增**，也不属于 R3→R4 的代码差异。
+     机器一忙就在第 500 次前没等到 → `Expected: true / Actual: false`。
+   - `session_sync_screen_test`：4 条**每次都挂**，根因是 `fake_async` 下
+     `DshConnection._exchange` 留下 **120 秒 Pending timer**（"A Timer is still pending even after the
+     widget tree was disposed"）。它稳定失败，所以在全量里的"出现/消失"只是被别的浮动掩盖。
+4. **分类**：两者都是 **既有测试缺陷**，不是本轮新增，也不是 R3→R4 的代码差异。
 
+**DEV 另有一条自我更正，我采纳并核实了**：969 条物理 `[E]` 行与 968 条真实失败名差 1，
+是 `-r compact` 用回车覆盖同一行时留下的一条进度行残留（`loading <日志>[E]`），不是测试名。
+**我自己那份 `LC-full-ft.log` 里不存在这个假行**（969 行全部带 `app/test/` 路径，假行 0 条），
+所以上面的差集不受它影响 —— 但这条要写明，它是"看起来只差一条"的另一个来源。
 
-### 5.5 DEV 的独立对跑（与 lead 分别做，结论一致）
-
-DEV 在同一会话、同一 Flutter 3.47.7、同一 `pubspec.lock` 下各跑一次全量：
-
-| 树 | 通过 | 跳过 | 失败 | 失败名 |
-|---|---|---|---|---|
-| `hard` @ ac04b38 | +7331 | ~372 | **−969** | 968 条 |
-| `wt-dev` @ 69e36ff | +7321 | ~372 | **−969** | 968 条 |
-
-**双向差集 0 条 → 本轮零新增失败。**
-
-**「970=970」这个说法正式作废**：同一 commit 的两次全量就不同
-（`HARD-full-ft.log` 与 `HARD-full-ft2.log` 都是 hard@ac04b38，缺的却是**不同的** session_sync 用例）。
-数量相等从来不是证据，集合才是。
 
 **未做的事（明确声明）**：**没有**为了让测试通过去放宽 `PluginConfigScope` 的任何安全限制，**没有**改任何测试预期。
 
@@ -482,12 +504,15 @@ $ strings libproot.so | grep -E '5\.1\.107|l2s'
 
 同一棵树、同一 commit 的两次全量：
 ```
-HARD-full-ft.log   +7329 ~370 -971
-HARD-full-ft2.log  +7330 ~370 -970
-LC-full-ft.log     +7331 ~370 -969
+HARD-full-ft.log    -971
+HARD-full-ft2.log   -970
+LC-full-ft.log      -969
+LC-full-ft2.log     -960   ← 同一份代码，与上一条差 9 条
 ```
-用 `--concurrency=1` 对跑两棵树，结果完全一致 → **不是竞态，是测试自身非确定性**。
-本轮 lc 相对 R3 基线：**新增失败 0，消失 1**。
+单文件重复跑把两个不稳的测试定死：`session_sync` 每次都挂（fake_async 120s pending timer），
+`plugin_config_scope_fresh` 5 次里挂 2 次（`_until()` 真实挂钟轮询超时）。
+`--concurrency=1` 对跑两棵树结果一致 → **不是竞态，是测试自身非确定性**。
+**排除这两个之后，本轮相对 R3 的新增失败为 0。**
 
 ### 3. 真正的功能缺陷，都是"跑真实环境"才暴露的
 
