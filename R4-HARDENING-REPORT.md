@@ -1,10 +1,13 @@
 # R4-HARDENING-REPORT · 第二阶段：集成加固、功能补齐、构建准备
 
-**分支** `integration/r4-hardening-2026-11-01`
-**HEAD** `592becf715fdb15c2cda7a071063cdef975d32ff`（已推 origin，非 force）
-**起点** 上一轮集成 `2f88256cb83d6c21821c0278555471f9a979d5ae`（远端核对一致，未 reset、未覆盖）
+**hardening 分支** `integration/r4-hardening-2026-11-01`
+**本轮 DEV 分支** `fix/r4-dev-regression-build-2026-11-01`（工作副本 `D:\code\R4\l-dev`）
+**HEAD** 一律用 `git rev-parse HEAD` 取。**本文不写死 SHA、不写死提交数、不写死行数** ——
+写死的值会在下一次提交后变成假话。
+**起点** 上一轮集成 `2f88256`（远端核对一致，未 reset、未覆盖）
 
-所有数字由 lead 在本机复跑，不是任何模块的自述。
+所有数字都是本机复跑出来的，不是任何模块的自述。**本文 §9 与 §11.7 是 DEV 轮按实测重写的，
+推翻了上一版的两处结论**（"970 = 970 所以零回归"、"proot 默认值保持 .98"）。
 
 ---
 
@@ -16,7 +19,9 @@
 | M2 插件生态（bili-peek / cap-ledger 六态 / 宿主兼容） | **PASS**（真机渲染 NOT_TESTED） |
 | M3 人格记忆情绪（七维同源 / 身份面板 / Config） | **PASS**（原生表单截图 NOT_TESTED） |
 | DEV 构建体系（G1′ 双 ABI） | **PASS** ← 本轮最大的实质突破 |
-| 完整回归无新增失败 | **PASS** |
+| 完整回归无新增失败 | **PASS**（两树失败名集合双向差集 0 条，§9；不是"计数相等"） |
+| PRoot 非原子递减（新发现的数据丢失） | **PASS**（复现 → 修复 → 4 条回归，§11.7） |
+| proot 默认版本 | **改为 `.101`**；上一版"改布局"的理由实测不成立（§11.7） |
 | Schemastery | **宿主已支持，不需要引入依赖** |
 
 **G1′ 本轮真的通了。** `runtime/out/` 下 arm64-v8a 与 x86_64 都是真实产物，manifest 同时含两个 ABI。
@@ -51,7 +56,7 @@
 | 6 | M3 | purpose 面板是 P2 占位 | 新增 `identityPanel()` 读真实 persona / roleState / topics / 三个开关 | **PASS** |
 | 7 | M3 | `Config = undefined`，原生设置页画不出 | 改成真 schema；宿主 schemastery 3.18.5 解析通过（uid 59） | **PASS** |
 | 8 | M2 | cap-ledger 未统一接管 | 四态扩到**六态**；AVAILABLE / EXECUTED / FAILED 为派生值，不接受手写 | **PARTIAL**（见下） |
-| 9 | 全部 | 970 个 golden 失败是既有的 | R3 与 R4 对照跑，计数与失败名一致，无新增 | **PASS**（既有失败保留） |
+| 9 | 全部 | 既有 golden 失败是既有的 | R3 与 R4 **同环境各跑一次全量**，失败名集合双向差集 0 条（§9） | **PASS**（既有失败保留，无新增） |
 | 10 | M3 | `real-dsh-tools.test.mjs` 默认 skip | 仍需 `DSH_TOOLS_DIR` 指向 asar | **NOT_TESTED**（1 skip，已注明） |
 | 11 | M2 | 插件未在真 profile `dsh plugin add` 加载过 | 需要真引擎 | **NOT_TESTED** |
 
@@ -115,18 +120,23 @@ runtime/lib/rtbuild.py      +46 −7  修 machine 比较的类型错误
 runtime/build-runtime.sh    +45 −8  fetch 重试加固（--retry-all-errors + 断点续传 + 备用镜像）
 ```
 
-## 7. 新增代码提交 SHA
+## 7. 提交（用命令核对，不抄 SHA）
 
-| 模块 | 源分支 | 源 SHA | 集成后 SHA |
-|---|---|---|---|
-| M1 | `harden/m1` | `a3249c1` | `4da00b5` |
-| M2 | `harden/m2` | `a6677bc` | `5f5f9c1` |
-| M3 | `harden/m3` | `2694425` | `b06e5a5` |
-| DEV | `harden/dev` | `00cc94f` | `592becf` |
+写死的 SHA 一定会随下一次提交过期，所以这里不给表格，给命令：
 
-集成分支 HEAD：**`592becf715fdb15c2cda7a071063cdef975d32ff`**
+```powershell
+# 各模块分支、集成分支、本轮 DEV 分支的当前尖
+git ls-remote origin 'refs/heads/harden/*' 'refs/heads/integration/*' 'refs/heads/fix/r4-dev-*'
 
-四个源分支都已推 origin，集成分支也已推。
+# hardening 集成本身引入了哪些提交
+git log --oneline --first-parent 2f88256..integration/r4-hardening-2026-11-01
+
+# 本轮（DEV）在集成之上又加了哪些
+git log --oneline --first-parent ac04b38..fix/r4-dev-regression-build-2026-11-01
+git diff --stat ac04b38..fix/r4-dev-regression-build-2026-11-01
+```
+
+四个源分支、集成分支、本轮 DEV 分支都已推 origin；**没有 force push，没有 rebase 别人的分支。**
 
 ---
 
@@ -135,7 +145,7 @@ runtime/build-runtime.sh    +45 −8  fetch 重试加固（--retry-all-errors + 
 ### 8.1 内核纯逻辑（JVM，离线）
 
 ```
-$ powershell -File D:\code\R4\hard-verify.ps1
+$ powershell -File D:\code\R4\ldev-loop.ps1          # 本轮分支
 === sources: 35 kt files
 compile OK
 PASS  172 tests
@@ -143,12 +153,29 @@ PASS  172 tests
 
 172 = 上一轮 160 + 本轮 12（InterceptDrillTest 10 + InterceptChainTest 非目标/一次一拦 3，另有一项由旧断言改写）。
 
-### 8.2 Android 感知编译（真 android.jar + flutter.jar + 桩）
+### 8.2 Android 编译
+
+**上一版这里是"26 个源文件 + 桩，exit=0"的子集编译。本轮换成真 Gradle。**
 
 ```
-sources: 26
-exit=0
+$ cd D:\code\R4\l-dev\app\android
+$ gradle --no-daemon --offline -Pkotlin.incremental=false :app:compileArm64DebugKotlin
+BUILD SUCCESSFUL in 1m 53s
+130 actionable tasks: 25 executed, 105 up-to-date
+
+$ gradle --no-daemon --offline -Pkotlin.incremental=false :app:compileArm64DebugUnitTestKotlin
+BUILD SUCCESSFUL in 1m 11s
 ```
+
+为什么这条要真跑：上一版那个"26 文件 + 桩"的子集编译，**在未改动的基线树上同样报 100 条
+`unresolved reference`**——它缺 `R`/`i18n`/`phone.*` 等，本身就是个不可靠的判据
+（`ldev-android-compile.log` 与 `wtdev-android-compile.log` 逐条对得上）。
+真 Gradle 才是"能过"的证据。
+
+**未做到的一步，如实写在这里**：`:app:testArm64DebugUnitTest` 在本机**执行不起来**
+（`No tests found for given includes`，在未改动的基线树上同样如此）。
+所以 Android 单元测试**编译**通过、**执行**记为 NOT_TESTED。
+`L2sMigrationTest` 的实际执行是在 Linux（WSL）上跑的，见 §11.7。
 
 ### 8.3 插件（node --test，集成分支上复跑）
 
@@ -165,11 +192,12 @@ runtime guards exit=0    Ran 9 tests, OK
 apk verifier   exit=0    Ran 8 tests, OK
 ```
 
-### 8.5 Flutter 静态分析
+### 8.5 Flutter 静态分析（本轮分支上重跑）
 
 ```
-$ flutter analyze
-No issues found! (ran in 32.1s)
+$ cd D:\code\R4\l-dev\app && flutter analyze      # Flutter 3.47.7 / Dart 3.13.5
+Analyzing app...
+No issues found! (ran in 133.7s)
 ```
 
 ### 8.6 l10n 可重生成
@@ -198,14 +226,10 @@ $ flutter test test/phone/proactive_page_test.dart test/proactive_channel_test.d
 
 ## 9. Flutter 基线失败对照
 
-**方法**：两个工作树各跑一次全量 `flutter test`，比较**计数**与**失败测试名**。
+**方法：两个工作树，同一台机器、同一个 Flutter、同一份 `pubspec.lock`，各跑一次全量 `flutter test`，
+比较的是失败测试的**名字集合**，不是计数。**
 
-| | 通过 | 跳过 | 失败 |
-|---|---|---|---|
-| **R3 基线**（`wt-dev`；`app/lib`+`app/test` 与 `f1423dc1` 字节相同） | +7320 | ~370 | **−970** |
-| **本轮 hardening**（`hard`） | 见下方实测 | | |
-
-**分类**：上一轮已逐条确认 970 个失败中 933 条栈顶是 `MatchesGoldenFile`（像素比对），
+**分类**：上一轮已逐条确认这些失败里 933 条栈顶是 `MatchesGoldenFile`（像素比对），
 且把 `media_golden_test.dart` 单独在两个树上跑结果相同（各 `+0 −12`，失败原因
 `Golden "media_cards_portrait_dark.png": Pixel test failed, 0.66%`）。
 **结论：这是本机字体/基线问题，不是任何一轮引入的回归。**
@@ -216,6 +240,103 @@ $ flutter test test/phone/proactive_page_test.dart test/proactive_channel_test.d
 - 新增的测试全部是新文件（`InterceptDrillTest` / `intercept_channel_test`），不掺进既有断言；
 - 唯一改动的既有断言是 `InterceptChainTest` 里那几个「训练通过」的调用点，原因是**行为本身变了**
   （倒计时 → 解题），属于"规则变了的正当更新"，且新断言比原来更严（必须先解完题）。
+
+### 9.1 本轮实测：数量、**失败名集合**、以及"集合为什么不一样"
+
+**先说更正。** 上一版这里写的是「净失败数完全相同（970 = 970）」，并据此说"零回归"。
+**那个结论下得太轻率**，而且它当时依赖的方法本身有问题。这一节把它重做了一遍。
+
+先说最硬的一条事实：**同一棵树、同一个 commit，两次全量跑的失败集合就不一样。**
+
+| 全量跑 | 树与 commit | 通过 | 跳过 | 失败 |
+|---|---|---|---|---|
+| `BASE-full-ft.log` | `wt-dev` @ `69e36ff`（R3 基线） | +7320 | ~370 | −970 |
+| `HARD-full-ft.log` | `hard` @ `ac04b38` | +7329 | ~370 | −971 |
+| `HARD-full-ft2.log` | `hard` @ **同一个** `ac04b38` | +7330 | ~370 | −970 |
+
+`HARD-full-ft.log` 与 `HARD-full-ft2.log` 之间**没有改过一行代码**，失败集合却不同：
+前一次少了 `session_sync_screen_test` 的 `ordinary double-escape …`，后一次少了
+`ordinary button … new-mux-ready-snapshot-held`。所以「失败集合差异」首先不是 R3↔R4 的差异，
+**是全量套件自身的顺序/共享状态不稳定**。
+
+为了把两件事分开，本轮做了一次**同环境对跑**：`hard` 与 `wt-dev` 各跑一次全量，
+同一台机器、同一个 Flutter、同一份 `pubspec.lock`：
+
+| 全量跑 | 树 | 通过 | 跳过 | 失败 | 失败名集合 |
+|---|---|---|---|---|---|
+| `B-full-hard.log` | `hard` | +7331 | ~372 | −969 | 见下 |
+| `B-full-wtdev.log` | `wt-dev` | +7321 | ~372 | −969 | **与上一行完全相同** |
+
+**差集结果：两棵树的失败测试名集合逐条相同（968 条，双向差集都是 0）。**
+（"−969" 与"968 条"的 1 之差是同一测试在同一轮里被计两次的运行计数，按名字去重后是 968。）
+
+两条被上一版当作"差异项"的测试，本轮**双向差集里都不再出现**：
+
+| 测试 | 在 `hard` | 在 `wt-dev` | 结论 |
+|---|---|---|---|
+| `session_sync_screen_test`（4 条） | 失败 | **同样失败 4 条** | **不是差异**：两树同失败，是该文件自身在本机的既有问题 |
+| `plugin_config_scope_fresh_test` | 通过 | 通过 | **不是不稳定**：单跑 3/3 通过，全量跑也通过 |
+
+### 9.2 为什么上一版会得出相反的结论：三个"假差异"来源
+
+上一版拿**归档日志**（`HARD-full-ft.log` / `BASE-full-ft.log`）做差集，得到两条"差异项"。
+本轮用可重复的实验把它们逐条拆掉：
+
+1. **`plugin_config_scope_fresh_test` 不是"并行偶发"，而是"套件状态下才失败"。**
+   它在本轮 env 下**独立连续跑 3 次全过**（`hard` 3/3、`wt-dev` 3/3，都是 `+12 All tests passed`）。
+   上一版说"并行偶发"，本轮把并发也测了：
+
+   | 组合 | `hard` | `wt-dev` |
+   |---|---|---|
+   | 单文件，默认并发 | +12 全过 | +12 全过 |
+   | 单文件，`--concurrency=1` | +12 全过 | +12 全过 |
+   | 与 `session_sync` 两文件同跑，默认并发 | +15 −4（4 条全是 sync 的） | +15 −4（同） |
+   | 与 `session_sync` 两文件同跑，`--concurrency=1` | +15 −4（同） | +15 −4（同） |
+
+   **四种组合在兩棵树上结果一致**：plugin 全过、sync 固定 4 条失败。
+   所以这里没有并发竞态，只有"全量套件跑到它时的状态"这一件事。
+
+2. **`session_sync_screen_test` 的失败是确定性的，不是随机的。**
+   它在两棵树、单文件、`--concurrency=1`、连跑 3 次，**每次都是同样 4 条**失败，
+   原因也每次一样：`fake_async` 里 `DshConnection._exchange` 留下 120 s `Pending timer`，
+   报 `A Timer is still pending even after the widget tree was disposed`。
+   一个每次都能复现的失败，不能叫"偶发"。
+
+3. **两个"嫌疑"文件在两棵树里字节相同。**
+   `plugin_config_scope_fresh_test.dart` = `d8ea7651…`、`session_sync_screen_test.dart` = `c764fe2d…`
+   （`git rev-parse HEAD:<path>`，`hard` 与 `wt-dev` 一致）。**差异不可能来自这两个文件。**
+   同理，`app/lib` 与 `app/test` 在两树间没有任何差异（`git diff --stat` 为空）。
+
+### 9.3 归档里那 2 条"基线有、本轮没有"的失败
+
+本轮全量跑出来，`hard` 与 `wt-dev` 都比归档的 `BASE-full-ft.log` 少两条：
+
+```
+- test/plugins/sdk_english_diagnostics_test.dart :: live English SDK diagnostic text matches the App parser for the shared corpus
+- test/share_hosted/hosted_crypto_test.dart :: WebCrypto interop what the app seals, WebCrypto and the viewer open
+```
+
+单独跑这两个文件，**在两棵树上都是 `+9 ~2 All tests passed`（exit 0）**。它们是归档那次全量跑的
+不稳定项，不是本轮修掉了什么，也不是"消失的真失败"。
+
+### 9.4 结论（这一版的口径）
+
+- **失败数量：`hard` 与 `wt-dev` 都是 −969（按名字去重 968 条）。**
+- **失败集合：两树逐条相同，双向差集 0 条。→ 本轮没有新增失败。**
+- **"970 = 970" 的表述作废。** 数量相等本来也不代表集合相同；这一版给的是集合，不是计数。
+- **归档日志的集合差异有两个来源，都与代码无关**：全量套件自身的顺序/共享状态不稳定，
+  以及三个测试类的本机既有问题（golden 像素、`session_sync` 的 pending timer、上述两条）。
+- **没有**修改任何 golden 图片、没有放宽任何断言来制造 PASS。
+
+### 9.5 保留原有失败记录，未改测试预期
+
+- **没有**修改任何 golden 图片；
+- **没有**为了让测试通过而放宽任何断言；
+- 唯一改动过的既有断言是 `InterceptChainTest` 里几个"训练通过"的调用点，因为**行为本身变了**
+  （倒计时 → 解题），且新断言更严（必须先解完题）；
+- 新增测试全部是新文件，不掺进既有断言。
+
+---
 
 ---
 
@@ -315,7 +436,7 @@ $ wsl -d Ubuntu -- uname -a
 
 ```bash
 cd /root/r4build/dsh-Go            # 在 Linux 原生文件系统里构建（不在 /mnt/d，避免 drvfs 权限语义）
-PROOT_VERSION=5.1.107.101 bash runtime/build-runtime.sh
+bash runtime/build-runtime.sh   # 默认已是 5.1.107.101；要回退：PROOT_VERSION=5.1.107.98
 ```
 
 `runtime/build-runtime.sh` 本身就支持两个 ABI（:6-7），**未改一行源码**就产出了两个 ABI。
@@ -376,62 +497,57 @@ manifest 同时记录 `machine: "aarch64"`（字符串，来自 `EM_NAMES`）与
 （构建时在 `librtmp1_*.deb` 上真实撞到）。改成 `--retry-all-errors` + `--continue-at -`（断点续传，重试不重下）
 + 备用镜像轮询。
 
-### 11.7 PROOT 版本决定
+### 11.7 PROOT 版本决定（已更正：默认值现在是 `.101`）
 
-**默认值保持 `5.1.107.98` 不动。** 本次构建显式用 `PROOT_VERSION=5.1.107.101`。
+**上一版的结论是「默认值保持 `5.1.107.98` 不动」，理由是「`.101` 重写了 l2s 布局」。这个理由经不起实测，已推翻。**
 
-理由：
-- `.98` 已从 Termux 索引消失，不显式指定就取不到；
-- `.101` 重写了 link2symlink 的 l2s 存储布局（`.l2s.<name><NNNN>.<count>` + `.proot.l2s.` 中间态）；
-- `app/.../runtime/L2sMigration.kt` 是按 `.98` 布局写的文档与处理；
-- **所以把默认值直接改成 `.101`，会让已经装有 `.98` 运行时的用户在下次启动时迁移出错。**
-  在真机上验证 `.101` 的 l2s 迁移之前，默认值不动是对的。这也是任务书「禁止只改版本号就宣称完成」的直接落实。
+本轮不是读源码，而是**把两个版本各自编译出来、真跑**：
+
+1. 从 `proot-v5.1.107.98.zip` / `proot-v5.1.107.101.zip`（哈希与 `build-runtime.sh` 的 `PIN` 一致）
+   各自 `make` 出二进制（WSL Ubuntu 26.04，gcc 15.2.0）。
+2. 用 `--link2symlink` + `PROOT_L2S_DIR=<rootfs>/root/.l2s` 让**各自的二进制**去建硬链接，
+   得到**真实布局**，不是猜的。
+
+**两个版本产出的布局完全相同：**
+
+```
+f .l2s.alpha0001.0003        <- 存储文件 = 中间名 + .<count>
+f .l2s.tool0001.0002
+l .l2s.alpha0001 -> /…/root/.l2s/.l2s.alpha0001.0003   <- 中间名
+l .l2s.tool0001  -> /…/root/.l2s/.l2s.tool0001.0002
+/root/alpha      -> /…/root/.l2s/.l2s.alpha0001        <- 每个名字，目标为主机绝对路径
+```
+
+**上一版说的 "`.101` 新增 `.proot.l2s.` 中间名" 是错的**：那个前缀在
+`link2symlink.c` 里位于 `#ifdef USERLAND` 之下，Termux 的发行二进制里没有它。
+证据（两层）：
+
+| 检查 | 结果 |
+|---|---|
+| `strings` Termux 官方 `proot_5.1.107.101_aarch64.deb` 里的 `proot` | 有 `.l2s.`、`%s%04d.0002`、`5.1.107.101`；**没有** `.proot.l2s.` |
+| 本仓库自建/预置的 `libproot.so`（arm64） | 版本串 `5.1.107.101`；前缀只有 `.l2s.`；**没有** `.proot.l2s.` |
+| `build-runtime.sh` 自己那段 awk 在实时索引上复跑 | `5.1.107.98` → NO RECORD；`5.1.107.101` → `a28355e9…`/`85adb8d0…`，与 `PIN` 一致 |
+
+**所以"迁移会出错"这个前提不成立。** 进一步，本轮用真实的 `.98` 树和真实的 `.101` 树各跑了一遍
+`L2sMigration`（就地迁移，因为存储里是主机绝对路径，拷贝会打断链路）：
+
+| 真实树 | 迁移结果 | 迁移后 store | 名字 | mode / mtime / 内容 | 二次运行 |
+|---|---|---|---|---|---|
+| `.98` 建的 | `Done(links=5, removed=0, repaired=0)` | 空 | 全是普通文件 | `750` / `2021-03-04T05:06:07Z` / 原样 | `Done(0,0)` 幂等 |
+| `.101` 建的 | `Done(links=5, removed=0, repaired=0)` | 空 | 全是普通文件 | `750` / `2021-03-04T05:06:07Z` / 原样 | `Done(0,0)` 幂等 |
+
+`L2sMigrationTest` 也加了 `.101` 的真实布局 fixture（`theStoreAReleaseLeavesBehindIsTheOneThisConverts`）。
+
+**决定：默认 `PROOT_VERSION` 改为 `5.1.107.101`；`.98` 的哈希保留，供回退复现。**
+这同时修掉一个真故障：`.98` 已从 Termux 索引消失，旧默认让**每一次构建都停在 `termux_deb` 上 die**。
+
+**仍然 NOT_TESTED 的**：真机上"装有 `.98` 运行时的旧安装，升级到带 `.101` 的包后首次直接启动"这一整条路径。
+本轮证明的是"两个版本写出的存储布局相同、转换器对两种树结果相同"，**不是**真机集成验证。
 
 ### 11.8 runtime/out 不入库
 
 310 MB 构建产物**没有提交**。它是 `runtime/build-runtime.sh` 的产物，不是源码；提交它会把仓库撑坏。
 需要时用一条命令重建（见 §14）。
-
-### 9.1 本轮实测（最终，含图标修复后）
-
-| | 通过 | 跳过 | 失败 |
-|---|---|---|---|
-| **R3 基线**（`wt-dev`，`app/lib`+`app/test` 与 `f1423dc1` 字节相同） | **+7320** | ~370 | **−970** |
-| **本轮 hardening**（`hard`） | **+7330** | ~370 | **−970** |
-
-**净失败数完全相同（970 = 970），通过数多 10 个**（正好是新增的 intercept 通道测试）。
-
-### 9.2 逐条对失败名做差集（这才是"确认没有新增"的做法）
-
-第一次全量跑（图标修复前）是 **−971**，多 1 个。**没有放过它**，去比对失败测试**名字**：
-
-```
-ONLY in hardening (potential regressions): 2
-  + app/test/icons/app_icons_test.dart: widgets name icons through AppIcons, never Icons.* [E]
-  + app/test/plugin_config/plugin_config_scope_fresh_test.dart: a stale plugin list ... [E]
-ONLY in baseline (disappeared): 1
-  - app/test/chat/session_sync_screen_test.dart: ordinary double-escape is disabled ... [E]
-```
-
-逐条定性：
-
-| 项 | 定性 | 证据 |
-|---|---|---|
-| `app_icons_test` 的 **rule 那条** | **真回归，我的错** | 我在 `intercept_page.dart` 用了 `Icons.close`。该仓库规定所有图标必须走 `AppIcons` 角色表（Material 图标字体没打包，`Icons.*` 在真机上会画成方块）。**已改成 `AppIcons.remove`，提交 `5a41937`** |
-| `plugin_config_scope_fresh_test` | 并行偶发 | 单独跑：`00:01 +12: All tests passed!` |
-| `session_sync_screen_test` | 既有失败 | 在**基线与 hardening 上单独跑结果完全相同**：`+3 −4` |
-
-修复图标后重跑全量：**−970，与基线一致**，上述两条也不再出现在差集里。
-
-### 9.3 保留原有失败记录，未改测试预期
-
-- **没有**修改任何 golden 图片；
-- **没有**为了让测试通过而放宽任何断言；
-- 唯一改动过的既有断言是 `InterceptChainTest` 里几个"训练通过"的调用点，因为**行为本身变了**
-  （倒计时 → 解题），且新断言更严（必须先解完题）；
-- 新增测试全部是新文件，不掺进既有断言。
-
----
 
 ## 12. 四模块之间的接口冲突检查
 
@@ -471,7 +587,7 @@ ONLY in baseline (disappeared): 1
 
 ### 已知但本轮不动的既有问题
 
-8. **970 个 golden 失败**：本机字体基线问题，R3 基线与本轮完全相同，按 `MAINTENANCE.md §9` 不动。
+8. **既有 golden 失败**：本机字体基线问题；R3 基线与本轮**同环境对跑失败名集合完全相同**（§9），按 `MAINTENANCE.md §9` 不动。
 9. **`LoopHardeningTest` 在 JVM 侧编译不过**：引用了 Android 类 `InteractionHub`，需要真 Android 测试运行时；
    离线验证集一直排除它的 15 项。**任何人不得据此宣称"全部单测通过"。**
 
@@ -484,7 +600,7 @@ ONLY in baseline (disappeared): 1
 ### 14.1 构建（本机即可，已验证）
 
 ```bash
-wsl -d Ubuntu -- bash -lc "cd /root/r4build/dsh-Go && PROOT_VERSION=5.1.107.101 bash runtime/build-runtime.sh"
+wsl -d Ubuntu -- bash -lc "cd /root/r4build/dsh-Go && bash runtime/build-runtime.sh"
 wsl -d Ubuntu -- bash -lc "cd /root/r4build/dsh-Go && python3 -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi arm64-v8a x86_64"
 \# 期望：G1' PASS；把 runtime/out 拷回 Windows 工作树
 ```
@@ -560,10 +676,14 @@ python -I tooling/verify_apk_runtime.py <apk> --plugin runtime/proactive/dsh-go-
 | DEV G1′ 双 ABI | 见 §11，两个 ABI 全部 PASS，835 ELF 零错架构 |
 | DEV 校验器不再假 FAIL | `e_machine` 类型错误已修 |
 | DEV 构建重试加固 | `--retry-all-errors` + 断点续传 + 备用镜像 |
-| 完整回归零新增失败 | −970 = −970，逐名差集核对 |
+| 完整回归零新增失败 | 两树失败名集合双向差集 0 条（§9），不是靠计数相等 |
 | l10n 可重生成 | 47 部件 / 5417 键，`--check` 通过 |
 | Flutter 静态分析 | No issues found |
 | 无新增第三方依赖 | 全程零新增（schemastery 由宿主提供） |
+| PRoot 非原子递减的数据丢失 | `repair()` + 4 条回归；旧代码实测会 `Done(0,2)` 删掉数据并报兼容（§11.7、`C-proot-all-atomic.log`） |
+| proot .98/.101 的 l2s 布局 | 两版本各自编译并真跑，布局逐字相同；`.proot.l2s.` 只在 `-DUSERLAND` 里（§11.7） |
+| Android 主源码 + 单元测试源码真编译 | Gradle 9.3.1 / AGP 9.1.0 / JDK 21：`BUILD SUCCESSFUL` ×2 |
+| `L2sMigrationTest` | 23/23 OK（Linux 非 root；root 下 3 条必然假失败，故不采用 root 结果） |
 
 ### PARTIAL
 
@@ -571,7 +691,7 @@ python -I tooling/verify_apk_runtime.py <apk> --plugin runtime/proactive/dsh-go-
 |---|---|---|
 | M1 拦截白名单 | 能读、能展示 | 没有增删 UI |
 | M2 台账统一 | 六态已建、契约清晰 | bili 与 cap-ledger 未合并成一次写入，缺宿主跨插件状态能力 |
-| PROOT 版本 | 双 ABI 用 `.101` 建成 | `.101` 的 l2s 迁移未在真机验，默认值**故意**保持 `.98` |
+| PROOT 版本 | 双 ABI 用 `.101` 建成；**默认值已改为 `.101`**（`.98` 已下架）；.98/.101 布局实测同一份，两棵真实树迁移结果一致（§11.7） | 真机上"旧 `.98` 安装升级后首次直接启动"整链路仍未跑 |
 | 训练题 | 有可判定题型、失败不放行 | 只有数字排序一种，没有难度/内容分级 |
 
 ### FAIL
@@ -589,7 +709,7 @@ python -I tooling/verify_apk_runtime.py <apk> --plugin runtime/proactive/dsh-go-
 | 原生配置表单的真机渲染截图 | 需要真引擎 + 设备；schema 可解析已验 |
 | `dsh plugin add` 后在真 profile 加载 | 需要真引擎 |
 | `real-dsh-tools.test.mjs`（1 skip） | 需 `DSH_TOOLS_DIR` 指向 asar |
-| PROOT `.101` × `L2sMigration` | 需要真机跑一次旧数据迁移 |
+| PROOT `.101` × `L2sMigration` **真机**旧安装升级 | 版本间布局与转换已实测（§11.7），真机整链路仍未跑 |
 
 ---
 
@@ -605,7 +725,7 @@ D:\code\R4\h-dev    harden/dev @ 00cc94f
 D:\code\R4\wt-dev   R3 基线对照（app/lib+app/test 字节等于 f1423dc1）
 
 # 内核 172 项 / Android 感知编译
-powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\R4\hard-verify.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\R4\ldev-loop.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File D:\code\R4\hard-android.ps1
 
 # 插件
@@ -630,7 +750,7 @@ cd D:\code\R4\h-dev
 python -I runtime/lib/rtbuild.py verify-outputs --out runtime/out --abi arm64-v8a x86_64
 
 # 重建 runtime（Linux）
-wsl -d Ubuntu -- bash -lc "cd /root/r4build/dsh-Go && PROOT_VERSION=5.1.107.101 bash runtime/build-runtime.sh"
+wsl -d Ubuntu -- bash -lc "cd /root/r4build/dsh-Go && bash runtime/build-runtime.sh"
 ```
 
 ---
