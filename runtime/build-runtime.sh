@@ -103,15 +103,43 @@ for tool in curl sha256sum python3 tar xz; do
   command -v "$tool" >/dev/null || die "missing host tool: $tool"
 done
 
-# fetch URL DEST [expected-sha256]: cached download with checksum verification.
+# fetch URL DEST [expected-sha256] [fallback-url...]: cached download with checksum verification.
+#
+# The mirrors this build uses (mirrors.tuna.tsinghua.edu.cn, npmmirror, nodejs.org, github)
+# drop connections under load. curl's own --retry only repeats "transient" errors, which is a
+# narrow category: a TLS handshake that ends early (error 35, "unexpected eof while reading")
+# is NOT one of them, so "curl --retry 3" here failed the whole build on the first blip --
+# observed on librtmp1_*.deb. Every attempt is therefore retried here with --retry-all-errors
+# plus resumption (--continue-at -), and each fallback URL is tried after the primary one.
 fetch() {
-  local url="$1" dest="$2" want="${3:-}"
+  local url="$1" dest="$2" want="${3:-}"; shift 3 2>/dev/null || shift $#
   mkdir -p "$(dirname "$dest")"
   if [[ -f "$dest" && -n "$want" && "$(sha256 "$dest")" == "$want" ]]; then return 0; fi
   if [[ -f "$dest" && -z "$want" ]]; then return 0; fi
-  log "download $url"
-  curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 -sS -o "$dest.part" "$url"
-  mv "$dest.part" "$dest"
+  local -a urls=("$url" "$@") attempt
+  local i
+  for url in "${urls[@]}"; do
+    log "download $url"
+    for attempt in 1 2 3 4 5; do
+      # --continue-at - resumes .part, so a retry does not re-download what already arrived
+      if curl -fL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 \
+           --max-time 1800 -sS --continue-at - -o "$dest.part" "$url"; then
+        break
+      fi
+      if [[ "$attempt" == 5 ]]; then
+        log "giving up on $url after 5 attempts"
+      else
+        log "retry $attempt/5 for $url"
+        sleep $((attempt * 2))
+      fi
+    done
+    if [[ -f "$dest.part" ]] && { [[ -z "$want" ]] || [[ "$(sha256 "$dest.part")" == "$want" ]]; }; then
+      mv "$dest.part" "$dest"
+      break
+    fi
+    rm -f "$dest.part"
+  done
+  [[ -f "$dest" ]] || die "could not download any of: ${urls[*]}"
   if [[ -n "$want" ]]; then
     local got; got="$(sha256 "$dest")"
     [[ "$got" == "$want" ]] || { rm -f "$dest"; die "sha256 mismatch for $dest: got $got want $want"; }
@@ -140,12 +168,21 @@ ubuntu_base() {  # $1 = ubuntu arch; echoes path
 
 node_dist() {  # $1 = node arch (arm64|x64); echoes path
   local name="node-v${NODE_VERSION}-linux-$1.tar.xz" dir="$CACHE/node/v$NODE_VERSION"
-  fetch "$NODE_MIRROR/v$NODE_VERSION/SHASUMS256.txt" "$dir/SHASUMS256.txt"
+  # NODE_MIRROR (npmmirror) now answers /mirrors/node/... with a 302 to cdn.npmmirror.com,
+  # and that CDN host is unreachable from the hosts this build runs on (curl: could not connect;
+  # a 32 MiB tarball stalled at 8.6 MiB and the build never noticed). The same tree is served
+  # without the redirect by registry.npmmirror.com/-/binary/node and by nodejs.org; both are
+  # fallbacks here, so a dead CDN cannot stop the build. SHA256SUMS is checked either way.
+  local mirror_noredirect="https://registry.npmmirror.com/-/binary/node"
+  local official="https://nodejs.org/dist"
+  fetch "$NODE_MIRROR/v$NODE_VERSION/SHASUMS256.txt" "$dir/SHASUMS256.txt" "" \
+    "$mirror_noredirect/v$NODE_VERSION/SHASUMS256.txt" "$official/v$NODE_VERSION/SHASUMS256.txt"
   local listed; listed="$(awk -v f="$name" '$2==f {print $1}' "$dir/SHASUMS256.txt")"
   [[ -n "$listed" ]] || die "$name not listed in SHASUMS256.txt"
   local pin; pin="$(pin_of "$name")"
   [[ -z "$pin" || "$pin" == "$listed" ]] || die "SHASUMS256.txt disagrees with pinned hash for $name"
-  fetch "$NODE_MIRROR/v$NODE_VERSION/$name" "$dir/$name" "$listed"
+  fetch "$NODE_MIRROR/v$NODE_VERSION/$name" "$dir/$name" "$listed" \
+    "$mirror_noredirect/v$NODE_VERSION/$name" "$official/v$NODE_VERSION/$name"
   printf '%s' "$dir/$name"
 }
 
@@ -218,8 +255,8 @@ python_dist() {  # $1 = aarch64|x86_64; echoes path
   local listed; listed="$(awk -v f="$name" '$2==f {print $1}' "$dir/SHA256SUMS")"
   [[ -n "$listed" ]] || die "$name not in SHA256SUMS of $PBS_RELEASE"
   [[ -z "$pin" || "$pin" == "$listed" ]] || die "SHA256SUMS disagrees with pinned hash for $name"
-  fetch "$PBS_MIRROR/$PBS_RELEASE/$name" "$dir/$name" "$listed" 2>/dev/null \
-    || fetch "$PBS_OFFICIAL/$PBS_RELEASE/$name" "$dir/$name" "$listed"
+  fetch "$PBS_MIRROR/$PBS_RELEASE/$name" "$dir/$name" "$listed" \
+    "$PBS_OFFICIAL/$PBS_RELEASE/$name"
   printf '%s' "$dir/$name"
 }
 
