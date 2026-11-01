@@ -11781,9 +11781,10 @@ class L10nZh extends L10n {
   String get proactiveOutcomeDismissed => '你划掉了';
 
   @override
-  String get proactiveOutcomeAcked => '你点了「我看到了」';
-
   String get proactiveOutcomeIgnoredSeen => '显示了但没回应';
+
+  @override
+  String get proactiveOutcomeAcked => '你点了「我看到了」';
 
   @override
   String get proactiveOutcomeUnconfirmed => '通知发了，不知道你看没看';

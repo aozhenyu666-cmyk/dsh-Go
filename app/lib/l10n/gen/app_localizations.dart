@@ -21548,17 +21548,17 @@ abstract class L10n {
   /// **'你划掉了'**
   String get proactiveOutcomeDismissed;
 
-  /// No description provided for @proactiveOutcomeAcked.
-  ///
-  /// In en, this message translates to:
-  /// **'You said you saw it'**
-  String get proactiveOutcomeAcked;
-
   /// No description provided for @proactiveOutcomeIgnoredSeen.
   ///
   /// In zh, this message translates to:
   /// **'显示了但没回应'**
   String get proactiveOutcomeIgnoredSeen;
+
+  /// No description provided for @proactiveOutcomeAcked.
+  ///
+  /// In zh, this message translates to:
+  /// **'你点了「我看到了」'**
+  String get proactiveOutcomeAcked;
 
   /// No description provided for @proactiveOutcomeUnconfirmed.
   ///
