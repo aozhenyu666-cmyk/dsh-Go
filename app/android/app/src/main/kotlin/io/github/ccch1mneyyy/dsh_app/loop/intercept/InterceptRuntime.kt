@@ -278,16 +278,49 @@ object InterceptRuntime {
         VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, eventId)
         // Whatever took the page away, this interception is over: no deadline may fire for it later.
         clearDeadlineState()
+        // The page is gone but nothing may have decided what the person is looking at now. Ask the
+        // host to read the foreground again: this is the case P0-2 is about - the page disappearing
+        // used to leave the target app usable until some later window event happened to arrive.
+        recheckForeground("intercept_page_gone")
     }
 
     /** 训练通过 / 授权规则 / 白名单. True when the guard accepted it. */
-    fun onReleased(eventId: String, how: String): Boolean =
-        guard?.onReleased(eventId, how, System.currentTimeMillis()) == true
+    fun onReleased(eventId: String, how: String): Boolean {
+        val ok = guard?.onReleased(eventId, how, System.currentTimeMillis()) == true
+        if (ok) {
+            clearDeadlineState()
+            // A release ends the interception too; the app is about to be put back in front, and the
+            // guard must judge it under the new state (a whitelist entry, a release window) rather
+            // than under the one it was left in.
+            recheckForeground("intercept_released")
+        }
+        return ok
+    }
 
-    fun onExited(eventId: String): Boolean = guard?.onExited(eventId, System.currentTimeMillis()) == true
+    /**
+     * 紧急退出。
+     *
+     * D5 的关键一条：退出**不获得放行许可**。守卫不给 releases，所以退出后立刻重开目标 APP 会被重新拦。
+     * 另外这里必须重新判定前台（P0-2）—— 用户是按"退出"离开的，前台已经不是拦截页了，不重判就等于
+     * 把"退出"当成了一条绕过路径。
+     */
+    fun onExited(eventId: String): Boolean {
+        val ok = guard?.onExited(eventId, System.currentTimeMillis()) == true
+        if (ok) {
+            clearDeadlineState()
+            recheckForeground("intercept_exited")
+        }
+        return ok
+    }
 
-    fun onPaused(eventId: String?): Boolean =
-        guard?.onPaused(eventId, InterceptGuard.DEFAULT_PAUSE_MS, System.currentTimeMillis()) == true
+    fun onPaused(eventId: String?): Boolean {
+        val ok = guard?.onPaused(eventId, InterceptGuard.DEFAULT_PAUSE_MS, System.currentTimeMillis()) == true
+        if (ok && eventId != null) {
+            clearDeadlineState()
+            recheckForeground("intercept_paused")
+        }
+        return ok
+    }
 
     /** Put a released app back in front, so 放行 actually means "you may go". */
     fun openTarget(context: Context, packageName: String) {
