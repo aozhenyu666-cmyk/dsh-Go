@@ -305,9 +305,27 @@ object InterceptRules {
         if (!env.screenOn) return InterceptDecision.Allow(packageName, REASON_SCREEN_OFF)
         if (!env.unlocked) return InterceptDecision.Allow(packageName, REASON_LOCKED)
         if (env.dshBusy) return InterceptDecision.Allow(packageName, REASON_DSH_BUSY)
-        if (config.dailyMax > 0 && countToday >= config.dailyMax) return InterceptDecision.Allow(packageName, REASON_DAILY_MAX)
+        // 第四阶段 4B · D5: the two branches that used to be here both returned
+        // InterceptDecision.Allow, and both were wrong in the same way — they turned a way of
+        // REDUCING NAGGING into a grant of ACCESS:
+        //
+        //   * dailyMax reached  -> Allow(REASON_DAILY_MAX): "do not interrupt more today" became
+        //     "use it freely today";
+        //   * still inside the cooldown -> Allow(REASON_COOLDOWN): "do not re-prompt just yet"
+        //     became "use it freely for two minutes", which is also how pressing emergency-exit
+        //     used to buy a free window.
+        //
+        // Neither is an authorisation, so neither may produce Allow. What they legitimately do is
+        // suppress the QUESTION. That is Ignore: no interception is raised, and — just as important
+        // — nothing is marked as permitted either, so a later reading is still free to block.
+        //
+        // Real permissions are enumerated above this point and only there: whitelist, pause window,
+        // earned release window, authorized time window.
+        if (config.dailyMax > 0 && countToday >= config.dailyMax) {
+            return InterceptDecision.Ignore
+        }
         if (lastTriggerPackage == packageName && lastTriggerAt != 0L && now - lastTriggerAt in 0 until config.cooldownMs) {
-            return InterceptDecision.Allow(packageName, REASON_COOLDOWN)
+            return InterceptDecision.Ignore
         }
         // The eventId — and with it the drill — is minted by the guard. This is a decision, not
         // yet an interception.
@@ -767,6 +785,29 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         state = s.copy(
             openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
             lastReason = reason, drill = null,
+            // 第四阶段 4B · D5: only a RELEASED / PAUSED ending may leave a reason for the app to be
+            // let through. BLOCKED and EXITED must not, and the cooldown timestamp is exactly what
+            // made an exit behave like a grant: lastTriggerAt stayed set, `decide()` saw "inside the
+            // cooldown" and answered Allow, so pressing emergency-exit bought a free window.
+            //
+            // Clearing it here means an exit neither blocks nor permits: the next reading decides
+            // from scratch (and, by D5, blocks again because nothing was earned).
+            lastTriggerAt = if (outcome == InterceptOutcome.NOT_SHOWN ||
+                outcome == InterceptOutcome.BLOCKED ||
+                outcome == InterceptOutcome.EXITED
+            ) {
+                0L
+            } else {
+                s.lastTriggerAt
+            },
+            lastTriggerPackage = if (outcome == InterceptOutcome.NOT_SHOWN ||
+                outcome == InterceptOutcome.BLOCKED ||
+                outcome == InterceptOutcome.EXITED
+            ) {
+                null
+            } else {
+                s.lastTriggerPackage
+            },
         )
         // The event is over one way or another: whatever it charged is now this event's business,
         // and a later NOT_SHOWN must not restore a stale snapshot of it.

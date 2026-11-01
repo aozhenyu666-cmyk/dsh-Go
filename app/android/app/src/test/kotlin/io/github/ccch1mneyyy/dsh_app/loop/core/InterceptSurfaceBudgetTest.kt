@@ -82,13 +82,20 @@ class InterceptSurfaceBudgetTest {
         val h = Harness()
         h.enable()
         val first = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall) as InterceptDecision.Block
-        // This one really was on screen: it is a block, and a block costs a cooldown.
+        // 第四阶段 4B · D5 CHANGED THIS TEST. It used to assert that a shown block leaves a cooldown
+        // that returns Allow - which is the technical-permission confusion D5 removes. Two things
+        // are now checked instead, and they are the honest pair:
+        //   * the block is counted as a real interception, and
+        //   * it grants nothing: the next reading is not an Allow.
         assertTrue(h.guard.onPageShown(first.eventId, h.wall))
+        assertEquals("a shown block is a real interception", 1L, h.guard.state.countToday.toLong())
         assertTrue(h.guard.onExited(first.eventId, h.wall))
         h.wall += 1_000
         val second = h.guard.onForeground("tv.danmaku.bili", h.env(), h.wall)
-        assertTrue("a real block does arm the cooldown", second is InterceptDecision.Allow)
-        assertEquals(InterceptRules.REASON_COOLDOWN, (second as InterceptDecision.Allow).reason)
+        assertTrue(
+            "a block never becomes a permission: " + second,
+            second !is InterceptDecision.Allow,
+        )
     }
     @Test
     fun a_guard_that_was_never_asked_keeps_its_budget() {

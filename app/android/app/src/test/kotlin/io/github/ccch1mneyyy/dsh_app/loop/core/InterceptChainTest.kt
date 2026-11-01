@@ -270,14 +270,23 @@ class InterceptChainTest {
         )
         g.onPageShown(block.eventId, wall)
         g.onExited(block.eventId, wall + 1_000L)
-        // The same app, seconds later: the cooldown holds, so no second page.
+        // 第四阶段 4B · D5 CHANGED THIS EXPECTATION. It used to assert Allow(REASON_COOLDOWN), i.e.
+        // that pressing emergency-exit bought a two-minute free window - the very bypass D5 names.
+        // D5 says EXITED is a counted interception that grants no passage and produces no access
+        // cooldown, so the app is intercepted again. The old assertion is recorded in
+        // R4-PHASE4B-FAILURE-MATRIX.md rather than silently dropped.
+        // The name of this test is "one interception at a time, and no storm after an exit", and
+        // both halves still hold: the reading above opens exactly one new interception (not a
+        // storm), and a second reading while it is open is refused as already_open rather than
+        // stacking another.
+        val second = g.onForeground(bili, env(), wall + 30_000L) as InterceptDecision.Block
         assertEquals(
-            InterceptDecision.Allow(bili, InterceptRules.REASON_COOLDOWN),
+            "only one interception at a time",
+            InterceptDecision.Allow(bili, "already_open"),
             g.onForeground(bili, env(), wall + 30_000L),
         )
-        assertEquals(1, ledger.state.triggerCount)
-        wall += 5 * minute
-        assertTrue(g.onForeground(bili, env(), wall) is InterceptDecision.Block)
+        assertEquals("and it was counted once", 2L, ledger.state.triggerCount)
+        assertNotNull(second.eventId)
     }
 
     @Test fun theDailyCapStopsTheInterceptionsForThatDay() {
@@ -295,8 +304,12 @@ class InterceptChainTest {
         )
         g.onReleased(block.eventId, InterceptGuard.RELEASE_RULE, wall)
         wall += minute
+        // 第四阶段 4B · D5 CHANGED THIS EXPECTATION. It used to assert Allow(REASON_DAILY_MAX):
+        // "no more interruptions today" was being reported as "authorised to use it today". D5 says
+        // a daily cap suppresses the QUESTION and never permits the app, so the honest answer is
+        // Ignore. Recorded in R4-PHASE4B-FAILURE-MATRIX.md.
         assertEquals(
-            InterceptDecision.Allow(douyin, InterceptRules.REASON_DAILY_MAX),
+            InterceptDecision.Ignore,
             g.onForeground(douyin, env(), wall),
         )
         day += 1
