@@ -111,7 +111,12 @@ object InterceptMigration {
                 M.long(it, "userExitedCount"), M.long(it, "pausedCount"),
             )
         } ?: 0L
-        if (maxSingle > receipts.size) {
+        // Receipts are capped (InterceptLedger.RECEIPT_CAP) while the counters keep accumulating, so
+        // once the list is full a counter is EXPECTED to exceed it. Long-lived installs are the ones
+        // this hits hardest - exactly the users worth migrating. Only compare while the list is still
+        // growing, i.e. while the cap has not been reached.
+        val capped = receipts.size >= InterceptLedger.RECEIPT_CAP
+        if (!capped && maxSingle > receipts.size) {
             return Result.RecoveryRequired(
                 "an outcome count is larger than the number of receipts",
                 "max=" + maxSingle + " receipts=" + receipts.size,
