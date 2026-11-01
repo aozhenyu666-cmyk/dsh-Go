@@ -9,6 +9,7 @@ import io.github.ccch1mneyyy.dsh_app.loop.LoopRuntime
 import io.github.ccch1mneyyy.dsh_app.loop.core.AtomicJsonFile
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.EnforcementOutcome
+import io.github.ccch1mneyyy.dsh_app.shortcuts.EntryActivity
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDeadline
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptKernel
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptMigration
@@ -94,6 +95,9 @@ object InterceptRuntime {
         opened.recoveryIssue?.let {
             Log.w(TAG, "legacy intercept state needs attention: " + it)
         }
+        // F5: the enforcement alert needs somewhere to go when tapped. Without this the notification
+        // posts and does nothing when pressed - which reads as "the app is broken", not "you were told".
+        EnforcementAlert.launchIntent = { ctx -> EntryActivity.openApp(ctx) }
         ledger = opened.ledger
         guard = opened.guard
         Log.i(

@@ -152,15 +152,27 @@ if [[ $rc -ne 0 ]]; then
 fi
 say "PASS"
 
-# ---- W3: production-path guards ---------------------------------------------------------------
+# ---- W3/F5: production-path guards -------------------------------------------------------------
 # The kernel suite above proves the pieces work. It cannot prove the pieces are USED: 24 tests were
 # green while three mechanisms had never executed in production once (self-audit B-1/B-2/B-3).
-# These checks read the production sources and fail if a mechanism is left disconnected again.
+#
+# F5: these greps used to run over raw sources, so a line inside a comment satisfied them. A comment
+# saying "EnforcementAlert.notify" was enough to pass while the real call had been deleted. Every
+# search below now runs over SOURCE WITH COMMENTS STRIPPED.
 say "checking production wiring..."
 WIRING_FAIL=0
 MAIN_DIR="$ROOT/app/android/app/src/main/kotlin"
 FAILFILE="$OUT/wiring.fail"
 rm -f "$FAILFILE"
+
+# Strip comment-only lines before looking for anything. This is deliberately line-based: it is not
+# a Kotlin parser, but no real call statement begins with //, *, or /*.
+CODE_ONLY="$OUT/code-only"
+rm -rf "$CODE_ONLY"; mkdir -p "$CODE_ONLY"
+( cd "$MAIN_DIR" && find . -name "*.kt" -print0 | while IFS= read -r -d "" f; do
+    mkdir -p "$CODE_ONLY/$(dirname "$f")"
+    grep -v "^[[:space:]]*\(//\|\*\|/\*\)" "$f" > "$CODE_ONLY/$f" 2>/dev/null || true
+  done )
 
 # 1. Every InterceptGuard( built in production must name its repository, unless it is the explicit
 #    legacy fallback. Match the whole call, not one line: the production call spans several lines.
@@ -169,38 +181,44 @@ while IFS= read -r file; do
   [[ -z "$file" ]] && continue
   while IFS=: read -r ln rest; do
     [[ -z "$ln" ]] && continue
-    block=$(sed -n "${ln},$((ln + 14))p" "$file")
+    block=$(sed -n "${ln},$((ln + 14))p" "$CODE_ONLY/$file")
     if ! grep -q "repository" <<<"$block" && ! grep -q "legacy-fallback" <<<"$block"; then
-      say "  FAIL: ${file#"$ROOT"/}:$ln builds InterceptGuard without repository="
+      say "  FAIL: $file:$ln builds InterceptGuard without repository="
       echo 1 > "$FAILFILE"
     fi
-  done < <(grep -n "InterceptGuard(" "$file" 2>/dev/null | grep -v "class InterceptGuard")
-done < <(grep -rl "InterceptGuard(" "$MAIN_DIR" --include="*.kt" 2>/dev/null)
+  done < <(grep -n "InterceptGuard(" "$CODE_ONLY/$file" 2>/dev/null | grep -v "class InterceptGuard")
+done < <(cd "$CODE_ONLY" && grep -rl "InterceptGuard(" . --include="*.kt" 2>/dev/null | sed "s|^\./||")
 
 # 2. A seam whose default "looks like success" is worse than no seam: it answers silently and
 #    wrongly. Only the D2 seams are checked by name - a nullable lambda elsewhere (dayKey, labels)
 #    legitimately means "no value yet", not "the operation succeeded".
 for seam in currentForeground notifyEnforcementUnavailable; do
-  hits=$(grep -rn "var $seam.*= { null }\|var $seam.*-> Unit = { }" "$MAIN_DIR" --include="*.kt" 2>/dev/null)
+  hits=$(grep -rn "var $seam.*= { null }\|var $seam.*-> Unit = { }" "$CODE_ONLY" --include="*.kt" 2>/dev/null)
   if [[ -n "$hits" ]]; then
     say "  FAIL: $seam still has a silent default:"
-    printf "%s\n" "$hits" | sed "s|$ROOT/|  |"
+    printf "%s\n" "$hits" | sed "s|$CODE_ONLY/||"
     echo 1 > "$FAILFILE"
   fi
 done
 
-# 3. The alert must be reachable: a notification nobody can send is the bug this replaces.
-if ! grep -rq "EnforcementAlert.notify" "$MAIN_DIR" --include="*.kt" 2>/dev/null; then
+# 3. The alert must be reachable AND tappable: a notification nobody can send, or that does nothing
+#    when pressed, is the bug this replaces.
+if ! grep -rq "EnforcementAlert.notify" "$CODE_ONLY" --include="*.kt" 2>/dev/null; then
   say "  FAIL: nothing calls EnforcementAlert.notify - the person would never be told"
+  echo 1 > "$FAILFILE"
+fi
+if ! grep -rq "EnforcementAlert.launchIntent *=" "$CODE_ONLY" --include="*.kt" 2>/dev/null; then
+  say "  FAIL: EnforcementAlert.launchIntent is never assigned - tapping the alert does nothing"
   echo 1 > "$FAILFILE"
 fi
 
 # 4. The production entry point must go through the kernel factory, not build its own guard.
-if ! grep -rq "InterceptKernel.open" "$MAIN_DIR" --include="*.kt" 2>/dev/null; then
+if ! grep -rq "InterceptKernel.open" "$CODE_ONLY" --include="*.kt" 2>/dev/null; then
   say "  FAIL: nothing calls InterceptKernel.open - the atomic snapshot is not in the production path"
   echo 1 > "$FAILFILE"
 fi
 set -e
+rm -rf "$CODE_ONLY"
 
 if [[ -f "$FAILFILE" ]]; then
   say "WIRING FAIL -- a mechanism exists but is not connected to the production path"
