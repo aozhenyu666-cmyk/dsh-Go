@@ -226,12 +226,52 @@ class InterceptLedgerBook(private val store: SnapshotStore) {
     var state = InterceptLedger()
         private set
 
+    /**
+     * The guard owns the open event and the whitelist; this book owns the receipts and the counts.
+     * They are two files, so a crash between the two writes leaves them disagreeing. This is set by
+     * [checkConsistency] at recovery, and read by the adapter to decide whether to trust either.
+     *
+     * Null means "nothing to report": either the pair agrees, or there is not enough in either file
+     * to say. A string names the first disagreement found.
+     */
+    @Volatile var splitWrite: String? = null
+        private set
+
     @Volatile var storageError: String? = null
         private set
     @Volatile var recoveryIssue: String? = null
         private set
 
-    fun recover(): InterceptLedger = synchronized(lock) {
+        /**
+     * Does this book agree with what the guard holds? Called at recovery, after both have read
+     * their own file, because the two writes that keep them in step are two separate renames.
+     *
+     * @param countedBlocks the number of blocks the guard's side implies (0 when it holds no
+     *   event and no history), and @param releasedByPerson the releases it implies.
+     */
+    fun checkConsistency(countedBlocks: Long, releasedByPerson: Long) {
+        val s = state
+        val receipts = s.receipts
+        // Every counted block must have a receipt behind it. A count with no receipt is exactly
+        // the shape a crash between the ledger write and the guard write leaves behind.
+        if (s.blockedCount > receipts.count { it.outcome == InterceptOutcome.BLOCKED || it.outcome == InterceptOutcome.RELEASED || it.outcome == InterceptOutcome.EXITED || it.outcome == InterceptOutcome.PAUSED }.toLong()) {
+            splitWrite = "blockedCount=${s.blockedCount} but only ${receipts.size} receipts"
+            return
+        }
+        if (s.triggerCount < receipts.size) {
+            splitWrite = "triggerCount=${s.triggerCount} is smaller than ${receipts.size} receipts"
+            return
+        }
+        // The other direction: the files agree with each other, but one of them is ahead of the
+        // side that owns the decision. A whitelist release with no ledger receipt is the case that
+        // matters most, because the whitelist is a standing permission.
+        if (releasedByPerson > s.userReleasedCount) {
+            splitWrite = "a release happened but the ledger recorded only ${s.userReleasedCount}"
+            return
+        }
+        splitWrite = null
+    }
+fun recover(): InterceptLedger = synchronized(lock) {
         when (val r = store.read()) {
             SnapshotStore.Read.Empty -> Unit
             is SnapshotStore.Read.Unreadable -> recoveryIssue = "intercept_ledger_unreadable: ${r.error}"

@@ -389,6 +389,14 @@ class InterceptGuard(
     @Volatile var recoveryIssue: String? = null
         private set
 
+    /**
+     * Set when this guard's file and the ledger's file disagree after a restart. Two files, two
+     * renames: a crash between them leaves one of them ahead. Reported, never silently repaired,
+     * because guessing which side is right is how a lost whitelist becomes invisible.
+     */
+    @Volatile var splitWrite: String? = null
+        private set
+
     /** Process start. An interception that was on screen died with the old process. */
     fun recover(now: Long): InterceptState = synchronized(lock) {
         when (val r = store.read()) {
@@ -433,6 +441,16 @@ class InterceptGuard(
                 )
             }
         }
+        // The two files that describe one interception are written one after the other, so a crash
+        // between the renames leaves them ahead of each other in one direction or the other. Now
+        // that both have been read back, ask the ledger whether the pair is coherent.
+        // A whitelist entry is a standing permission, and the only evidence it was granted through
+        // the page is the ledger's release count. If the guard holds whitelist entries the ledger
+        // has no release for, one of the two writes was lost - and the whitelist is exactly what
+        // must never be silently lost.
+        val whitelistedNow = config.whitelist.size.toLong()
+        ledger.checkConsistency(countedBlocks = 0L, releasedByPerson = whitelistedNow)
+        splitWrite = ledger.splitWrite
         // The daily bucket is only rolled from [InterceptEnv.dayKey], which the caller reads from the
         // same calendar it uses for quiet hours; computing a second day number here would make the
         // two disagree and hand out a second day's budget.
