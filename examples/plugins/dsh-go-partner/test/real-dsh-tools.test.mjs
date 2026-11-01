@@ -18,7 +18,10 @@ import { registerTools } from '../lib/index.js'
 test('真 defineTool：四个工具都能通过 DSH 的 schema 编译', async (t) => {
   const defineTool = await loadRealDefineTool()
   if (defineTool === null) {
-    t.skip('这台机器上没有可被普通 node 加载的 @deepseek-ai/dsh-tools（设 DSH_TOOLS_DIR 后可跑）')
+    t.skip('普通 node 读不到宿主 app.asar 里的 @deepseek-ai/dsh-tools。'
+      + '用 Electron 以 node 身份跑这一条（R4 第三轮实测通过）：'
+      + 'set ELECTRON_RUN_AS_NODE=1 && "<...>/DeepSeek Harness.exe" --test test\\real-dsh-tools.test.mjs'
+      + '；或用 DSH_TOOLS_DIR 指向一份能被普通 node 读到的 dsh-tools。')
     return
   }
   const home = tempHome()

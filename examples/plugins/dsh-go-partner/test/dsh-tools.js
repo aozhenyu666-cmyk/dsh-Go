@@ -28,6 +28,16 @@ export function findRealDshTools() {
 
 /** 加载真 defineTool；拿不到就返回 null（调用方 skip，不假装通过）。 */
 export async function loadRealDefineTool() {
+  // ① 先用插件自己的宿主树解析（和运行时同一套逻辑：lib/hostdeps.mjs）。
+  //    这条路在 **Electron 里**能读到 resources/app.asar 里的 dsh-tools；
+  //    普通 node 读不到 asar，会返回 null —— 那是环境限制，不是测试失败。
+  try {
+    const { loadDefineToolSync } = await import('../lib/hostdeps.mjs')
+    const fromHost = loadDefineToolSync()
+    if (typeof fromHost === 'function') return fromHost
+  } catch {}
+
+  // ② 退回到「显式给的目录 / PATH 里找 dsh」
   const dir = findRealDshTools()
   if (dir === null) return null
   try {

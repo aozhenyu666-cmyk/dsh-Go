@@ -12,8 +12,8 @@ import { DIM_LABEL, DIM_VISIBLE_MIN, dimsOf } from './dims.mjs'
  *   所以：**先构造 + 本地校验，再交给 App 渲染**。
  *
  * 用法：
- *   import { moodPanel, memoryPanel, purposePanel, moodStrip, rememberCard } from './views.mjs'
- *   moodPanel(state, cfg)            → 面板视图（placement: chat.panel / session.tab）
+ *   import { moodStatePanel, memorySectionsPanel, purposePanel, rememberCard } from './views.mjs'
+ *   moodStatePanel(snap, cfg)        → 情绪面板视图（placement: chat.panel / session.tab）
  *   moodStrip(state)                 → 状态条视图（emit 的数据）
  *   rememberCard(args, value)        → 工具卡视图（presentationMeta）
  *   validate(view, 'panel')          → { ok, issues[] }   —— 与 App 插件详情页同一套判据
@@ -165,160 +165,12 @@ function relTime(ts, now = Date.now()) {
 const CLARITY_LABEL = { vivid: '清晰', clear: '清楚', fuzzy: '模糊', trace: '只剩印象' }
 const CLARITY_TONE = { vivid: 'good', clear: 'info', fuzzy: 'muted', trace: 'warn' }
 
-// ── 面板 1：心情 ────────────────────────────────────────────────────────────
-/**
- * @param {object} s  state.json 里的一份 mood：{ mood, dims, timeline:[{at, delta, reason}] }
- * @param {object} c  所属 slot：{ label, selfName, ownerName, moodBase }
- */
-export function moodPanel(s = {}, c = {}) {
-  const mood = Number(s.mood ?? s.value ?? c.moodBase ?? 70)
-  const band = moodBand(mood)
-  const dims = s.dims || s.emotions || {}
-  const tl = Array.isArray(s.timeline) ? s.timeline.slice(-6).reverse() : []
-  const dimRows = Object.entries(DIM_LABEL)
-    .map(([k, label]) => ({ label, value: Math.round((Number(dims[k]) || 0) * 10) / 10 }))
-    .filter((r) => r.value !== 0)
-  const last = tl[0]
+// ── 历史遗留：早期版本还导出过 moodPanel / memoryPanel ─────────────────────
+// 它们读的是**旧形状**（records/status），后来被 moodStatePanel / memorySectionsPanel
+// 取代，却一直留在文件里没人用 —— 和 identityPanel 同一种病：导出着、看着像功能、
+// 实际一页都画不出来。R4 第三轮删掉了，并加了一条测试（host-sdk.test.mjs）
+// 「views 里每个 *Panel 都必须被 index.js 真的用上」，防止再长出第二个。
 
-  const children = [
-    // 绑定对不上时，警告必须在**最上面** —— 底下所有数字都要按「可能不是这份」来读
-    ...(c.bindingWarning ? [{ type: 'callout', tone: 'warn', text: String(c.bindingWarning).slice(0, 400) }] : []),
-    {
-      type: 'row',
-      children: [
-        { type: 'metric', label: '此刻心情', value: Math.round(mood), tone: band.tone, caption: band.label },
-        { type: 'metric', label: '更新时间', value: last ? relTime(last.at) : '还没判过', caption: c.ownerName ? `对 ${c.ownerName}` : undefined },
-      ],
-    },
-  ]
-
-  if (dimRows.length) {
-    children.push({
-      type: 'chart',
-      kind: 'bar',
-      categories: dimRows.map((r) => r.label),
-      series: [{ name: '强度', values: dimRows.map((r) => r.value) }],
-      caption: '七根情绪各自还剩多少（会自己衰减回 0）',
-    })
-  } else if (!tl.length) {
-    // 只有在「七维都归零 **且** 时间线也空」时才说没波动 —— 否则会和下面的
-    // 「最近几次」自相矛盾（真机上踩到过：七维已衰减到 0，但历史记录还在）
-    children.push({ type: 'callout', tone: 'info', text: '这几轮没有情绪波动 —— 无变化不记账，是设计不是坏。' })
-  }
-
-  if (tl.length) {
-    children.push({ type: 'text', text: '**最近几次**', tone: 'muted' })
-    children.push({
-      type: 'list',
-      items: tl.map((e) => ({
-        title: String(e.reason || e.purpose || '（没写理由）').slice(0, 60),
-        subtitle: relTime(e.at),
-        trailing: `${Number(e.delta) >= 0 ? '+' : ''}${Number(e.delta) || 0}`,
-        tone: Number(e.delta) > 0 ? 'good' : Number(e.delta) < 0 ? 'warn' : undefined,
-      })),
-    })
-  }
-
-  children.push({
-    type: 'keyValue',
-    items: [
-      ['基线', String(c.moodBase ?? 70)],
-      ['衰减半衰期', `${c.decayHalfHours ?? 3} 小时`],
-      ['告诉它的方式', c.injectMode === 'off' ? '不告诉它' : c.injectMode === 'state' ? '只说心情' : '说刚才那件事'],
-      ['可信度门槛', String(c.injectConfidence ?? 60)],
-    ],
-  })
-
-  children.push({
-    type: 'actions',
-    items: [
-      { label: '刷新', action: 'mood.refresh', icon: 'refresh', style: 'primary' },
-      { label: '完整记录', action: 'mood.timeline', icon: 'time' },
-    ],
-  })
-
-  return { v: 1, type: 'stack', title: `心情 ${Math.round(mood)} · ${band.label}`, children }
-}
-
-// ── 面板 2：记忆 ────────────────────────────────────────────────────────────
-/**
- * @param {object} s { records:[{ id, text, title, clarity, importance, createdAt, tags, pinned, isInitial, firstMet }],
- *                     status:{ chars, warnChars, percent, level, counts } }
- */
-export function memoryPanel(s = {}) {
-  const records = Array.isArray(s.records) ? s.records : []
-  const st = s.status || {}
-  const children = []
-
-  if (!records.length) {
-    children.push({ type: 'callout', tone: 'info', text: '还没有记忆。聊几句、说过一件明确的事，它就会自己记下来。' })
-    return { v: 1, type: 'stack', title: '记忆 · 空', children }
-  }
-
-  // 容量：**只在真的读到数字时**才画进度条。
-  // 读不到就画一条「0 字」是错的 —— 用户会以为记忆是空的（真机上踩到过：
-  // fish-memory 的字段名在各版本间不稳定，status 可能根本不存在）。
-  const hasCap = Number.isFinite(Number(st.chars)) && Number(st.chars) > 0
-  const percent = Number(st.percent ?? 0)
-  if (hasCap) {
-    children.push({
-      type: 'progress',
-      value: Math.min(100, Math.round(percent)),
-      max: 100,
-      label: '记忆卡容量',
-      tone: percent >= 90 ? 'bad' : percent >= 80 ? 'warn' : 'good',
-      caption: st.warnChars ? `${st.chars} / ${st.warnChars} 字` : `${st.chars} 字`,
-    })
-  }
-
-  // 分组：初次相遇 > 永不遗忘 > 最初 > 和主人 > 最近 > 正在模糊
-  const groups = [
-    ['初次相遇', records.filter((r) => r.firstMet)],
-    ['永远不会忘的', records.filter((r) => r.pinned && !r.firstMet)],
-    ['最初的日子', records.filter((r) => r.isInitial && !r.pinned)],
-    ['和主人的记忆', records.filter((r) => (r.tags || []).includes('owner') && !r.isInitial && !r.pinned)],
-    ['正在模糊的事', records.filter((r) => r.clarity === 'fuzzy' || r.clarity === 'trace')],
-  ]
-  const rest = records.filter((r) => !groups.some(([, g]) => g.includes(r)))
-
-  const rowOf = (r) => ({
-    title: String(r.title || r.text || '').slice(0, 40),
-    subtitle: `${CLARITY_LABEL[r.clarity] || '清楚'} · 重要 ${r.importance ?? '?'}`,
-    trailing: relTime(Date.parse(r.createdAt) || 0),
-    icon: r.pinned ? 'pin' : r.isInitial ? 'sparkle' : 'note',
-    tone: CLARITY_TONE[r.clarity],
-    action: `memory.open`, // 点开看原文（action 会让行带箭头）
-  })
-
-  for (const [name, list] of groups) {
-    if (!list.length) continue
-    children.push({ type: 'text', text: `**${name}**（${list.length}）`, tone: 'muted' })
-    children.push({ type: 'list', items: list.slice(0, 12).map(rowOf) })
-  }
-  if (rest.length) {
-    children.push({ type: 'text', text: `**最近记得的**（${rest.length}）`, tone: 'muted' })
-    children.push({ type: 'list', items: rest.slice(0, 20).map(rowOf) })
-  }
-
-  children.push({
-    type: 'actions',
-    items: [
-      { label: '刷新', action: 'memory.refresh', icon: 'refresh', style: 'primary' },
-      { label: '全量存档', action: 'memory.full', icon: 'archive' },
-      { label: '导出', action: 'memory.export', icon: 'download' },
-    ],
-  })
-
-  const c = st.counts || {}
-  return {
-    v: 1,
-    type: 'stack',
-    title: `记忆 ${records.length} 条 · ${st.percent ?? 0}%`,
-    children,
-    // 注：不写成 keyValue 计数块，面板已经很挤；计数放进 title 就够
-    _counts: c,
-  }
-}
 
 // ── 面板 3：目的（主动找我）──────────────────────────────────────────────────
 /**
@@ -385,114 +237,6 @@ export function purposePanel(s = {}) {
   children.push(actions)
 
   return { v: 1, type: 'stack', title: `目的 · 今天 ${s.countToday ?? 0}/${s.dailyMax ?? 2}`, children }
-}
-
-/**
- * 人格与目的 (硬化轮): who she is right now, what she is after, and what she would rather talk
- * about — read from partner's own files, never a fixed paragraph.
- *
- * @param {object} o
- * @param {object|null} o.persona  loadPersona() 的结果：{ title, text, source, missing, unreadable }
- * @param {object} o.cfg          partner 配置（persona.style / persona.topics / 三个模块开关）
- * @param {object|null} o.role    roleState()：{ band, label, ... }
- * @param {object|null} o.purpose purpose-outreach.json（可为 null：那时只画身份与偏好）
- */
-export function identityPanel(o = {}) {
-  const cfg = o.cfg || {}
-  const pcfg = cfg.persona || {}
-  const persona = o.persona || null
-  const role = o.role || null
-  const children = []
-
-  // 1. 身份：读到什么就说什么，读不到如实报是哪种读不到（missing / unreadable / empty）
-  if (persona && persona.text) {
-    children.push({
-      type: 'list',
-      items: [
-        {
-          title: String(persona.title || '她').slice(0, 40),
-          subtitle: `来自 ${persona.source || '（未知来源）'} · ${String(persona.text).length} 字`,
-          icon: 'pet',
-        },
-      ],
-    })
-    children.push({ type: 'text', text: String(persona.text).slice(0, 600), tone: 'muted' })
-  } else if (persona && persona.missing) {
-    children.push({
-      type: 'callout',
-      tone: 'warn',
-      text: `没找到人格文件（找过：${persona.missing}）。她不会用人造人设顶上 —— 放一份 persona.md 就生效。`,
-    })
-  } else if (persona && persona.unreadable) {
-    children.push({ type: 'callout', tone: 'warn', text: `人格文件读不了：${String(persona.unreadable).slice(0, 120)}` })
-  } else {
-    children.push({ type: 'callout', tone: 'info', text: '人格文件是空的。默认不编，宁可没有。' })
-  }
-
-  // 2. 角色状态
-  if (role && role.label) {
-    children.push({
-      type: 'row',
-      children: [
-        { type: 'metric', label: '状态', value: String(role.label), caption: role.hint || '' },
-        { type: 'metric', label: '记忆', value: String(role.memories ?? 0), caption: '条长期记忆' },
-      ],
-    })
-  }
-
-  // 3. 目标与主动话题偏好：都是配置里的，不是写死的
-  const goals = Array.isArray(o.purpose?.goals) ? o.purpose.goals.slice(0, 4) : []
-  if (goals.length) {
-    children.push({ type: 'text', text: '**她想做的事**', tone: 'muted' })
-    children.push({
-      type: 'list',
-      items: goals.map((g) => ({
-        title: String(g.intent || g.text || '').slice(0, 50),
-        subtitle: `把握 ${Math.round((Number(g.confidence) || 0) * 100)}%`,
-      })),
-    })
-  }
-
-  const topics = Array.isArray(pcfg.topics) ? pcfg.topics.filter((t) => String(t).trim()) : []
-  children.push({ type: 'text', text: '**主动话题偏好**', tone: 'muted' })
-  if (topics.length) {
-    children.push({ type: 'list', items: topics.slice(0, 8).map((t) => ({ title: String(t).slice(0, 40), icon: 'chat' })) })
-  } else {
-    children.push({
-      type: 'callout',
-      tone: 'info',
-      text: '还没设偏好 —— 在 ~/.dsh/partner/config.json 的 persona.topics 里加几条，她主动开口时会偏向这些。',
-    })
-  }
-
-  const style = String(pcfg.style || '').trim()
-  if (style) {
-    children.push({ type: 'text', text: '**表达风格**', tone: 'muted' })
-    children.push({ type: 'text', text: style.slice(0, 300), tone: 'muted' })
-  }
-
-  // 4. 开关状态：三个模块互相独立，这里如实显示谁开着
-  const on = [
-    ['人格', cfg.persona?.enabled !== false],
-    ['记忆', cfg.memory?.enabled !== false],
-    ['情绪', cfg.mood?.enabled !== false],
-    ['工具', cfg.tools?.enabled !== false],
-  ]
-  children.push({
-    type: 'list',
-    items: on.map(([label, enabled]) => ({
-      title: String(label),
-      trailing: enabled ? '开' : '关',
-      tone: enabled ? undefined : 'muted',
-    })),
-  })
-
-  children.push({
-    type: 'actions',
-    items: [{ label: '刷新', action: 'identity.refresh', icon: 'refresh' }],
-  })
-
-  return { v: 1, type: 'stack', title: '人格 · 记忆 · 情绪', children }
 }
 
 // ── 状态条（emit 的 data，2KiB / 8 节点 / 3 层）──────────────────────────────
@@ -565,8 +309,6 @@ function selftest() {
   }
 
   const cases = [
-    ['心情面板', moodPanel(fakeMood, fakeCfg), 'panel'],
-    ['记忆面板', memoryPanel(fakeMem), 'panel'],
     ['目的面板', purposePanel(fakePurpose), 'panel'],
     ['状态条视图', moodStrip(fakeMood, fakeCfg), 'strip'],
     ['remember 工具卡', rememberCard({ text: '我最怕吵，写代码时别打断我', importance: 0.8, tags: ['偏好', '工作'], 事实键: '她.工作习惯' }, { ok: true }), 'toolCard'],
@@ -608,9 +350,21 @@ export function relTimeOf(ts, now) {
   return relTime(ts, now)
 }
 
-/** 人格面板：真实读到的文件 / 身份 / 风格 / 话题 / 角色状态。读不到就明说读不到。 */
-export function personaPanel(p, state) {
+/**
+ * 人格面板（**真正的那个**）：真实读到的文件 / 身份 / 风格 / 话题 / 角色状态 + 三个模块的开关。
+ *
+ * R4 第三轮接线说明：上一轮往 views.mjs 里加过一个 `identityPanel()`，但**从来没在 index.js 注册**——
+ * 死的导出，面板上永远看不到它的内容。这一轮不再并排放两个几乎一样的面板函数
+ * （长久了必然漂成两套说法），而是把 identityPanel 独有的那两块（模块开关、配置来源）
+ * 折进唯一的人格面板，再把死函数删掉。
+ *
+ * @param {object|null} p  loadPersona() 的结果
+ * @param {object|null} state roleState()：{ daysTogether, memoryCount, facts, mood }
+ * @param {object|null} cfg  partner 配置（可缺：缺了就只画人格本身）
+ */
+export function personaPanel(p, state, cfg) {
   const s = state || {}
+  const c = cfg || {}
   const children = []
   if (!p || (!p.ok && !p.identity)) {
     children.push({
@@ -619,6 +373,7 @@ export function personaPanel(p, state) {
       text: '没找到人格卡。找过这些位置：' + ((p && p.tried) || []).slice(0, 3).join(' · ') + '。放一份 persona.md 到 ~/.dsh/partner/ 就会出现在这里。',
     })
     children.push({ type: 'text', text: '**不会**用默认人设顶上 —— 编一个性格给你看，比空白更糟。', tone: 'muted' })
+    if (c && c.__legacy) children.push(legacyNote(c.__legacy))
     return { v: 1, type: 'stack', title: '人格 · 没有卡', children }
   }
   const name = (p.names && p.names.selfName) || ''
@@ -661,6 +416,22 @@ export function personaPanel(p, state) {
     children.push({ type: 'text', text: p.text.replace(/\s+/g, ' ').slice(0, 300) + '…', tone: 'muted' })
   }
 
+  // 三个模块的开关：互相独立，如实显示谁开着（原 identityPanel 的内容，折进这里）
+  if (c && c.persona) {
+    children.push({ type: 'text', text: '**模块开关**', tone: 'muted' })
+    children.push({
+      type: 'list',
+      items: [
+        ['人格', c.persona.enabled !== false],
+        ['记忆', c.memory?.enabled !== false],
+        ['情绪', c.mood?.enabled !== false],
+        ['工具', c.tools?.enabled !== false],
+      ].map(([label, on]) => ({ title: label, trailing: on ? '开' : '关', tone: on ? undefined : 'muted' })),
+    })
+    children.push(configSourceNote(c))
+    if (c.__legacy) children.push(legacyNote(c.__legacy))
+  }
+
   children.push({
     type: 'actions',
     items: [
@@ -669,6 +440,31 @@ export function personaPanel(p, state) {
     ],
   })
   return { v: 1, type: 'stack', title: '人格 · ' + (name || '未命名'), children }
+}
+
+/**
+ * 配置来源一句话。用户必须知道「我现在改了表单/文件，到底哪一份在生效」——
+ * 上一轮两套配置并存、谁都没说清楚，是这轮要消掉的问题本身。
+ */
+export function configSourceNote(cfg) {
+  const c = cfg || {}
+  if (c.__source === 'host') {
+    return { type: 'text', text: '配置来自 DSH 原生设置表单（profile 的 cordis.patch.yml）。改完立即生效，重启后仍在。', tone: 'muted' }
+  }
+  return {
+    type: 'text',
+    text: '当前没有宿主 config，读的是 ' + shortPath(c.__file || '~/.dsh/partner/config.json') + '（只在没有 DSH 的场合才会走到这里）。',
+    tone: 'muted',
+  }
+}
+
+/** 旧 JSON 还在时的提示：**不静默忽略**，否则用户会以为它生效了。 */
+export function legacyNote(file) {
+  return {
+    type: 'callout',
+    tone: 'warn',
+    text: '旧配置文件 ' + shortPath(file) + ' 已**不再参与运行**。要改设置请用「设置 › 引擎参数 › 插件 › 伙伴」的原生表单；这里的开关和风格都以表单为准。',
+  }
 }
 
 function shortPath(p) {
