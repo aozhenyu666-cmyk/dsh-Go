@@ -46,6 +46,9 @@ object InterceptRuntime {
     /** The page must not stay up forever; the kernel keeps the receipt either way. */
     private const val PAGE_TTL_MS = InterceptDeadline.DEFAULT_PAGE_TTL_MS
 
+    /** 回 HOME 之后给系统一点时间把前台切过去，再读一次。 */
+    private const val HOME_RETRY_MS = 600L
+
     /**
      * The clock every deadline uses: **monotonic**, so a manual time change or a DST move cannot
      * skip the proof window or stall the TTL. Wall time is only for receipts.
@@ -126,7 +129,11 @@ object InterceptRuntime {
         // a HOLD-OFF, not a release - the app stays exactly as it was, and the guard is not asked,
         // so nothing is charged. Turning this into a release is what D2 forbids.
         if (backoff.isHoldingOff(packageName, mono())) {
-            Log.i(TAG, "holding off " + packageName + " after a page that could not be shown")
+            // 第四阶段 4B · D2: this used to `return` and that was an invisible pass-through. The app
+            // is still in front and still usable; "we are holding off on showing the page" is a
+            // statement about us, not a permission for them. So do what we can: leave the app.
+            Log.i(TAG, "holding off " + packageName + "; enforcing the exit instead")
+            enforceLeave(packageName, "holdoff")
             return
         }
         val now = System.currentTimeMillis()
@@ -169,6 +176,9 @@ object InterceptRuntime {
             backoff.note(block.target.packageName, mono())
             Log.w(TAG, "could not show the block page for " + block.target.packageName)
             requestedAtMono = 0L
+            // D2: the launch was refused, so the app is still in front and usable. Going quiet here
+            // is exactly the invisible pass-through this fixes.
+            enforceLeave(block.target.packageName, "start_failed")
             return
         }
         // `start()` returning true only means the system accepted the intent. Whether an Activity
@@ -211,7 +221,9 @@ object InterceptRuntime {
                 InterceptPageActivity.withdraw(id)
                 clearDeadlineState()
                 VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, id)
-                recheckForeground("intercept_not_shown")
+                // D2: nothing was shown, so the app is still in front. Try to leave it; the chain
+                // reports honestly if it cannot.
+                pkg?.let { enforceLeave(it, "no_visibility_proof") } ?: recheckForeground("intercept_not_shown")
             }
             InterceptDeadline.Due.Expired -> {
                 val id = g.openEventId() ?: run { clearDeadlineState(); return }
@@ -227,6 +239,73 @@ object InterceptRuntime {
             }
         }
     }
+
+    /**
+     * 第四阶段 4B · D2: 页面没能显示时，把"这条链"走完 —— 而不是直接 return。
+     *
+     *   回 HOME → 重新读前台 → 目标 APP 还在就再试一次 → 还在就如实报 ENFORCEMENT_UNAVAILABLE
+     *
+     * 关键约束：
+     *   * 全程**不**写 releases、**不**记 BLOCKED、**不**产生任何授权回执；
+     *   * 读不到前台算"未确认离开"，不算成功；
+     *   * 最后的失败必须让用户看得见，而不是安静地放过去。
+     */
+    private fun enforceLeave(packageName: String, code: String) {
+        if (!goHome()) {
+            reportEnforcementUnavailable(packageName, code, 0)
+            return
+        }
+        main.postDelayed({
+            // One re-read, then one retry. Two attempts is enough to tell "the ROM ignored us" from
+            // "the app was slow to leave"; more than that just fights the system.
+            val after = currentForeground()
+            if (!EnforcementOutcome.stillInFront(after, packageName)) {
+                Log.i(TAG, "left " + packageName + " after " + code)
+                // The app really did leave; ask the guard to judge whatever is in front now.
+                recheckForeground("intercept_enforced_exit")
+                return@postDelayed
+            }
+            if (!goHome()) {
+                reportEnforcementUnavailable(packageName, code, 1)
+                return@postDelayed
+            }
+            main.postDelayed({
+                val second = currentForeground()
+                if (EnforcementOutcome.stillInFront(second, packageName)) {
+                    reportEnforcementUnavailable(packageName, code, 2)
+                } else {
+                    recheckForeground("intercept_enforced_exit")
+                }
+            }, HOME_RETRY_MS)
+        }, HOME_RETRY_MS)
+    }
+
+    /** 回 HOME 的动作。做成接缝，测试与编译检查不必依赖真实的 Activity 栈。 */
+    var goHome: () -> Boolean = {
+        runCatching { InterceptPageActivity.goHome(app); true }.getOrDefault(false)
+    }
+
+    /** 读当前前台包名。读不到返回 null —— 由 EnforcementOutcome 决定这算不算离开。 */
+    var currentForeground: () -> String? = { null }
+
+    /**
+     * 如实报告"这次没拦住"。**不记 BLOCKED、不写放行**：技术失败不等于拦截成功。
+     */
+    private fun reportEnforcementUnavailable(packageName: String, code: String, attempts: Int) {
+        val why = EnforcementOutcome.unavailableReason(code, attempts)
+        Log.w(TAG, "ENFORCEMENT_UNAVAILABLE " + packageName + ": " + why)
+        enforcementUnavailable = why
+        // Surface it: the person must know the block did not happen. This is a notification, not a
+        // receipt - nothing in the ledger claims a successful interception.
+        runCatching { notifyEnforcementUnavailable(why) }
+    }
+
+    /** Worst recent enforcement failure, surfaced in the settings screen. Null when all is well. */
+    @Volatile var enforcementUnavailable: String? = null
+        private set
+
+    /** 用户可见的提醒。接缝，便于测试与不同 UI 形态。 */
+    var notifyEnforcementUnavailable: (String) -> Unit = { }
 
     private fun clearDeadlineState() {
         requestedAtMono = 0L
