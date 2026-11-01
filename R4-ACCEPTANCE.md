@@ -119,6 +119,9 @@ gradle --no-daemon --offline -Pkotlin.incremental=false :app:compileArm64DebugUn
 | R3 基线 `wt-dev`（`B-full-wtdev.log`） | +7321 | ~372 | −969 | **968** |
 
 - **双向差集 0 条**：没有任何一条"只在一边失败"。→ **本轮没有新增失败。**
+- 表里的 **−969 与 968 条差 1**：`-r compact` 用回车覆盖行，原始日志里有 1 条是进度行被截断残留的
+  `loading <日志>[E]`，不是测试名。按 `<path>.dart: <name>` 解析出 968 条真实失败。
+  这一点也是我起初"看到一条差异"的原因，单独复跑后确认是解析假象。
 - **为什么不能只看数字**：同一棵树、同一个 commit 跑两次，失败集合就能不一样——
   `HARD-full-ft.log`（−971）与 `HARD-full-ft2.log`（−970）都是 `hard @ ac04b38`，
   却各缺一条不同的 `session_sync_screen_test` 用例。这就是"数量相等 ≠ 集合相同"的现成例子。
