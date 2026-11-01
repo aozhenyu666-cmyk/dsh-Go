@@ -18,25 +18,12 @@ import path from 'node:path'
 
 import { dshHome } from './config.mjs'
 
-/** 上游真正的七个维度，顺序也照它。 */
-export const DIMS = Object.freeze(['happy', 'calm', 'sweet', 'heartache', 'worry', 'sad', 'jealous'])
+// 七个维度只有一处定义 (dims.mjs)。这里先 import 再原样 export，原因有两个：
+//   1. 下面自己的函数要用 DIMS / DIM_LABEL，而 `export {} from` 不会把名字带进本模块作用域；
+//   2. 不破坏已有的 import 路径（views.mjs / tools.mjs / test 都从这个文件取）。
+import { DIMS, DIM_LABEL, DIM_VISIBLE_MIN } from './dims.mjs'
 
-export const DIM_LABEL = Object.freeze({
-  happy: '开心',
-  calm: '安稳',
-  sweet: '甜蜜',
-  heartache: '心疼',
-  worry: '担心',
-  sad: '难过',
-  jealous: '吃醋',
-})
-
-/**
- * 一根情绪「还剩着」的门槛（0–100）。
- * ⚠️ 为什么不是 >0：真机上的 dims 常年是 1.7e-7 这种衰减残渣 ——
- *   用 >0 判断，面板会画出七根全为 0 的柱子，人看了会以为「心情是死的」。
- */
-export const DIM_VISIBLE_MIN = 1
+export { DIMS, DIM_LABEL, DIM_VISIBLE_MIN }
 
 export const moodStatePath = () => path.join(dshHome(), 'feiyu-mood', 'state.json')
 export const moodConfigPath = () => path.join(dshHome(), 'feiyu-mood', 'config.json')
