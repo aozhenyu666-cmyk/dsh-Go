@@ -85,6 +85,10 @@ class L2sMigrationTest {
     }
 
     private fun text(path: String) = File(root, path).readText()
+
+    /** java.nio.file.Files.readString is Java 11, absent from android.jar; read the bytes instead. */
+    private fun storedText(path: Path) = String(Files.readAllBytes(path), Charsets.UTF_8)
+
     private fun regular(path: String) = Files.isRegularFile(File(root, path).toPath(), LinkOption.NOFOLLOW_LINKS)
     private fun symlink(path: String) = Files.isSymbolicLink(File(root, path).toPath())
     private fun storeEntries() = Files.list(store).use { it.map { p -> p.fileName.toString() }.sorted().toList() }
@@ -489,8 +493,8 @@ class L2sMigrationTest {
         assertEquals(0, result.repaired)
         assertEquals(0, result.links)
         assertEquals(0, result.removed)
-        assertEquals("FIRST", Files.readString(store.resolve(".l2s.a0001.0003")))
-        assertEquals("SECOND", Files.readString(store.resolve(".l2s.a0001.0005")))
+        assertEquals("FIRST", storedText(store.resolve(".l2s.a0001.0003")))
+        assertEquals("SECOND", storedText(store.resolve(".l2s.a0001.0005")))
         assertEquals(DirectLaunch.INCOMPATIBLE, DirectLaunch.compatibilityReason(root))
     }
 
@@ -510,7 +514,7 @@ class L2sMigrationTest {
 
         val result = migrate() as L2sMigration.Result.Done
         assertEquals(0, result.repaired)
-        assertEquals("ONLY", Files.readString(store.resolve(".l2s.a0001.0001")))
+        assertEquals("ONLY", storedText(store.resolve(".l2s.a0001.0001")))
         assertEquals(DirectLaunch.INCOMPATIBLE, DirectLaunch.compatibilityReason(root))
     }
 
