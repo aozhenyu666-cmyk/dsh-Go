@@ -9,6 +9,8 @@ import io.github.ccch1mneyyy.dsh_app.loop.LoopRuntime
 import io.github.ccch1mneyyy.dsh_app.loop.core.AtomicJsonFile
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptConfig
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDeadline
+import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptKernel
+import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptMigration
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDecision
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDrill
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptEnv
@@ -77,17 +79,29 @@ object InterceptRuntime {
         guard?.let { return it }
         app = context.applicationContext
         val dir = File(File(app.filesDir, "loop"), "intercept")
-        val book = InterceptLedgerBook(AtomicJsonFile(File(dir, "ledger.json")))
-        book.recover()
-        val g = InterceptGuard(
-            AtomicJsonFile(File(dir, "guard.json")), book,
-            clock = System::currentTimeMillis, ids = { UUID.randomUUID().toString() },
+        // W1: 生产初始化走 InterceptKernel —— 一份原子快照，外加旧数据迁移。
+        // 之前这里 new 两个 AtomicJsonFile，所以 InterceptRepository 与 InterceptMigration 虽然
+        // 写好了、测过了，却从来没有在生产里执行过一次。
+        val opened = InterceptKernel.open(
+            dir,
+            clock = System::currentTimeMillis,
+            ids = { UUID.randomUUID().toString() },
         )
-        g.recover(System.currentTimeMillis())
-        ledger = book
-        guard = g
-        Log.i(TAG, "ready: targets=" + g.config.targets.size + " enabled=" + g.config.enabled)
-        return g
+        migrationResult = opened.migration
+        snapshotActive = opened.repo != null
+        opened.recoveryIssue?.let {
+            Log.w(TAG, "legacy intercept state needs attention: " + it)
+        }
+        ledger = opened.ledger
+        guard = opened.guard
+        Log.i(
+            TAG,
+            "ready: targets=" + opened.guard.config.targets.size +
+                " enabled=" + opened.guard.config.enabled +
+                " snapshot=" + snapshotActive +
+                " migration=" + opened.migration.javaClass.simpleName,
+        )
+        return opened.guard
     }
 
     /** The three ways a page can grant passage, re-exported so the page imports one class only. */
@@ -96,6 +110,17 @@ object InterceptRuntime {
     val RELEASE_WHITELIST = InterceptGuard.RELEASE_WHITELIST
 
     fun guardOrNull(): InterceptGuard? = guard
+
+    /** W1: the ledger’s own write error, which the guard’s `storageError` does not cover. */
+    fun ledgerBookStorageError(): String? = ledger?.storageError
+
+    /** W1: migration outcome, surfaced in the status map. */
+    @Volatile var migrationResult: InterceptMigration.Result? = null
+        private set
+
+    /** W1: true when the atomic snapshot is the storage in use (false after a legacy fallback). */
+    @Volatile var snapshotActive: Boolean = false
+        private set
     fun ledger(): InterceptLedger = ledger?.state ?: InterceptLedger()
     fun config(): InterceptConfig = guard?.config ?: InterceptConfig()
     fun releaseMs(): Long = config().releaseMs

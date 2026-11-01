@@ -93,14 +93,28 @@ object InterceptMigration {
 
         // 一致性检查 2: 计数与回执。
         val receipts = ledgerState?.let { M.list(it, "receipts") } ?: emptyList<Any?>()
-        val ended = ledgerState?.let {
-            M.long(it, "blockedCount") + M.long(it, "userReleasedCount") +
-                M.long(it, "userExitedCount") + M.long(it, "pausedCount")
+        // 这里原本是把四个计数**相加**再和回执数比。那个式子会拒绝一切正常数据：
+        //
+        //   blockedCount 在 onBlocked() 时 +1（页面真上屏了），而 userReleasedCount 等是在
+        //   onEnded() 时 +1 —— **同一个事件同时进了两个计数**。所以一次「展示后放行」的事件，
+        //   计数总和是 2，回执只有 1 条。
+        //
+        // 我在 InterceptRepository.validate() 里犯过同一个错（相位 4B），修好后又在这里原样
+        // 复制了一遍。教训是：只要校验条件写的是"和"，就要问一句"这些量能相加吗"。
+        //
+        // 现在改成两条真正不可能成立的关系：
+        //   * 每个结局计数各自 <= 回执数（单个计数不可能超过总回执）
+        //   * 触发数 >= 回执数（每次结束都必然先有触发）
+        val maxSingle = ledgerState?.let {
+            maxOf(
+                M.long(it, "blockedCount"), M.long(it, "userReleasedCount"),
+                M.long(it, "userExitedCount"), M.long(it, "pausedCount"),
+            )
         } ?: 0L
-        if (ended > receipts.size) {
+        if (maxSingle > receipts.size) {
             return Result.RecoveryRequired(
-                "the ledger counts more endings than it has receipts",
-                "counts=" + ended + " receipts=" + receipts.size,
+                "an outcome count is larger than the number of receipts",
+                "max=" + maxSingle + " receipts=" + receipts.size,
             )
         }
         if (triggerCount < receipts.size) {

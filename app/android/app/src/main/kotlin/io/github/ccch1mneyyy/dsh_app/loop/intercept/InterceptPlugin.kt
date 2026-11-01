@@ -79,6 +79,10 @@ class InterceptPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "active" to g?.openPackage(),
             "storageError" to (g?.storageError),
             "recoveryIssue" to (g?.recoveryIssue),
+            // W1: whether the atomic snapshot is actually in use, and how migration went.
+            "migration" to InterceptRuntime.migrationResult?.javaClass?.simpleName,
+            "snapshot" to InterceptRuntime.snapshotActive,
+            "ledgerStorageError" to InterceptRuntime.ledgerBookStorageError(),
         )
     }
 }
