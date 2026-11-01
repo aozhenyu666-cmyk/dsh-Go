@@ -3,8 +3,13 @@
 <resources>
     <string name="intercept_title">%1$s is off-limits for now</string>
     <string name="intercept_body">You opened %1$s. Take a breath: the app stays closed unless you choose a way through below.</string>
-    <string name="intercept_training">Training (%1$ds)</string>
-    <string name="intercept_training_done">Training passed: open it</string>
+    <string name="intercept_drill_prompt">Tap these numbers %1$s</string>
+    <string name="intercept_drill_ascending">from smallest to largest</string>
+    <string name="intercept_drill_descending">from largest to smallest</string>
+    <string name="intercept_drill_progress">%1$d of %2$d done</string>
+    <string name="intercept_drill_wrong">Not that one. Start again.</string>
+    <string name="intercept_training">Training passed: open it</string>
+    <string name="intercept_training_locked">Finish the drill first</string>
     <string name="intercept_rule">Authorization rule: open it for %1$d min</string>
     <string name="intercept_whitelist">Add to whitelist</string>
     <string name="intercept_pause">Pause interception</string>

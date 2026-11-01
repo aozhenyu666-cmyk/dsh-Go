@@ -7286,6 +7286,146 @@ class L10nZh extends L10n {
   String get hubPermissionPhoneConfirm => '手机操控确认';
 
   @override
+  String get interceptTitle => '娱乐拦截';
+
+  @override
+  String get interceptSubtitle => '你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。';
+
+  @override
+  String get interceptEnabled => '开启娱乐拦截';
+
+  @override
+  String get interceptEnabledHint => '默认关闭。开启后每次打开下面这些 APP 都会被拦一次；冷却期内不会连着拦。';
+
+  @override
+  String get interceptTargets => '要拦的 APP';
+
+  @override
+  String get interceptTargetsHint => '这些包名是你自己选的，不是内置的。删掉一个就立刻不拦。';
+
+  @override
+  String get interceptNoTargets => '还没设任何目标 APP';
+
+  @override
+  String get interceptAddTarget => '加一个包名';
+
+  @override
+  String get interceptAddTargetHint => '填 Android 包名，例如 tv.danmaku.bili';
+
+  @override
+  String get interceptAddTargetInvalid => '包名不能为空，也不能有空格';
+
+  @override
+  String get interceptRemoveTarget => '移除';
+
+  @override
+  String get interceptWhitelist => '白名单';
+
+  @override
+  String get interceptWhitelistHint => '白名单里的包名永远不拦，哪怕在目标清单里。';
+
+  @override
+  String get interceptWhitelistEmpty => '白名单是空的';
+
+  @override
+  String get interceptMode => '拦截参数';
+
+  @override
+  String get interceptRelease => '放行时长（分钟）';
+
+  @override
+  String get interceptTraining => '训练题长度（秒）';
+
+  @override
+  String get interceptCooldown => '冷却（分钟）';
+
+  @override
+  String get interceptDailyMax => '每日上限';
+
+  @override
+  String get interceptDailyMaxOff => '不限次数';
+
+  @override
+  String get interceptPause => '暂停与恢复';
+
+  @override
+  String get interceptPauseHint => '暂停期间什么都不拦，到点自动恢复。';
+
+  @override
+  String get interceptPauseNow => '立刻暂停 30 分钟';
+
+  @override
+  String get interceptResume => '恢复拦截';
+
+  @override
+  String interceptPausedUntil(String time) {
+    return '已暂停，到 $time 恢复';
+  }
+
+  @override
+  String get interceptLedger => '行为拦截账';
+
+  @override
+  String get interceptLedgerTriggers => '触发';
+
+  @override
+  String get interceptLedgerBlocked => '真的拦住';
+
+  @override
+  String get interceptLedgerReleased => '用户放行';
+
+  @override
+  String get interceptLedgerExited => '用户退出';
+
+  @override
+  String get interceptLedgerPaused => '暂停';
+
+  @override
+  String get interceptReceipts => '最近回执';
+
+  @override
+  String get interceptReceiptsEmpty => '还没有回执';
+
+  @override
+  String interceptActive(String package) {
+    return '正在拦：$package';
+  }
+
+  @override
+  String interceptStorageError(String error) {
+    return '存档写入失败：$error';
+  }
+
+  @override
+  String interceptRecoveryIssue(String error) {
+    return '启动时读到坏存档：$error';
+  }
+
+  @override
+  String get interceptUnavailable => '这个版本没有接入拦截内核';
+
+  @override
+  String get interceptUnavailableHint => '只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。';
+
+  @override
+  String get interceptRefresh => '刷新';
+
+  @override
+  String get interceptOutcomeBlocked => '拦住了，还没有结局';
+
+  @override
+  String get interceptOutcomeReleased => '放行';
+
+  @override
+  String get interceptOutcomeExited => '紧急退出';
+
+  @override
+  String get interceptOutcomePaused => '暂停';
+
+  @override
+  String get interceptOutcomeNotShown => '没显示出来';
+
+  @override
   String get launchScreenTitle => '启动画面';
 
   @override

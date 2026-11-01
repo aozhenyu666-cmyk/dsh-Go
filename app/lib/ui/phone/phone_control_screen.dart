@@ -32,6 +32,7 @@ import 'app_rules_page.dart';
 import 'dnd_mode_page.dart';
 import 'loop_test_page.dart';
 import 'proactive_page.dart';
+import 'intercept_page.dart';
 import 'phone_disclosure_sheet.dart';
 import 'phone_background_guide.dart';
 import 'phone_unlock_page.dart';
@@ -373,6 +374,15 @@ class _PhoneControlScreenState extends ConsumerState<PhoneControlScreen> {
                 subtitle: l10n.proactiveSubtitle,
                 subtitleMaxLines: 2,
                 onTap: () => _push(const ProactivePage()),
+              ),
+              // 娱乐拦截: its own page, its own ledger. Beside 主动搭话 because both are surfaces the
+              // kernel puts on screen, and because the person needs to see that they are separate.
+              ListPageRow(
+                icon: AppIcons.blocked,
+                title: l10n.interceptTitle,
+                subtitle: l10n.interceptSubtitle,
+                subtitleMaxLines: 2,
+                onTap: () => _push(const InterceptPage()),
               ),
             ],
           ),

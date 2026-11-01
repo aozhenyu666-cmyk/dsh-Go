@@ -13328,6 +13328,270 @@ abstract class L10n {
   /// **'手机操控确认'**
   String get hubPermissionPhoneConfirm;
 
+  /// No description provided for @interceptTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'娱乐拦截'**
+  String get interceptTitle;
+
+  /// No description provided for @interceptSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。'**
+  String get interceptSubtitle;
+
+  /// No description provided for @interceptEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'开启娱乐拦截'**
+  String get interceptEnabled;
+
+  /// No description provided for @interceptEnabledHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'默认关闭。开启后每次打开下面这些 APP 都会被拦一次；冷却期内不会连着拦。'**
+  String get interceptEnabledHint;
+
+  /// No description provided for @interceptTargets.
+  ///
+  /// In zh, this message translates to:
+  /// **'要拦的 APP'**
+  String get interceptTargets;
+
+  /// No description provided for @interceptTargetsHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'这些包名是你自己选的，不是内置的。删掉一个就立刻不拦。'**
+  String get interceptTargetsHint;
+
+  /// No description provided for @interceptNoTargets.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没设任何目标 APP'**
+  String get interceptNoTargets;
+
+  /// No description provided for @interceptAddTarget.
+  ///
+  /// In zh, this message translates to:
+  /// **'加一个包名'**
+  String get interceptAddTarget;
+
+  /// No description provided for @interceptAddTargetHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'填 Android 包名，例如 tv.danmaku.bili'**
+  String get interceptAddTargetHint;
+
+  /// No description provided for @interceptAddTargetInvalid.
+  ///
+  /// In zh, this message translates to:
+  /// **'包名不能为空，也不能有空格'**
+  String get interceptAddTargetInvalid;
+
+  /// No description provided for @interceptRemoveTarget.
+  ///
+  /// In zh, this message translates to:
+  /// **'移除'**
+  String get interceptRemoveTarget;
+
+  /// No description provided for @interceptWhitelist.
+  ///
+  /// In zh, this message translates to:
+  /// **'白名单'**
+  String get interceptWhitelist;
+
+  /// No description provided for @interceptWhitelistHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'白名单里的包名永远不拦，哪怕在目标清单里。'**
+  String get interceptWhitelistHint;
+
+  /// No description provided for @interceptWhitelistEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'白名单是空的'**
+  String get interceptWhitelistEmpty;
+
+  /// No description provided for @interceptMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'拦截参数'**
+  String get interceptMode;
+
+  /// No description provided for @interceptRelease.
+  ///
+  /// In zh, this message translates to:
+  /// **'放行时长（分钟）'**
+  String get interceptRelease;
+
+  /// No description provided for @interceptTraining.
+  ///
+  /// In zh, this message translates to:
+  /// **'训练题长度（秒）'**
+  String get interceptTraining;
+
+  /// No description provided for @interceptCooldown.
+  ///
+  /// In zh, this message translates to:
+  /// **'冷却（分钟）'**
+  String get interceptCooldown;
+
+  /// No description provided for @interceptDailyMax.
+  ///
+  /// In zh, this message translates to:
+  /// **'每日上限'**
+  String get interceptDailyMax;
+
+  /// No description provided for @interceptDailyMaxOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不限次数'**
+  String get interceptDailyMaxOff;
+
+  /// No description provided for @interceptPause.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停与恢复'**
+  String get interceptPause;
+
+  /// No description provided for @interceptPauseHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停期间什么都不拦，到点自动恢复。'**
+  String get interceptPauseHint;
+
+  /// No description provided for @interceptPauseNow.
+  ///
+  /// In zh, this message translates to:
+  /// **'立刻暂停 30 分钟'**
+  String get interceptPauseNow;
+
+  /// No description provided for @interceptResume.
+  ///
+  /// In zh, this message translates to:
+  /// **'恢复拦截'**
+  String get interceptResume;
+
+  /// No description provided for @interceptPausedUntil.
+  ///
+  /// In zh, this message translates to:
+  /// **'已暂停，到 {time} 恢复'**
+  String interceptPausedUntil(String time);
+
+  /// No description provided for @interceptLedger.
+  ///
+  /// In zh, this message translates to:
+  /// **'行为拦截账'**
+  String get interceptLedger;
+
+  /// No description provided for @interceptLedgerTriggers.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发'**
+  String get interceptLedgerTriggers;
+
+  /// No description provided for @interceptLedgerBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'真的拦住'**
+  String get interceptLedgerBlocked;
+
+  /// No description provided for @interceptLedgerReleased.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户放行'**
+  String get interceptLedgerReleased;
+
+  /// No description provided for @interceptLedgerExited.
+  ///
+  /// In zh, this message translates to:
+  /// **'用户退出'**
+  String get interceptLedgerExited;
+
+  /// No description provided for @interceptLedgerPaused.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停'**
+  String get interceptLedgerPaused;
+
+  /// No description provided for @interceptReceipts.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近回执'**
+  String get interceptReceipts;
+
+  /// No description provided for @interceptReceiptsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有回执'**
+  String get interceptReceiptsEmpty;
+
+  /// No description provided for @interceptActive.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在拦：{package}'**
+  String interceptActive(String package);
+
+  /// No description provided for @interceptStorageError.
+  ///
+  /// In zh, this message translates to:
+  /// **'存档写入失败：{error}'**
+  String interceptStorageError(String error);
+
+  /// No description provided for @interceptRecoveryIssue.
+  ///
+  /// In zh, this message translates to:
+  /// **'启动时读到坏存档：{error}'**
+  String interceptRecoveryIssue(String error);
+
+  /// No description provided for @interceptUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个版本没有接入拦截内核'**
+  String get interceptUnavailable;
+
+  /// No description provided for @interceptUnavailableHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。'**
+  String get interceptUnavailableHint;
+
+  /// No description provided for @interceptRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新'**
+  String get interceptRefresh;
+
+  /// No description provided for @interceptOutcomeBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'拦住了，还没有结局'**
+  String get interceptOutcomeBlocked;
+
+  /// No description provided for @interceptOutcomeReleased.
+  ///
+  /// In zh, this message translates to:
+  /// **'放行'**
+  String get interceptOutcomeReleased;
+
+  /// No description provided for @interceptOutcomeExited.
+  ///
+  /// In zh, this message translates to:
+  /// **'紧急退出'**
+  String get interceptOutcomeExited;
+
+  /// No description provided for @interceptOutcomePaused.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停'**
+  String get interceptOutcomePaused;
+
+  /// No description provided for @interceptOutcomeNotShown.
+  ///
+  /// In zh, this message translates to:
+  /// **'没显示出来'**
+  String get interceptOutcomeNotShown;
+
   /// No description provided for @launchScreenTitle.
   ///
   /// In zh, this message translates to:

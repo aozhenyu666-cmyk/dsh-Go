@@ -12,6 +12,20 @@ package io.github.ccch1mneyyy.dsh_app.loop.core
  * queue, no policy - every caller keeps its own book. [owner] names the feature ("proactive",
  * "intercept"); [token] names the surface instance (a coordinator token, an intercept eventId), so
  * a stale release can never free a surface it does not own.
+ *
+ * **Replacement, not starvation.** Both page activities are `singleInstance`: a newer presentation
+ * reuses the same Activity instance and only swaps its token (`onNewIntent`). So "same owner, new
+ * token" is not a conflict - it is the *same* feature replacing its own surface, and it must take
+ * the slot over (the slot then records the new token). Refusing it would make the new presentation
+ * fail as "surface_busy" while the reused Activity is already showing the new content, and the slot
+ * would stay pinned to a token nobody will ever release: the feature starves itself. The old token
+ * is then *stale*, and the release guard below is what keeps its late `onDestroy` from freeing the
+ * replacement.
+ *
+ * **Never persisted, on purpose.** The slot lives in memory only. A process death takes every DSH
+ * page with it (activities die with the process), so after a restart the screen genuinely is free:
+ * restoring a persisted holder would lock the screen against a page that no longer exists. Every
+ * `recover()` therefore starts from a free slot - and the tests pin that.
  */
 class SurfaceSlot {
 
@@ -30,8 +44,14 @@ class SurfaceSlot {
     fun isHeldBy(who: String): Boolean = owner == who
 
     /**
-     * Take the slot for [who]/[token]. True when it is free, or already held by the same instance
-     * (a repeated Present for the same token is not a conflict).
+     * Take the slot for [who]/[token].
+     *
+     *  * free → taken;
+     *  * same owner and same token → true, and nothing moves (a repeated Present for the same
+     *    surface is not a second surface);
+     *  * same owner, **different** token → a replacement of that feature's own surface: the slot
+     *    is handed to [token] and the old token becomes stale (see [release]);
+     *  * another owner → false. Two features never share the screen.
      */
     fun claim(who: String, token: String, now: Long): Boolean = when {
         owner == null -> {
@@ -41,6 +61,12 @@ class SurfaceSlot {
             true
         }
         owner == who && this.token == token -> true
+        owner == who -> {
+            // Replacement: the same feature re-presenting itself (singleInstance + onNewIntent).
+            this.token = token
+            since = now
+            true
+        }
         else -> false
     }
 
