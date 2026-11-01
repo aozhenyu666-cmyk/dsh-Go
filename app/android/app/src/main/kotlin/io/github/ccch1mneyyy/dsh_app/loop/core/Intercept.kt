@@ -668,7 +668,20 @@ class InterceptGuard(
      * The rollback restores what the *previous* interception left behind rather than zeroing, so an
      * earlier genuine block keeps its effect.
      */
-    fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchronized(lock) {
+        /**
+     * 页面在屏上待满上限（D1）：由运行时判定，不由页面报告。
+     *
+     * 结局是 BLOCKED，理由是 page_ttl —— **不给放行**。这与"超时就放行"正相反：页面被撤下、回桌面、
+     * 重新判定前台；目标 APP 如果还在前台就立刻再被拦。
+     */
+    fun expireOpen(eventId: String, now: Long): Boolean = synchronized(lock) {
+        if (state.openEventId != eventId) return@synchronized false
+        endOpen(now, InterceptOutcome.BLOCKED, "page_ttl")
+        persist()
+        true
+    }
+
+fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
         endOpen(now, InterceptOutcome.NOT_SHOWN, code)
         // Give back exactly what this trigger charged.

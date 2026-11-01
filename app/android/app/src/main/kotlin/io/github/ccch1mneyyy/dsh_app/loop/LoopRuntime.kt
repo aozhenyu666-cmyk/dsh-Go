@@ -269,6 +269,24 @@ object LoopRuntime {
      * DSH's own overlay pill and the status bar are other window types and never win), then
      * DSH's general foreground reading as a fallback. Null when unreadable.
      */
+    /**
+     * 第四阶段 P0-2: 一次拦截结束后，前台必须被**重新判定**。
+     *
+     * 不重判就会漏一条真实的绕过路径：拦截页展示时用户用「最近任务」切回目标 APP，窗口事件先到、
+     * 守卫还是 open 状态返回 Allow(already_open)，随后页面 onStop 结算，此后再也没有窗口事件 ——
+     * 目标 APP 就一直可用。
+     *
+     * 这里只做「让服务重新读一次前台并照常判定」，不新增任何决策逻辑。
+     */
+    fun recheckForeground(reason: String) {
+        if (service?.get() == null) {
+            Log.d(TAG, "recheck skipped (" + reason + "): no accessibility service")
+            return
+        }
+        Log.i(TAG, "rechecking the foreground after " + reason)
+        main.post { runCatching { verifyNow() }.onFailure { Log.w(TAG, "recheck " + reason, it) } }
+    }
+
     private fun foreground(s: AccessibilityService): String? {
         val windows = try { s.windows } catch (t: Throwable) {
             diagnostics.fault(LoopDiagnostics.KIND_READ_FOREGROUND, t, "windows")

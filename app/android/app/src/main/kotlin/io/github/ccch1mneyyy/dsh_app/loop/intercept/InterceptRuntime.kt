@@ -8,6 +8,7 @@ import android.util.Log
 import io.github.ccch1mneyyy.dsh_app.loop.LoopRuntime
 import io.github.ccch1mneyyy.dsh_app.loop.core.AtomicJsonFile
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptConfig
+import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDeadline
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDecision
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDrill
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptEnv
@@ -43,7 +44,31 @@ object InterceptRuntime {
     private var ledger: InterceptLedgerBook? = null
 
     /** The page must not stay up forever; the kernel keeps the receipt either way. */
-    private const val PAGE_TTL_MS = 10 * 60_000L
+    private const val PAGE_TTL_MS = InterceptDeadline.DEFAULT_PAGE_TTL_MS
+
+    /**
+     * The clock every deadline uses: **monotonic**, so a manual time change or a DST move cannot
+     * skip the proof window or stall the TTL. Wall time is only for receipts.
+     */
+    private fun mono(): Long = android.os.SystemClock.elapsedRealtime()
+
+    /**
+     * 拦截结束后让前台被重新判定（P0-2）。
+     *
+     * 做成一个可替换的函数而不是直接调 LoopRuntime：一是这个从属关系只应该是单向的（无障碍宿主 →
+     * 拦截特性），二是纯逻辑测试与编译检查都不必把整个 Android 宿主拖进来。
+     */
+    var recheckForeground: (String) -> Unit = { reason ->
+        runCatching { LoopRuntime.recheckForeground(reason) }
+    }
+    /** When the current interception asked for its page, monotonic. 0 when none is open. */
+    private var requestedAtMono = 0L
+    /** When the page was proved on screen, monotonic. 0 until the proof lands. */
+    private var shownAtMono = 0L
+    /** The one timer that decides when this interception ends, whoever is (not) watching. */
+    private val deadlineTick = Runnable { settleIfDue() }
+    private val attempts = InterceptDeadline.Attempts()
+    private val backoff = InterceptDeadline.Backoff()
 
     fun ensure(context: Context): InterceptGuard {
         guard?.let { return it }
@@ -97,6 +122,13 @@ object InterceptRuntime {
             Log.i(TAG, "surface busy (" + VisibleSurface.holder() + "); no decision for " + packageName)
             return
         }
+        // A page that could not be shown for this package: do not ask again for a moment. This is
+        // a HOLD-OFF, not a release - the app stays exactly as it was, and the guard is not asked,
+        // so nothing is charged. Turning this into a release is what D2 forbids.
+        if (backoff.isHoldingOff(packageName, mono())) {
+            Log.i(TAG, "holding off " + packageName + " after a page that could not be shown")
+            return
+        }
         val now = System.currentTimeMillis()
         when (val d = g.onForeground(packageName, env(now), now)) {
             is InterceptDecision.Block -> show(d, now)
@@ -106,6 +138,15 @@ object InterceptRuntime {
     }
 
     private fun show(block: InterceptDecision.Block, now: Long) {
+        // D2: a package that cannot get a page up must not be retried forever. Three a minute,
+        // then a reported fault - the target app is left alone rather than covered in a page that
+        // keeps failing to appear.
+        if (!attempts.record(block.target.packageName, mono())) {
+            Log.w(TAG, "giving up on " + block.target.packageName + ": too many failed attempts this minute")
+            guard?.onUnavailable(block.eventId, "attempt_budget", now)
+            backoff.note(block.target.packageName, mono())
+            return
+        }
         // Race guard: onForeground already refused to decide while another feature held the screen,
         // so reaching here with the slot taken means the proactive page claimed it in between. The
         // decision has been made by then, so the honest record is NOT_SHOWN rather than pretending
@@ -115,6 +156,8 @@ object InterceptRuntime {
             Log.i(TAG, "surface busy (" + VisibleSurface.holder() + "); " + block.target.packageName + " passes this time")
             return
         }
+        requestedAtMono = mono()
+        shownAtMono = 0L
         val ok = InterceptPageActivity.start(
             app, block.eventId, block.target.packageName, block.target.label,
             config().trainingMs, now + PAGE_TTL_MS,
@@ -123,12 +166,84 @@ object InterceptRuntime {
             VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, block.eventId)
             // The system refused the page: the interception did not happen, so nothing is owed.
             guard?.onUnavailable(block.eventId, "start_failed", System.currentTimeMillis())
+            backoff.note(block.target.packageName, mono())
             Log.w(TAG, "could not show the block page for " + block.target.packageName)
+            requestedAtMono = 0L
+            return
+        }
+        // `start()` returning true only means the system accepted the intent. Whether an Activity
+        // ever appears is a different question, and it is the one that used to hang the feature.
+        // Arm the timer here so it is answered either way, with the page present or not.
+        armDeadline()
+    }
+
+    /**
+     * One timer decides when this interception ends, so no ending depends on the page reporting it.
+     * Re-armed after every proof or state change; see [settleIfDue].
+     */
+    private fun armDeadline() {
+        main.removeCallbacks(deadlineTick)
+        val open = if (requestedAtMono == 0L) null else InterceptDeadline.Open(requestedAtMono, shownAtMono)
+        val next = InterceptDeadline.nextDeadline(open) ?: return
+        val delay = (next - mono()).coerceAtLeast(0L)
+        main.postDelayed(deadlineTick, delay)
+    }
+
+    /**
+     * The ending the page cannot report: no proof in time, or proved and left up too long.
+     *
+     * D1 (expired) ends the event as BLOCKED(page_ttl). It grants nothing, so the target app is
+     * intercepted again on the very next foreground reading. D2 (not shown) refunds the charge and
+     * starts the retry backoff. Both take the page down and re-check what is in front, because the
+     * person is somewhere and the guard has just learned something about it.
+     */
+    fun settleIfDue() {
+        val g = guard ?: return
+        val open = if (requestedAtMono == 0L) null else InterceptDeadline.Open(requestedAtMono, shownAtMono)
+        when (InterceptDeadline.due(open, mono())) {
+            InterceptDeadline.Due.Nothing -> Unit
+            InterceptDeadline.Due.NotShown -> {
+                val id = g.openEventId() ?: run { clearDeadlineState(); return }
+                val pkg = g.openPackage()
+                Log.w(TAG, "no visibility proof for " + pkg + "; settling as NOT_SHOWN")
+                g.onUnavailable(id, "no_visibility_proof", System.currentTimeMillis())
+                if (pkg != null) backoff.note(pkg, mono())
+                InterceptPageActivity.withdraw(id)
+                clearDeadlineState()
+                VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, id)
+                recheckForeground("intercept_not_shown")
+            }
+            InterceptDeadline.Due.Expired -> {
+                val id = g.openEventId() ?: run { clearDeadlineState(); return }
+                val pkg = g.openPackage()
+                Log.i(TAG, "page_ttl reached for " + pkg + "; settling as BLOCKED")
+                g.expireOpen(id, System.currentTimeMillis())
+                InterceptPageActivity.withdraw(id)
+                clearDeadlineState()
+                VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, id)
+                // D1: back to the home screen, then judge whatever is in front again.
+                runCatching { InterceptPageActivity.goHome(app) }
+                recheckForeground("intercept_page_ttl")
+            }
         }
     }
 
+    private fun clearDeadlineState() {
+        requestedAtMono = 0L
+        shownAtMono = 0L
+        main.removeCallbacks(deadlineTick)
+    }
+
     /** The page proved it is really on screen (attached + shown + laid out + focused). */
-    fun onPageShown(eventId: String): Boolean = guard?.onPageShown(eventId, System.currentTimeMillis()) == true
+    fun onPageShown(eventId: String): Boolean {
+        val ok = guard?.onPageShown(eventId, System.currentTimeMillis()) == true
+        if (ok) {
+            // The proof moves the deadline from "show me something" to "how long may it stay".
+            shownAtMono = mono()
+            armDeadline()
+        }
+        return ok
+    }
 
     /**
      * The 训练题 this interception must show, or null when nothing is open.
@@ -161,6 +276,8 @@ object InterceptRuntime {
 
     fun onPageGone(eventId: String?) {
         VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, eventId)
+        // Whatever took the page away, this interception is over: no deadline may fire for it later.
+        clearDeadlineState()
     }
 
     /** 训练通过 / 授权规则 / 白名单. True when the guard accepted it. */

@@ -386,6 +386,16 @@ class InterceptPageActivity : Activity() {
 
         fun withdraw(eventId: String) { live.remove(eventId)?.let { it.reported = true; it.finish() } }
 
+        /** D1: the page is gone and the person goes back to the home screen, not into the app. */
+        fun goHome(context: Context) {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+
         fun withdrawAll() {
             live.values.toList().forEach { it.reported = true; it.finish() }
             live.clear()
