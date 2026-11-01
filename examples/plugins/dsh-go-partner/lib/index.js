@@ -36,9 +36,55 @@ import {
   purposePanel,
 } from './views.mjs'
 
-// 旧的 Config 取舍：本包坚持零第三方依赖，画不出原生设置表单，只认 JSON 文件。
-// 见 README「已知取舍」。这里保留导出（值为 undefined）以免老宿主读到 undefined 就报错。
-export const Config = undefined
+/**
+ * 原生设置表单 (硬化轮): 从 `export const Config = undefined` 改成真 schema。
+ *
+ * 上一轮的注释说「本包坚持零第三方依赖，画不出原生设置表单」—— 因果说反了。
+ * DSH Go 宿主**本来就带** `@deepseek-ai/schemastery`（3.18.5）和完整的 schema 表单引擎：
+ *   app/lib/ui/engine_settings/schema_form.dart —— "schemaSections lays out any plugin's namespace by itself"
+ *   app/lib/ui/plugins/config/plugin_config_page.dart —— 第三方插件的配置页
+ *   app/lib/state/plugin_config/plugin_config_bridge.dart —— GET/POST /dsh-go/v1/plugin-config
+ * 真正挡住表单的是这里导出了 `undefined`：宿主拿不到 schema，自然画不出。
+ *
+ * 拿不到 schemastery 时**仍然照常加载**（跟 dsh-bili-subagent 同一套取舍：宁可少一个设置页，
+ * 也不能因为一个 import 让整条插件不激活），所以这时是 undefined 而不是抛错。
+ *
+ * 每个字段都要 .extra('volatile', true)：宿主设置层的 settings.update() 只认 volatile 字段
+ * （dsh-settings 的 volatileForm(schema)），没有这个标记写设置会被拒。
+ */
+export const Config = (() => {
+  const z = globalThis.__dshSchemastery && typeof globalThis.__dshSchemastery.object === 'function'
+    ? globalThis.__dshSchemastery
+    : null
+  if (!z) return undefined
+  return z.object({
+    persona: z.object({
+      enabled: z.boolean().default(true).extra('volatile', true),
+      personaFile: z.string().default('').extra('volatile', true),
+      style: z.string().default('').extra('volatile', true),
+      topics: z.array(z.string()).default([]).extra('volatile', true),
+      identityFile: z.string().default('').extra('volatile', true),
+    }),
+    memory: z.object({
+      enabled: z.boolean().default(true).extra('volatile', true),
+      shortTermHours: z.natural().default(24).extra('volatile', true),
+      recallLimit: z.natural().default(6).extra('volatile', true),
+      recallFloor: z.number().default(0.12).extra('volatile', true),
+      panelLimit: z.natural().default(40).extra('volatile', true),
+    }),
+    mood: z.object({
+      enabled: z.boolean().default(true).extra('volatile', true),
+      inject: z.boolean().default(true).extra('volatile', true),
+      timelineLimit: z.natural().default(8).extra('volatile', true),
+    }),
+    tools: z.object({
+      enabled: z.boolean().default(true).extra('volatile', true),
+    }),
+    hint: z.object({
+      enabled: z.boolean().default(true).extra('volatile', true),
+    }),
+  })
+})()
 
 export { loadConfig } from './config.mjs'
 

@@ -1,3 +1,7 @@
+// The seven dimensions come from one place (dims.mjs): the panel, the model context and the tool
+// output must never disagree about what 「心疼」 is called or which key holds it.
+import { DIM_LABEL, DIM_VISIBLE_MIN, dimsOf } from './dims.mjs'
+
 /**
  * dsh-go 原生视图构造器 + 预算校验器 —— R4 人格/记忆/情绪面板
  *
@@ -145,7 +149,7 @@ export function moodBand(v) {
 //   happy / calm / sweet / heartache / worry / sad / jealous。
 //   这里原来写成 steady / tender —— 那两个键上游**从来不发**，于是「踏实」永远 0、
 //   「心疼」被安到 tender 上，真机上表现为「明明心疼 7，面板一根柱子都没有」。
-const DIM_LABEL = { happy: '开心', calm: '安稳', sweet: '甜蜜', heartache: '心疼', worry: '担心', sad: '难过', jealous: '吃醋' }
+
 
 function relTime(ts, now = Date.now()) {
   const t = Number(ts)
@@ -371,15 +375,124 @@ export function purposePanel(s = {}) {
     children.push({ type: 'list', items: pending.map((p) => ({ title: String(p.text || '').slice(0, 50), icon: 'clock', trailing: relTime(p.createdAt) })) })
   }
 
-  children.push({
+  const actions = {
     type: 'actions',
     items: [
       { label: '现在说一句', action: 'purpose.run', icon: 'send', style: 'primary' },
       { label: '先看看', action: 'purpose.preview', icon: 'search' },
     ],
-  })
+  }
+  children.push(actions)
 
   return { v: 1, type: 'stack', title: `目的 · 今天 ${s.countToday ?? 0}/${s.dailyMax ?? 2}`, children }
+}
+
+/**
+ * 人格与目的 (硬化轮): who she is right now, what she is after, and what she would rather talk
+ * about — read from partner's own files, never a fixed paragraph.
+ *
+ * @param {object} o
+ * @param {object|null} o.persona  loadPersona() 的结果：{ title, text, source, missing, unreadable }
+ * @param {object} o.cfg          partner 配置（persona.style / persona.topics / 三个模块开关）
+ * @param {object|null} o.role    roleState()：{ band, label, ... }
+ * @param {object|null} o.purpose purpose-outreach.json（可为 null：那时只画身份与偏好）
+ */
+export function identityPanel(o = {}) {
+  const cfg = o.cfg || {}
+  const pcfg = cfg.persona || {}
+  const persona = o.persona || null
+  const role = o.role || null
+  const children = []
+
+  // 1. 身份：读到什么就说什么，读不到如实报是哪种读不到（missing / unreadable / empty）
+  if (persona && persona.text) {
+    children.push({
+      type: 'list',
+      items: [
+        {
+          title: String(persona.title || '她').slice(0, 40),
+          subtitle: `来自 ${persona.source || '（未知来源）'} · ${String(persona.text).length} 字`,
+          icon: 'pet',
+        },
+      ],
+    })
+    children.push({ type: 'text', text: String(persona.text).slice(0, 600), tone: 'muted' })
+  } else if (persona && persona.missing) {
+    children.push({
+      type: 'callout',
+      tone: 'warn',
+      text: `没找到人格文件（找过：${persona.missing}）。她不会用人造人设顶上 —— 放一份 persona.md 就生效。`,
+    })
+  } else if (persona && persona.unreadable) {
+    children.push({ type: 'callout', tone: 'warn', text: `人格文件读不了：${String(persona.unreadable).slice(0, 120)}` })
+  } else {
+    children.push({ type: 'callout', tone: 'info', text: '人格文件是空的。默认不编，宁可没有。' })
+  }
+
+  // 2. 角色状态
+  if (role && role.label) {
+    children.push({
+      type: 'row',
+      children: [
+        { type: 'metric', label: '状态', value: String(role.label), caption: role.hint || '' },
+        { type: 'metric', label: '记忆', value: String(role.memories ?? 0), caption: '条长期记忆' },
+      ],
+    })
+  }
+
+  // 3. 目标与主动话题偏好：都是配置里的，不是写死的
+  const goals = Array.isArray(o.purpose?.goals) ? o.purpose.goals.slice(0, 4) : []
+  if (goals.length) {
+    children.push({ type: 'text', text: '**她想做的事**', tone: 'muted' })
+    children.push({
+      type: 'list',
+      items: goals.map((g) => ({
+        title: String(g.intent || g.text || '').slice(0, 50),
+        subtitle: `把握 ${Math.round((Number(g.confidence) || 0) * 100)}%`,
+      })),
+    })
+  }
+
+  const topics = Array.isArray(pcfg.topics) ? pcfg.topics.filter((t) => String(t).trim()) : []
+  children.push({ type: 'text', text: '**主动话题偏好**', tone: 'muted' })
+  if (topics.length) {
+    children.push({ type: 'list', items: topics.slice(0, 8).map((t) => ({ title: String(t).slice(0, 40), icon: 'chat' })) })
+  } else {
+    children.push({
+      type: 'callout',
+      tone: 'info',
+      text: '还没设偏好 —— 在 ~/.dsh/partner/config.json 的 persona.topics 里加几条，她主动开口时会偏向这些。',
+    })
+  }
+
+  const style = String(pcfg.style || '').trim()
+  if (style) {
+    children.push({ type: 'text', text: '**表达风格**', tone: 'muted' })
+    children.push({ type: 'text', text: style.slice(0, 300), tone: 'muted' })
+  }
+
+  // 4. 开关状态：三个模块互相独立，这里如实显示谁开着
+  const on = [
+    ['人格', cfg.persona?.enabled !== false],
+    ['记忆', cfg.memory?.enabled !== false],
+    ['情绪', cfg.mood?.enabled !== false],
+    ['工具', cfg.tools?.enabled !== false],
+  ]
+  children.push({
+    type: 'list',
+    items: on.map(([label, enabled]) => ({
+      title: String(label),
+      trailing: enabled ? '开' : '关',
+      tone: enabled ? undefined : 'muted',
+    })),
+  })
+
+  children.push({
+    type: 'actions',
+    items: [{ label: '刷新', action: 'identity.refresh', icon: 'refresh' }],
+  })
+
+  return { v: 1, type: 'stack', title: '人格 · 记忆 · 情绪', children }
 }
 
 // ── 状态条（emit 的 data，2KiB / 8 节点 / 3 层）──────────────────────────────
