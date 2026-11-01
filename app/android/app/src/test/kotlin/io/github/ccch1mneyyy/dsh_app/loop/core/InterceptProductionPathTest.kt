@@ -215,4 +215,63 @@ class InterceptProductionPathTest {
         assertEquals(stateBefore, rig.opened.guard.state)
         assertEquals(ledgerBefore, rig.opened.ledger.state)
     }
+
+    // ---- F4: a fallback to the old two-file mode must be visible, not silent -----------
+
+    @Test
+    fun falling_back_to_legacy_files_carries_a_reason_the_ui_can_show() {
+        val dir = tmpDir()
+        // Build a legacy pair that contradicts itself: a whitelist with no release behind it.
+        val oldLedger = InterceptLedgerBook(AtomicJsonFile(File(dir, "ledger.json")))
+        oldLedger.recover()
+        val oldGuard = InterceptGuard(
+            AtomicJsonFile(File(dir, "guard.json")), oldLedger,
+            { wall }, ids = { "old-" + (++seq) },
+        )
+        oldGuard.recover(wall)
+        configure(oldGuard)
+        val block = oldGuard.onForeground(bili, env(), wall) as InterceptDecision.Block
+        oldGuard.onPageShown(block.eventId, wall)
+        assertTrue(oldGuard.onReleased(block.eventId, InterceptGuard.RELEASE_WHITELIST, wall))
+        // Keep the ledger readable but rewrite it so it records a trigger and no release at all:
+        // the whitelist entry in guard.json is then orphaned, which is the contradiction the
+        // whitelist check exists to catch (and the message the UI has to show).
+        File(dir, "ledger.json").writeText(
+            io.github.ccch1mneyyy.dsh_app.phone.Json.write(
+                linkedMapOf(
+                    "version" to 1,
+                    "ledger" to linkedMapOf(
+                        "triggerCount" to 1L,
+                        "blockedCount" to 1L,
+                        "userReleasedCount" to 0L,
+                        "userExitedCount" to 0L,
+                        "pausedCount" to 0L,
+                        "receipts" to listOf(
+                            linkedMapOf(
+                                "eventId" to block.eventId,
+                                "packageName" to bili,
+                                "triggeredAt" to 1L,
+                                "endedAt" to 2L,
+                                "outcome" to "BLOCKED",
+                                "reason" to "x",
+                                "releasedBy" to null,
+                                "releasedUntilWall" to 0L,
+                            ),
+                        ),
+                        "lastRecordedAt" to 0L,
+                    ),
+                    "applied" to listOf("trigger:" + block.eventId, "blocked:" + block.eventId, "end:" + block.eventId),
+                ),
+            ),
+        )
+
+        val k = open(dir)
+        assertTrue("fell back: " + k.migration, k.migration is InterceptMigration.Result.RecoveryRequired)
+        assertNull("no snapshot in use", k.repo)
+        assertNotNull("the person must be told why: the UI shows this string", k.recoveryIssue)
+        assertTrue(
+            "the reason names the whitelist, so the message is actionable: " + k.recoveryIssue,
+            k.recoveryIssue!!.contains("whitelist"),
+        )
+    }
 }

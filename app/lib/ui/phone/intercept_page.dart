@@ -221,6 +221,19 @@ class _InterceptPageState extends State<InterceptPage> {
         ],
         // W2: an interception that did not take effect. The app stayed open and nothing was
         // blocked, so saying nothing would be the same lie the notification exists to fix.
+        // F4: the kernel fell back to the old two-file layout. The person is still on the old
+        // format and nothing here is protected atomically any more, so say so.
+        if (status?.snapshot == false) ...[
+          ListPageCard(children: [
+            ListPageRow(
+              icon: AppIcons.stopped,
+              iconColor: colors.warning,
+              title: l10n.interceptLegacyFormat(status?.migrationIssue ?? ''),
+              titleMaxLines: 4,
+            ),
+          ]),
+          const SizedBox(height: 16),
+        ],
         if (status?.enforcementUnavailable != null) ...[
           ListPageCard(children: [
             ListPageRow(

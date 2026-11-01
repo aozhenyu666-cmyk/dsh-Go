@@ -90,6 +90,7 @@ object InterceptRuntime {
         )
         migrationResult = opened.migration
         snapshotActive = opened.repo != null
+        migrationIssue = opened.recoveryIssue
         opened.recoveryIssue?.let {
             Log.w(TAG, "legacy intercept state needs attention: " + it)
         }
@@ -121,6 +122,15 @@ object InterceptRuntime {
 
     /** W1: true when the atomic snapshot is the storage in use (false after a legacy fallback). */
     @Volatile var snapshotActive: Boolean = false
+        private set
+
+    /**
+     * F4: why the kernel had to fall back to the old two-file layout, if it did.
+     *
+     * The person is still on the old format and should know: without this the fallback is invisible
+     * and their whitelist sits in a file nothing enforces atomically any more.
+     */
+    @Volatile var migrationIssue: String? = null
         private set
     fun ledger(): InterceptLedger = ledger?.state ?: InterceptLedger()
     fun config(): InterceptConfig = guard?.config ?: InterceptConfig()

@@ -82,6 +82,7 @@ class InterceptPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             // W1: whether the atomic snapshot is actually in use, and how migration went.
             "migration" to InterceptRuntime.migrationResult?.javaClass?.simpleName,
             "snapshot" to InterceptRuntime.snapshotActive,
+            "migrationIssue" to InterceptRuntime.migrationIssue,
             "ledgerStorageError" to InterceptRuntime.ledgerBookStorageError(),
             "enforcementUnavailable" to InterceptRuntime.enforcementUnavailable,
         )

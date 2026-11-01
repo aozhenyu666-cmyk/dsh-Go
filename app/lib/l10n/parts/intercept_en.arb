@@ -71,6 +71,14 @@
   "interceptOutcomeExited": "Emergency exit",
   "interceptOutcomePaused": "Paused",
   "interceptOutcomeNotShown": "Never shown",
+  "interceptLegacyFormat": "Block records still use the old format: {reason}",
+  "@interceptLegacyFormat": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "interceptEnforcementUnavailable": "The last block did not take effect: {detail}",
   "@interceptEnforcementUnavailable": {
     "placeholders": {

@@ -78,5 +78,13 @@
         "type": "String"
       }
     }
+  },
+  "interceptLegacyFormat": "拦截记录仍使用旧格式，原因：{reason}",
+  "@interceptLegacyFormat": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   }
 }

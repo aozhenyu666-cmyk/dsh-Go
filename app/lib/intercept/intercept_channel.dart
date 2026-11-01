@@ -26,6 +26,8 @@ class InterceptStatus {
     this.storageError,
     this.recoveryIssue,
     this.enforcementUnavailable,
+    this.snapshot,
+    this.migrationIssue,
   });
 
   final InterceptConfig config;
@@ -45,6 +47,13 @@ class InterceptStatus {
   /// stayed open and nothing was blocked.
   final String? enforcementUnavailable;
 
+  /// True when the atomic snapshot is the storage in use. False means the kernel fell back to the
+  /// old two-file layout, and [migrationIssue] says why.
+  final bool? snapshot;
+
+  /// Why the fallback happened, or null. Shown to the person: their records are not protected.
+  final String? migrationIssue;
+
   bool get paused => config.pauseUntilWall > DateTime.now().millisecondsSinceEpoch;
 
   static InterceptStatus from(Object? raw) {
@@ -61,6 +70,8 @@ class InterceptStatus {
       recoveryIssue: m['recoveryIssue'] is String ? m['recoveryIssue'] as String : null,
       enforcementUnavailable:
           m['enforcementUnavailable'] is String ? m['enforcementUnavailable'] as String : null,
+      snapshot: m['snapshot'] is bool ? m['snapshot'] as bool : null,
+      migrationIssue: m['migrationIssue'] is String ? m['migrationIssue'] as String : null,
     );
   }
 }
