@@ -6,8 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import io.github.ccch1mneyyy.dsh_app.MainActivity
+import android.app.Notification
 import io.github.ccch1mneyyy.dsh_app.R
 
 /**
@@ -20,6 +19,13 @@ import io.github.ccch1mneyyy.dsh_app.R
  * 不节流就会变成新的骚扰源。
  */
 object EnforcementAlert {
+
+    /**
+     * 点通知要打开哪个界面。由调用方注入，而不是在这里硬写 MainActivity ——
+     * 一来这个文件要能被离线编译检查覆盖（那里没有 MainActivity），
+     * 二来"打开 App"本来就该由知道入口的那一层决定。
+     */
+    @Volatile var launchIntent: ((Context) -> Intent?)? = null
 
     private const val TAG = "DshIntercept"
     private const val CHANNEL = "intercept_alerts"
@@ -36,18 +42,22 @@ object EnforcementAlert {
         runCatching {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return
             ensureChannel(context, manager)
-            val open = PendingIntent.getActivity(
-                context, 0,
-                Intent(context, MainActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val n = NotificationCompat.Builder(context, CHANNEL)
+            // No launch intent wired: post the alert anyway. Telling the person something went
+            // wrong matters more than the tap target.
+            val open = launchIntent?.invoke(context)?.let { intent ->
+                PendingIntent.getActivity(
+                    context, 0,
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            }
+            // Platform builder, not androidx: this file is also compiled by the offline kernel
+            // check, whose classpath is android.jar + the Kotlin stdlib with no AndroidX on it.
+            val n = Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_dsh)
                 .setContentTitle(context.getString(R.string.intercept_alert_title))
                 .setContentText(why)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(why))
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setStyle(Notification.BigTextStyle().bigText(why))
                 .setAutoCancel(true)
                 .setContentIntent(open)
                 .build()
