@@ -498,13 +498,19 @@ class InterceptGuard(
     }
 
     fun setConfig(next: InterceptConfig, now: Long): InterceptConfig = synchronized(lock) {
-        config = next.normalized()
-        // A target removed from the list must not leave its page standing.
-        val open = state.openPackage
-        if (open != null && config.targetFor(open) == null) {
-            endOpen(now, InterceptOutcome.RELEASED, "target_removed", releasedBy = "rule")
+        // Returns the config that is actually in force afterwards. If the commit fails this is the
+        // OLD one, not the one the caller asked for - otherwise a settings change that never reached
+        // the disk would be reported as applied.
+        val applied = transact {
+            config = next.normalized()
+            // A target removed from the list must not leave its page standing.
+            val open = state.openPackage
+            if (open != null && config.targetFor(open) == null) {
+                endOpen(now, InterceptOutcome.RELEASED, "target_removed", releasedBy = "rule")
+            }
+            true
         }
-        persist()
+        if (!applied) return@synchronized config
         config
     }
 
@@ -636,15 +642,16 @@ class InterceptGuard(
         }
         val pkg = state.openPackage ?: return@synchronized false
         val until = now + config.releaseMs
-        state = state.copy(releases = state.releases + (pkg to until))
-        // An explicit whitelist add is a standing decision, not a timed one.
-        if (how == RELEASE_WHITELIST) config = config.copy(whitelist = config.whitelist + pkg)
-        endOpen(
-            now, InterceptOutcome.RELEASED, how, releasedBy = how,
-            releasedUntilWall = if (how == RELEASE_WHITELIST) 0 else until,
-        )
-        persist()
-        true
+        return@synchronized transact {
+            state = state.copy(releases = state.releases + (pkg to until))
+            // An explicit whitelist add is a standing decision, not a timed one.
+            if (how == RELEASE_WHITELIST) config = config.copy(whitelist = config.whitelist + pkg)
+            endOpen(
+                now, InterceptOutcome.RELEASED, how, releasedBy = how,
+                releasedUntilWall = if (how == RELEASE_WHITELIST) 0 else until,
+            )
+            true
+        }
     }
 
     /** 紧急退出: the person leaves at once; recorded as an exit, never as a normal release. */
@@ -654,13 +661,15 @@ class InterceptGuard(
         // visibility proof there is nobody leaving and nothing to leave, so this settles the
         // event honestly as NOT_SHOWN instead of recording a walk-away that never happened (P0-5).
         if (state.openShownAt == 0L) {
-            endOpen(now, InterceptOutcome.NOT_SHOWN, "exit_before_shown")
-            persist()
-            return@synchronized true
+            return@synchronized transact {
+                endOpen(now, InterceptOutcome.NOT_SHOWN, "exit_before_shown")
+                true
+            }
         }
-        endOpen(now, InterceptOutcome.EXITED, "emergency_exit")
-        persist()
-        true
+        return@synchronized transact {
+            endOpen(now, InterceptOutcome.EXITED, "emergency_exit")
+            true
+        }
     }
 
     /**
@@ -674,24 +683,26 @@ class InterceptGuard(
         // visibility proof it settles as NOT_SHOWN and changes no setting (P0-5). The settings
         // page passes eventId = null and is unaffected: that is the person acting in the app.
         if (eventId != null && state.openShownAt == 0L) {
-            endOpen(now, InterceptOutcome.NOT_SHOWN, "pause_before_shown")
-            persist()
-            return@synchronized true
+            return@synchronized transact {
+                endOpen(now, InterceptOutcome.NOT_SHOWN, "pause_before_shown")
+                true
+            }
         }
         val until = now + pauseMs.coerceIn(60_000L, 24 * 3_600_000L)
-        config = config.copy(pauseUntilWall = until)
-        if (eventId != null) {
-            endOpen(now, InterceptOutcome.PAUSED, "paused", releasedUntilWall = until)
-        } else {
-            ledger.onEnded(
-                InterceptReceipt(
-                    eventId = InterceptLedger.SETTINGS_PAUSE_PREFIX + now, packageName = "", triggeredAt = now, endedAt = now,
-                    outcome = InterceptOutcome.PAUSED, reason = "paused", releasedUntilWall = until,
-                ),
-            )
+        return@synchronized transact {
+            config = config.copy(pauseUntilWall = until)
+            if (eventId != null) {
+                endOpen(now, InterceptOutcome.PAUSED, "paused", releasedUntilWall = until)
+            } else {
+                ledger.onEnded(
+                    InterceptReceipt(
+                        eventId = InterceptLedger.SETTINGS_PAUSE_PREFIX + now, packageName = "", triggeredAt = now, endedAt = now,
+                        outcome = InterceptOutcome.PAUSED, reason = "paused", releasedUntilWall = until,
+                    ),
+                )
+            }
+            true
         }
-        persist()
-        true
     }
 
     /**
@@ -722,18 +733,19 @@ class InterceptGuard(
 
 fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
-        endOpen(now, InterceptOutcome.NOT_SHOWN, code)
-        // Give back exactly what this trigger charged.
-        state = state.copy(
-            lastTriggerAt = chargedLastTriggerAt,
-            lastTriggerPackage = chargedLastTriggerPackage,
-            countToday = chargedCountToday,
-        )
-        chargedLastTriggerAt = 0L
-        chargedLastTriggerPackage = null
-        chargedCountToday = 0
-        persist()
-        true
+        return@synchronized transact {
+            endOpen(now, InterceptOutcome.NOT_SHOWN, code)
+            // Give back exactly what this trigger charged.
+            state = state.copy(
+                lastTriggerAt = chargedLastTriggerAt,
+                lastTriggerPackage = chargedLastTriggerPackage,
+                countToday = chargedCountToday,
+            )
+            chargedLastTriggerAt = 0L
+            chargedLastTriggerPackage = null
+            chargedCountToday = 0
+            true
+        }
     }
 
     fun openEventId(): String? = synchronized(lock) { state.openEventId }
@@ -756,9 +768,10 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         val current = state.drill ?: return@synchronized false
         val next = current.tap(value)
         if (next == current) return@synchronized true
-        state = state.copy(drill = next)
-        persist()
-        true
+        return@synchronized transact {
+            state = state.copy(drill = next)
+            true
+        }
     }
 
     fun receipts(limit: Int = 50): List<InterceptReceipt> = synchronized(lock) {
@@ -822,7 +835,39 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         if (day > state.dayKey) state = state.copy(dayKey = day, countToday = 0)
     }
 
-    /**
+        /**
+     * 一次**要么全成、要么全不动**的状态变更。
+     *
+     * 没有仓库时它只是"跑一下然后 persist"，和以前一样（纯逻辑测试依赖这个行为）。
+     * 有仓库时：先把四样状态记下来，跑 block，再提交；提交失败就把四样**原样恢复**并返回 false。
+     *
+     * 为什么必须回滚：磁盘上仍然是上一份快照，如果内存前进了，两边就不一致 —— 调用方会以为改动成功，
+     * 而进程下次启动时那份改动根本不存在，且没有任何回执说明它曾发生过。
+     *
+     * 哪些**不**走这里：onForeground 与 onPageShown。它们失败时仍然照常拦（保护用户优先），
+     * 只记 storageError —— 不能因为写盘失败就把人放过去。
+     */
+    private fun transact(block: () -> Boolean): Boolean {
+        val repo = repository ?: run {
+            val ok = block()
+            if (ok) persist()
+            return ok
+        }
+        val configBefore = config
+        val stateBefore = state
+        val ledgerBefore = ledger.state
+        val appliedBefore = ledger.appliedIds()
+        val ok = block()
+        if (!ok) return false
+        persist()
+        if (storageError == null) return true
+        // The commit did not land: put memory back exactly where it was.
+        config = configBefore
+        state = stateBefore
+        ledger.restore(ledgerBefore, appliedBefore)
+        return false
+    }
+/**
      * 持久化。有仓库时**只**经仓库提交一次（P0-4）：config、guard state、ledger state、已应用事件
      * 一起写进同一份快照。没有仓库时退化为旧的单文件写，供纯逻辑测试使用。
      *

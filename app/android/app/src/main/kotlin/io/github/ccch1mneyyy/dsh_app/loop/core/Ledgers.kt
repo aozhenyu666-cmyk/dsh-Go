@@ -368,6 +368,16 @@ class InterceptLedgerBook(
     /** Read by the repository when it commits: the applied-event keys. */
     fun appliedIds(): List<String> = applied.toList()
 
+    /**
+     * 把内存拨回一份已知状态。**只改内存，不写盘** —— 写盘已经失败了，现在要做的是让内存
+     * 与磁盘重新一致，而不是再试一次。
+     */
+    fun restore(state: InterceptLedger, appliedKeys: List<String>) = synchronized(lock) {
+        this.state = state
+        applied.clear()
+        applied.addAll(appliedKeys)
+    }
+
     companion object {
         const val APPLIED_CAP = 1024
     }
