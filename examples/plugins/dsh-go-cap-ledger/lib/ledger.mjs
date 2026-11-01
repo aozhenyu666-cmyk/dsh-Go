@@ -18,7 +18,14 @@
 export const LEDGER_VERSION = 2
 
 /** 四个状态的名字，给外面做遍历/校验用（顺序 = 面板上的显示顺序）。 */
-export const STATES = ['installed', 'loaded', 'toolRegistered', 'lastRunOk']
+/**
+ * 鍏€佺姸鎬? 纭寲杞帴鏃剁殑鍏€? 姣忎竴姝ラ兘鏄?竴涓笉鍚岀殑浜嬪疄锛? *   installed      宸插畨瑁?  璺熶笂鍐?  *   loaded         宸插姞杞?  apply() 鐪熺殑璺戣捣鏉ヤ簡
+ *   toolRegistered 宸ュ叿宸叉敞鍐?  ctx.tools.register 杩斿洖浜?disposer
+ *   available      鍙敤锛氬悓鏃舵弧瓒?installed + loaded + toolRegistered锛屽苟涓旀病鏈夊け璐ョ殑鎵ц
+ *   executed       鐪熺殑鎵ц杩囷紙runs > 0锛夆€斺€?鏈夋病鏈夎窇杩囧拰璺戝緱瀵逛笉瀵规槸涓ゅ洖浜?
+ *   failed         鎵ц繃涓斿け璐?  lastRunOk === false
+ */
+export const STATES = ['installed', 'loaded', 'toolRegistered', 'available', 'executed', 'failed']
 
 /** 一个插件的空台账。字段全在，缺的显式写 null。 */
 export function emptyEntry(plugin = '') {
@@ -27,6 +34,9 @@ export function emptyEntry(plugin = '') {
     installed: null,
     loaded: null,
     toolRegistered: null,
+    available: null,
+    executed: null,
+    failed: null,
     lastRunOk: null,
     lastRunAt: null,
     lastRunCode: null,
@@ -59,6 +69,9 @@ export function normalizeEntry(raw, plugin = '') {
   out.installed = tri(raw.installed)
   out.loaded = tri(raw.loaded)
   out.toolRegistered = tri(raw.toolRegistered)
+  // 鍏€佺殑鍚庝袱浣?*鐢卞墠闈紑鍜岃绠楄繃绋嬪緱鍑?*锛屼笉淇′换鍏ュ弬锛屼篃涓嶈鎵嬪啓銆?  out.executed = out.runs > 0 ? true : null
+  out.failed = out.runs > 0 ? out.lastRunOk === false : null
+  out.available = out.installed === true && out.loaded === true && out.toolRegistered === true ? true : (out.installed === false || out.loaded === false || out.toolRegistered === false ? false : null)
   out.lastRunOk = tri(raw.lastRunOk)
   out.lastRunAt = Number.isFinite(raw.lastRunAt) ? raw.lastRunAt : null
   out.lastRunCode = text(raw.lastRunCode)
@@ -188,10 +201,20 @@ export function describeEntry(entry) {
     : e.lastRunOk === true
       ? '成功'
       : '失败（' + String(e.lastRunCode) + '）'
+  const available = e.available === true
+    ? '能用'
+    : e.available === false
+      ? '不能用'
+      : '未知'
+  const executed = e.runs === 0 ? '还没跑过' : `跑过 ${e.runs} 次`
+  const failed = e.runs === 0 ? '还没跑过' : e.failed === true ? `失败 ${e.fails} 次` : '没有失败'
   return {
     installed: yesNo(e.installed),
     loaded: yesNo(e.loaded),
     toolRegistered: yesNo(e.toolRegistered),
+    available,
+    executed,
+    failed,
     lastRunOk,
     // 健康 = 前三态都 true 且上次不是失败。any null 判 false（不报假绿）。
     healthy: e.installed === true && e.loaded === true && e.toolRegistered === true && e.lastRunOk !== false,
