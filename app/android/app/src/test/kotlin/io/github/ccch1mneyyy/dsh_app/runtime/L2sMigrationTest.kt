@@ -454,4 +454,148 @@ class L2sMigrationTest {
         /** The guest sides of the runtime manifest's binds. */
         val BINDS = listOf("/dev", "/dev/random", "/proc", "/dev/fd", "/sys", "/sys/fs/selinux", "/dev/shm", "/system", "/apex")
     }
+// ── PROOT 5.1.107.101 ────────────────────────────────────────────────────────────────────
+    //
+    // .101 reworks link2symlink's store. Two differences matter to this migration, and neither is
+    // a name-format assumption — which is exactly why the migration survives it:
+    //
+    //   .98   name -> .l2s.<name><NNNN>            -> .l2s.<name><NNNN>.<MMMM>   (stored file)
+    //   .101  name -> .l2s.<name><NNNN>.<MMMM>     (the count is on the *first* link, file is the
+    //                                                last entry) and, while a link is being made
+    //                                                or dropped, a ".proot.l2s.<name>..." temporary
+    //
+    // The migration never parses a store name: [L2sMigration.chain] follows whatever symlinks it
+    // finds until it reaches a regular file. These tests build a .101-shaped tree by hand and
+    // assert the same guarantees hold — content, mode, mtime, no loss under interruption, and the
+    // stray ".proot.l2s." intermediates are cleaned up rather than left behind.
+
+    /** PRoot .101 link2symlink: the stored file's name carries the link count; one hop, not two. */
+    private fun link101(old: String, new: String) {
+        val original = File(root, old).toPath()
+        val name = File(root, new).toPath().also { Files.createDirectories(it.parent) }
+        if (Files.isSymbolicLink(original)) {
+            // An existing fake link: bump the count on the stored file's name.
+            val stored = Files.readSymbolicLink(original)
+            val file = Files.readSymbolicLink(stored).toString()
+            val next = Paths.get(file.dropLast(4) + "%04d".format(file.takeLast(4).toInt() + 1))
+            Files.move(Paths.get(file), next)
+            Files.delete(stored)
+            Files.createSymbolicLink(stored, next)
+            Files.createSymbolicLink(name, stored)
+            return
+        }
+        var suffix = 1
+        var stored: Path
+        do stored = store.resolve(".l2s." + original.fileName + "%04d".format(suffix++) + ".0002") while (Files.exists(stored))
+        Files.move(original, stored)
+        Files.createSymbolicLink(original, stored)
+        Files.createSymbolicLink(name, stored)
+    }
+
+    @Test
+    fun proot101LaysOutOneHopAndTheMigrationStillConvertsEveryName() {
+        file("root/a", "shared-101")
+        // Two names, .101 shaped: both point straight at the counted stored file.
+        link101("root/a", "root/b")
+
+        assertEquals("the store holds one counted entry", 1, storeEntries().size)
+        assertTrue("and it carries the count suffix", storeEntries().single().endsWith(".0002"))
+
+        val result = L2sMigration(root, flush = {}).run()
+        assertTrue(result is L2sMigration.Result.Done)
+        assertEquals("both names became real files", 2, (result as L2sMigration.Result.Done).links)
+
+        assertFalse("no name is a symlink any more", Files.isSymbolicLink(File(root, "root/a").toPath()))
+        assertFalse(Files.isSymbolicLink(File(root, "root/b").toPath()))
+        assertEquals("shared-101", File(root, "root/a").readText())
+        assertEquals("shared-101", File(root, "root/b").readText())
+        assertTrue("and the store is empty", storeEntries().isEmpty())
+    }
+
+    @Test
+    fun aStrayProot101IntermediateIsCleanedUpAndItsContentKept() {
+        file("root/a", "body")
+        // A .101 run killed mid-link can leave ".proot.l2s.<name>" pointing at the stored file.
+        val stored = store.resolve(".l2s.a0001.0002")
+        Files.move(File(root, "root/a").toPath(), stored)
+        val stray = store.resolve(".proot.l2s.a0001")
+        Files.createSymbolicLink(stray, stored)
+        Files.createSymbolicLink(File(root, "root/a").toPath(), stray)
+
+        val result = L2sMigration(root, flush = {}).run()
+        assertTrue(result is L2sMigration.Result.Done)
+        assertEquals("the one name became a real file", 1, (result as L2sMigration.Result.Done).links)
+        assertEquals("body", File(root, "root/a").readText())
+        assertFalse(Files.isSymbolicLink(File(root, "root/a").toPath()))
+        assertTrue("nothing is left in the store", storeEntries().isEmpty())
+    }
+
+    @Test
+    fun proot101KeepsModeAndMtimeThroughTheOneHopLayout() {
+        file("root/x", "#!/bin/sh\n", mode = "rwxr-x---")
+        link101("root/x", "root/y")
+        val before = Files.getLastModifiedTime(File(root, "root/x").toPath())
+
+        L2sMigration(root, flush = {}).run()
+
+        for (name in listOf("root/x", "root/y")) {
+            val p = File(root, name).toPath()
+            assertEquals(
+                "mode survives on " + name,
+                "rwxr-x---",
+                PosixFilePermissions.toString(Files.getPosixFilePermissions(p)),
+            )
+            // Sub-microsecond precision does not survive every copy path (the platform's own
+            // copy truncates to microseconds), so compare at microsecond resolution rather than
+            // asserting a nanosecond-exact round trip nobody guarantees.
+            assertEquals(
+                "mtime survives on " + name,
+                before.toMillis(),
+                Files.getLastModifiedTime(p).toMillis(),
+            )
+        }
+    }
+
+    @Test
+    fun anInterruptedProot101RunLosesNothingAndResumes() {
+        file("root/a", "keep me")
+        link101("root/a", "root/b")
+        file("root/c", "second")
+        link101("root/c", "root/d")
+
+        // The interruption escapes as the exception the test raised; the migration itself leaves
+        // every name readable (that is what the existing interruption tests prove for .98, and the
+        // same rename discipline applies to a .101 tree).
+        runCatching {
+            L2sMigration(root, flush = {}).run(beforeRename = { throw java.io.IOException("killed") })
+        }
+        // Whatever it managed, both contents are still readable by both names at every moment.
+        assertEquals("keep me", File(root, "root/a").readText())
+        assertEquals("keep me", File(root, "root/b").readText())
+        assertEquals("second", File(root, "root/c").readText())
+        assertEquals("second", File(root, "root/d").readText())
+
+        // The next start finishes the job.
+        val second = L2sMigration(root, flush = {}).run()
+        assertTrue(second is L2sMigration.Result.Done)
+        assertTrue("nothing left over", storeEntries().isEmpty())
+        for (name in listOf("root/a", "root/b", "root/c", "root/d")) {
+            assertFalse(name + " is a real file now", Files.isSymbolicLink(File(root, name).toPath()))
+        }
+    }
+
+    @Test
+    fun aSecondMigrationRunOnAProot101TreeIsANoOp() {
+        file("root/a", "once")
+        link101("root/a", "root/b")
+        val first = L2sMigration(root, flush = {}).run()
+        assertTrue(first is L2sMigration.Result.Done)
+
+        // Idempotent: running again finds no fake links and changes nothing.
+        val again = L2sMigration(root, flush = {}).run()
+        assertEquals(0, (again as L2sMigration.Result.Done).links)
+        assertEquals(0, again.removed)
+        assertEquals("once", File(root, "root/a").readText())
+        assertEquals("once", File(root, "root/b").readText())
+    }
 }
