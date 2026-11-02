@@ -51,6 +51,18 @@ jobs:
           original = 'android:label="DSH Go"'
           assert data.count(original) == 1, "Unexpected AndroidManifest label"
           manifest.write_text(data.replace(original, 'android:label="DSH Go R4"'), encoding="utf-8")
+          # This job builds arm64 only, but run 2 shipped lib/armeabi-v7a and lib/x86_64 from a
+          # dependency, which verify_apk_runtime.py rightly refuses (the runtime is arm64-only).
+          # Drop the other ABIs at packaging time instead of loosening the verifier.
+          gradle.write_text(gradle.read_text(encoding="utf-8") + '''
+          android {
+              packaging {
+                  jniLibs {
+                      excludes += setOf("lib/armeabi-v7a/**", "lib/armeabi/**", "lib/x86/**", "lib/x86_64/**")
+                  }
+              }
+          }
+          ''', encoding="utf-8")
           PY
       - name: Build arm64 release APK
         run: |
@@ -64,6 +76,7 @@ jobs:
         run: |
           APK=app/build/app/outputs/flutter-apk/app-arm64-release.apk
           test -s "$APK"
+          unzip -l "$APK" | awk '{print $4}' | grep '^lib/' | cut -d/ -f2 | sort | uniq -c
           python3 tooling/verify_apk_runtime.py "$APK" --plugin runtime/proactive/dsh-go-proactive
           AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)
           "$AAPT" dump badging "$APK" | grep 'io.github.ccch1mneyyy.dsh_app.r4'
