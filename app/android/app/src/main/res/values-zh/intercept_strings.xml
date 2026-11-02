@@ -22,4 +22,6 @@
     <string name="intercept_alert_title">这次没有拦住</string>
     <string name="intercept_alert_channel">拦截失败提醒</string>
     <string name="intercept_alert_channel_desc">拦截没有真正生效时告诉你</string>
+    <string name="intercept_yishou">去一手答一道题</string>
+    <string name="intercept_yishou_failed">没能打开一手，请先在这里完成训练题</string>
 </resources>

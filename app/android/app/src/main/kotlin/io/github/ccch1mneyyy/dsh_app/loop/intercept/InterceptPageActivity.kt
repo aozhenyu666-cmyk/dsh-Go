@@ -52,6 +52,8 @@ class InterceptPageActivity : Activity() {
      */
     private var drill: InterceptDrill? = null
     private var trainingButton: Button? = null
+    /** P0-A: 「去一手答题」, only when 一手 is installed. */
+    private var yishouButton: Button? = null
     private var drillStatus: TextView? = null
     private val drillButtons = LinkedHashMap<Int, Button>()
 
@@ -88,6 +90,9 @@ class InterceptPageActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // P0-A: back in front while a hand-off to 一手 is open means the person came back without
+        // a pass. The interception goes on, and the drill is offered again.
+        eventId?.let { id -> if (!reported && InterceptRuntime.handoffActive(id)) InterceptRuntime.onPageBack(id) }
         if (!reported && !shown) awaitVisible()
     }
 
@@ -140,6 +145,10 @@ class InterceptPageActivity : Activity() {
             reported = true
             return
         }
+        // P0-A: the page went behind 一手 because the person asked to answer a question there. That
+        // is not leaving: the guard keeps the interception open and waits for 一手's pass (or for
+        // the hand-off to run out, or for a target app to come to the front instead).
+        if (InterceptRuntime.handoffActive(eventId)) return
         val screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
         if (!screenOn) {
             // Screen off is not the person leaving: they are not looking at anything. The page is
@@ -198,6 +207,15 @@ class InterceptPageActivity : Activity() {
         drillStatus?.text = AppStrings.get(this, why)
     }
 
+    /** 「去一手答题」: the guard keeps the interception open while 一手 asks the question. */
+    private fun handOff() {
+        val id = eventId ?: return
+        if (reported || !shown) return
+        if (!InterceptRuntime.handOffToYishou(this, id)) {
+            drillStatus?.text = AppStrings.get(this, R.string.intercept_yishou_failed)
+        }
+    }
+
     private fun exit() {
         val id = eventId ?: return
         if (reported) return
@@ -245,6 +263,8 @@ class InterceptPageActivity : Activity() {
             // The button only ever offers what the guard will accept: a solved drill.
             b.isEnabled = shown && solved
         }
+        // P0-A: the hand-off needs a page that was proved on screen, like every other door.
+        yishouButton?.isEnabled = shown && !reported
         drillStatus?.let { t ->
             t.text = when {
                 d == null -> ""
@@ -331,6 +351,16 @@ class InterceptPageActivity : Activity() {
             }
             // The ways out, in increasing order of commitment: the drill, timed pass, standing pass,
             // pause everything, leave. Every button names this page's eventId, never a new one.
+            // P0-A: 「去一手答题」 first - a verified question in 一手 is the door this page is for.
+            // Offered only when 一手 can take the request; the drill below stays as the fallback.
+            if (InterceptRuntime.yishouAvailable(ctx)) {
+                addView(Button(ctx).apply {
+                    yishouButton = this
+                    text = AppStrings.get(ctx, R.string.intercept_yishou)
+                    isEnabled = false
+                    setOnClickListener { handOff() }
+                })
+            }
             addView(Button(ctx).apply {
                 trainingButton = this
                 isEnabled = false

@@ -355,6 +355,13 @@ data class InterceptState(
     val lastReason: String? = null,
     /** 训练题 for the open interception; null when nothing is open. */
     val drill: InterceptDrill? = null,
+    /**
+     * P0-A · 交给一手做题. Non-null while the person is answering a question in 一手 for the open
+     * interception: the one-time secret 一手 must hand back for the pass to count. Null otherwise.
+     */
+    val handoffNonce: String? = null,
+    /** When the hand-off began (wall time), 0 when there is none. Bounds it by [InterceptGuard.HANDOFF_TTL_MS]. */
+    val handoffSinceWall: Long = 0,
 ) {
     fun toMap(): Map<String, Any?> = linkedMapOf(
         "lastTriggerAt" to lastTriggerAt, "lastTriggerPackage" to lastTriggerPackage,
@@ -362,6 +369,7 @@ data class InterceptState(
         "openEventId" to openEventId, "openPackage" to openPackage, "openSinceWall" to openSinceWall,
         "openShownAt" to openShownAt,
         "lastReason" to lastReason, "drill" to drill?.toMap(),
+        "handoffNonce" to handoffNonce, "handoffSinceWall" to handoffSinceWall,
     )
 
     companion object {
@@ -373,6 +381,7 @@ data class InterceptState(
             openEventId = M.str(m, "openEventId"), openPackage = M.str(m, "openPackage"),
             openSinceWall = M.long(m, "openSinceWall"), openShownAt = M.long(m, "openShownAt"), lastReason = M.str(m, "lastReason"),
             drill = InterceptDrill.fromMap(M.map(m, "drill")),
+            handoffNonce = M.str(m, "handoffNonce"), handoffSinceWall = M.long(m, "handoffSinceWall"),
         )
     }
 }
@@ -396,6 +405,8 @@ class InterceptGuard(
      */
     private val repository: InterceptRepository? = null,
     private val ids: () -> String = { java.util.UUID.randomUUID().toString() },
+    /** One-time secrets for the 一手 hand-off. Unguessable: whoever holds it can claim the pass. */
+    private val nonces: () -> String = { newNonce() },
 ) {
     private val lock = Any()
 
@@ -464,6 +475,7 @@ class InterceptGuard(
             state = s.copy(
                 openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
                 lastReason = if (shown) "open_lost" else "open_lost_unshown", drill = null,
+                handoffNonce = null, handoffSinceWall = 0,
             )
             if (!shown) {
                 // The same refund [onUnavailable] makes, for the same reason: this trigger charged
@@ -520,7 +532,7 @@ class InterceptGuard(
      */
     fun onForeground(packageName: String?, env: InterceptEnv, now: Long): InterceptDecision = synchronized(lock) {
         rollDay(env.dayKey)
-        val s = state
+        var s = state
         // One interception at a time — whatever app is in front. This is checked *before*
         // [InterceptRules.decide] because a Block would stamp lastTriggerAt, increment countToday
         // and, above all, overwrite openEventId: the interception already on screen would then
@@ -531,6 +543,23 @@ class InterceptGuard(
         // returning Allow here would claim a decision about an app this feature never configured.
         if (packageName.isNullOrBlank()) return@synchronized InterceptDecision.Ignore
         if (config.targetFor(packageName) == null) return@synchronized InterceptDecision.Ignore
+        // P0-A: the person was sent to 一手 to answer a question for the open interception, and a
+        // target app is in front instead. That is leaving the training, not finishing it: settle it
+        // as EXITED (which earns nothing and leaves no cooldown, see endOpen) and judge this app from
+        // scratch below. Without this, "open 一手, then switch to Douyin" would be let through as
+        // REASON_ANOTHER_OPEN for as long as the hand-off lasted.
+        if (s.openEventId != null && s.handoffNonce != null) {
+            val expired = now - s.handoffSinceWall >= HANDOFF_TTL_MS
+            transact {
+                endOpen(
+                    now,
+                    if (expired) InterceptOutcome.BLOCKED else InterceptOutcome.EXITED,
+                    if (expired) REASON_TRAINING_TIMEOUT else REASON_LEFT_TRAINING,
+                )
+                true
+            }
+            s = state
+        }
         if (s.openEventId != null) {
             val same = s.openPackage == packageName
             return@synchronized InterceptDecision.Allow(
@@ -650,6 +679,94 @@ class InterceptGuard(
                 now, InterceptOutcome.RELEASED, how, releasedBy = how,
                 releasedUntilWall = if (how == RELEASE_WHITELIST) 0 else until,
             )
+            true
+        }
+    }
+
+    // ------------------------------------------------------------ P0-A · 一手 hand-off
+
+    /**
+     * The person chose to answer a question in 一手 instead of the drill. Returns the one-time
+     * secret the adapter passes to 一手, or null when there is no such door right now: no open
+     * interception under [eventId], or its page was never proved on screen (P0-5 - nobody was asked
+     * anything, so nobody can be sent anywhere to answer it).
+     *
+     * Asking again for the same event returns the same secret and keeps the original start time,
+     * so tapping the button twice neither resets the clock nor invalidates the first request.
+     */
+    fun beginHandoff(eventId: String, now: Long): String? = synchronized(lock) {
+        if (state.openEventId != eventId || state.openShownAt == 0L) return@synchronized null
+        state.handoffNonce?.let { return@synchronized it }
+        val nonce = nonces()
+        val ok = transact {
+            state = state.copy(handoffNonce = nonce, handoffSinceWall = now)
+            true
+        }
+        if (ok) nonce else null
+    }
+
+    /** The page is in front again (the person came back from 一手 without a pass): the drill is theirs again. */
+    fun cancelHandoff(eventId: String, now: Long): Boolean = synchronized(lock) {
+        if (state.openEventId != eventId || state.handoffNonce == null) return@synchronized false
+        transact {
+            state = state.copy(handoffNonce = null, handoffSinceWall = 0)
+            true
+        }
+    }
+
+    /** True while the open interception is waiting for 一手. The page must not treat its own stop as a leave then. */
+    fun handoffActive(eventId: String): Boolean = synchronized(lock) {
+        state.openEventId == eventId && state.handoffNonce != null
+    }
+
+    /** When the open hand-off must give up, wall time; 0 when there is none. */
+    fun handoffDeadline(): Long = synchronized(lock) {
+        if (state.handoffNonce == null) 0L else state.handoffSinceWall + HANDOFF_TTL_MS
+    }
+
+    /**
+     * 一手 says the question was answered and verified. **一手 decides whether training passed**
+     * (分权原则); this guard only checks that the claim belongs to this interception:
+     *
+     *   * [eventId] is the open interception and its page was proved on screen;
+     *   * a hand-off is in progress and [nonce] is exactly its secret (compared in constant time);
+     *   * the hand-off has not timed out;
+     *   * [minutes] is a sane pass length (1..[MAX_EXTERNAL_PASS_MIN]).
+     *
+     * Anything else grants nothing. [ref] is 一手's own record of what was answered (question id,
+     * pass id) and goes into the receipt as evidence; it is never interpreted.
+     */
+    fun onExternalPass(eventId: String, nonce: String, minutes: Int, ref: String?, now: Long): Boolean = synchronized(lock) {
+        val s = state
+        if (s.openEventId != eventId || s.openShownAt == 0L) return@synchronized false
+        val expected = s.handoffNonce ?: return@synchronized false
+        if (!sameSecret(expected, nonce)) return@synchronized false
+        if (now - s.handoffSinceWall >= HANDOFF_TTL_MS) return@synchronized false
+        if (minutes !in 1..MAX_EXTERNAL_PASS_MIN) return@synchronized false
+        val pkg = s.openPackage ?: return@synchronized false
+        val until = now + minutes * 60_000L
+        val evidence = ref?.trim()?.take(120)?.takeIf { it.isNotEmpty() }
+        transact {
+            state = state.copy(releases = state.releases + (pkg to until))
+            endOpen(
+                now, InterceptOutcome.RELEASED,
+                if (evidence == null) RELEASE_YISHOU else "$RELEASE_YISHOU:$evidence",
+                releasedBy = RELEASE_YISHOU, releasedUntilWall = until,
+            )
+            true
+        }
+    }
+
+    /**
+     * The hand-off ran out without a pass. BLOCKED, never a release: a person who opened 一手 and
+     * put the phone down was still stopped, and must not come back to a free app.
+     */
+    fun expireHandoff(eventId: String, now: Long): Boolean = synchronized(lock) {
+        val s = state
+        if (s.openEventId != eventId || s.handoffNonce == null) return@synchronized false
+        if (now - s.handoffSinceWall < HANDOFF_TTL_MS) return@synchronized false
+        transact {
+            endOpen(now, InterceptOutcome.BLOCKED, REASON_TRAINING_TIMEOUT)
             true
         }
     }
@@ -802,6 +919,8 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         state = s.copy(
             openEventId = null, openPackage = null, openSinceWall = 0, openShownAt = 0,
             lastReason = reason, drill = null,
+            // A hand-off belongs to the event it was opened for and ends with it.
+            handoffNonce = null, handoffSinceWall = 0,
             // 第四阶段 4B · D5: only a RELEASED / PAUSED ending may leave a reason for the app to be
             // let through. BLOCKED and EXITED must not, and the cooldown timestamp is exactly what
             // made an exit behave like a grant: lastTriggerAt stayed set, `decide()` saw "inside the
@@ -910,6 +1029,32 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         const val RELEASE_TRAINING = "training"
         const val RELEASE_RULE = "rule"
         const val RELEASE_WHITELIST = "whitelist"
+
+        /**
+         * P0-A: passed because 一手 verified an answer. Not a door the page can name in
+         * [onReleased] - only [onExternalPass] grants it, and only with the hand-off secret.
+         */
+        const val RELEASE_YISHOU = "yishou"
+
+        /** How long the person may stay in 一手 for one interception before it counts as BLOCKED. */
+        const val HANDOFF_TTL_MS = 15 * 60_000L
+
+        /** Upper bound on the pass 一手 may ask for; 一手's own setting is 5-30 minutes. */
+        const val MAX_EXTERNAL_PASS_MIN = 120
+
+        const val REASON_LEFT_TRAINING = "left_training"
+        const val REASON_TRAINING_TIMEOUT = "training_timeout"
+
+        /** 128 random bits, hex. */
+        fun newNonce(): String {
+            val b = ByteArray(16)
+            java.security.SecureRandom().nextBytes(b)
+            return b.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        }
+
+        /** Constant-time comparison, so the secret cannot be guessed one character at a time. */
+        fun sameSecret(a: String, b: String): Boolean =
+            java.security.MessageDigest.isEqual(a.toByteArray(Charsets.UTF_8), b.toByteArray(Charsets.UTF_8))
 
         /** How long a 暂停 lasts by default when the page asks for one. */
         const val DEFAULT_PAUSE_MS = 30 * 60_000L

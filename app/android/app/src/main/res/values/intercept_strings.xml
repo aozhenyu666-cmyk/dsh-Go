@@ -22,4 +22,6 @@
     <string name="intercept_alert_title">That block did not happen</string>
     <string name="intercept_alert_channel">Block failures</string>
     <string name="intercept_alert_channel_desc">Tells you when an interception could not be enforced</string>
+    <string name="intercept_yishou">Answer one question in Yishou</string>
+    <string name="intercept_yishou_failed">Could not open Yishou; use the drill here instead</string>
 </resources>

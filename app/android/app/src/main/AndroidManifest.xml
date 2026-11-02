@@ -284,6 +284,20 @@
             android:launchMode="singleInstance"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
             android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+        <!-- P0-A: 一手 hands back a verified answer here (loop/intercept/YishouPassActivity.kt).
+             Exported because 一手 is another app; a claim only counts with the hand-off secret. -->
+        <activity
+            android:name=".loop.intercept.YishouPassActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.yishou"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="io.github.ccch1mneyyy.dsh_app.action.YISHOU_PASS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <!-- Proactive scheduler wake-ups: its own alarm (explicit intent), boot and app update. -->
         <receiver
@@ -343,6 +357,11 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- P0-A: whether 一手 can take a question request (InterceptRuntime.yishouAvailable). -->
+        <package android:name="com.yishou.app"/>
+        <intent>
+            <action android:name="com.yishou.app.action.TRAIN_FOR_DSH"/>
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

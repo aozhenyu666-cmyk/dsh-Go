@@ -22,6 +22,7 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptLedgerBook
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptReceipt
 import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
 import io.github.ccch1mneyyy.dsh_app.loop.core.VisibleSurface
+import io.github.ccch1mneyyy.dsh_app.loop.core.YishouProtocol
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
 import java.io.File
 import java.util.Calendar
@@ -74,6 +75,9 @@ object InterceptRuntime {
     private var shownAtMono = 0L
     /** The one timer that decides when this interception ends, whoever is (not) watching. */
     private val deadlineTick = Runnable { settleIfDue() }
+    /** P0-A: ends a hand-off to 一手 that ran out. Separate from [deadlineTick] on purpose: the page
+     *  may be destroyed while the person is in 一手, and that must not cancel this one. */
+    private val handoffTick = Runnable { expireHandoffIfDue() }
     private val attempts = InterceptDeadline.Attempts()
     private val backoff = InterceptDeadline.Backoff()
 
@@ -258,6 +262,10 @@ object InterceptRuntime {
      */
     fun settleIfDue() {
         val g = guard ?: return
+        // P0-A: while the person is answering in 一手 the page is not what is holding them; the
+        // hand-off has its own, longer limit (handoffTick). Letting page_ttl fire here would end the
+        // interception in the middle of the question and throw the answer away.
+        g.openEventId()?.let { id -> if (g.handoffActive(id)) return }
         val open = if (requestedAtMono == 0L) null else InterceptDeadline.Open(requestedAtMono, shownAtMono)
         when (InterceptDeadline.due(open, mono())) {
             InterceptDeadline.Due.Nothing -> Unit
@@ -441,6 +449,101 @@ object InterceptRuntime {
         // host to read the foreground again: this is the case P0-2 is about - the page disappearing
         // used to leave the target app usable until some later window event happened to arrive.
         recheckForeground("intercept_page_gone")
+    }
+
+    // ------------------------------------------------------------ P0-A · 一手 hand-off
+
+    /** 一手 is installed and can take a question request. Needs the <queries> entry in the manifest. */
+    fun yishouAvailable(context: Context): Boolean = runCatching {
+        val probe = Intent(YishouProtocol.ACTION_TRAIN).setPackage(YishouProtocol.YISHOU_PACKAGE)
+        context.packageManager.queryIntentActivities(probe, 0).isNotEmpty()
+    }.getOrDefault(false)
+
+    /** True while the open interception [eventId] is waiting for 一手; the page must not count its own stop as a leave. */
+    fun handoffActive(eventId: String?): Boolean = eventId != null && guard?.handoffActive(eventId) == true
+
+    /**
+     * 「去一手答题」. Mints the hand-off secret in the guard, then asks 一手 for one question. False
+     * (and nothing changed) when the guard refuses or 一手 cannot be started; the page then stays
+     * as it was and the drill is still there.
+     */
+    fun handOffToYishou(context: Context, eventId: String): Boolean {
+        val g = guard ?: return false
+        val now = System.currentTimeMillis()
+        val nonce = g.beginHandoff(eventId, now) ?: return false
+        val pkg = g.openPackage().orEmpty()
+        val label = runCatching {
+            val pm = context.packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        }.getOrDefault(pkg)
+        val request = Intent(YishouProtocol.ACTION_TRAIN)
+            .setPackage(YishouProtocol.YISHOU_PACKAGE)
+            .putExtra(YishouProtocol.EXTRA_VERSION, YishouProtocol.VERSION)
+            .putExtra(YishouProtocol.EXTRA_EVENT_ID, eventId)
+            .putExtra(YishouProtocol.EXTRA_NONCE, nonce)
+            .putExtra(YishouProtocol.EXTRA_TARGET_PACKAGE, pkg)
+            .putExtra(YishouProtocol.EXTRA_TARGET_LABEL, label.take(64))
+            .putExtra(YishouProtocol.EXTRA_REPLY_PACKAGE, context.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val started = runCatching { context.startActivity(request) }.onFailure { Log.w(TAG, "could not start 一手", it) }.isSuccess
+        if (!started) {
+            g.cancelHandoff(eventId, System.currentTimeMillis())
+            return false
+        }
+        Log.i(TAG, "handed " + eventId + " to 一手 for " + pkg)
+        main.removeCallbacks(handoffTick)
+        val delay = (g.handoffDeadline() - System.currentTimeMillis()).coerceAtLeast(0L)
+        main.postDelayed(handoffTick, delay)
+        return true
+    }
+
+    /** The page is in front again without a pass: the person came back from 一手. The drill is theirs again. */
+    fun onPageBack(eventId: String) {
+        val g = guard ?: return
+        if (g.cancelHandoff(eventId, System.currentTimeMillis())) {
+            main.removeCallbacks(handoffTick)
+            Log.i(TAG, "back from 一手 without a pass for " + eventId)
+            armDeadline()
+        }
+    }
+
+    /**
+     * 一手 says the question was answered. The guard checks event id, secret and age; only then is
+     * the page taken down and the target app put back in front. False changes nothing.
+     */
+    fun onYishouPass(context: Context, claim: YishouProtocol.PassClaim): Boolean {
+        val g = ensure(context)
+        val pkg = g.openPackage()
+        val ok = g.onExternalPass(claim.eventId, claim.nonce, claim.minutes, claim.ref, System.currentTimeMillis())
+        if (!ok) {
+            Log.w(TAG, "一手 pass refused for " + claim.eventId)
+            return false
+        }
+        Log.i(TAG, "一手 pass accepted for " + claim.eventId + ": " + claim.minutes + " min")
+        main.removeCallbacks(handoffTick)
+        clearDeadlineState()
+        InterceptPageActivity.withdraw(claim.eventId)
+        VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, claim.eventId)
+        if (pkg != null) openTarget(context, pkg)
+        recheckForeground("intercept_yishou_pass")
+        return true
+    }
+
+    /** The hand-off ran out: BLOCKED, page down, home, judge the foreground again. Never a release. */
+    private fun expireHandoffIfDue() {
+        val g = guard ?: return
+        val id = g.openEventId() ?: return
+        val now = System.currentTimeMillis()
+        if (!g.handoffActive(id)) return
+        val left = g.handoffDeadline() - now
+        if (left > 0) { main.postDelayed(handoffTick, left); return }
+        if (g.expireHandoff(id, now)) {
+            Log.i(TAG, "hand-off to 一手 ran out for " + id + "; settling as BLOCKED")
+            clearDeadlineState()
+            InterceptPageActivity.withdraw(id)
+            VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, id)
+            recheckForeground("intercept_handoff_timeout")
+        }
     }
 
     /** 训练通过 / 授权规则 / 白名单. True when the guard accepted it. */
