@@ -212,6 +212,28 @@ if ! grep -rq "EnforcementAlert.launchIntent *=" "$CODE_ONLY" --include="*.kt" 2
   echo 1 > "$FAILFILE"
 fi
 
+# 4. G2: the debug-only failure switch must stay behind a debug gate. The marker file name may only
+#    appear inside a function that also tests FLAG_DEBUGGABLE - otherwise a release build could be
+#    told to fail every launch, which would silently disable interception.
+#
+#    The brief asked for "inside a BuildConfig.DEBUG check". This project is on AGP 9.1.0, where
+#    BuildConfig is not generated unless buildFeatures.buildConfig is enabled, and build.gradle.kts is
+#    not a file this round may edit. ApplicationInfo.FLAG_DEBUGGABLE is set by the build type in the
+#    manifest, so it is just as impossible to flip at runtime - the intent is preserved.
+if grep -rq "debug-fail-start" "$CODE_ONLY" --include="*.kt" 2>/dev/null; then
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    while IFS=: read -r ln rest; do
+      [[ -z "$ln" ]] && continue
+      window=$(sed -n "$((ln > 8 ? ln - 8 : 1)),$((ln + 2))p" "$CODE_ONLY/$file")
+      if ! grep -q "FLAG_DEBUGGABLE" <<<"$window"; then
+        say "  FAIL: $file:$ln mentions debug-fail-start outside a FLAG_DEBUGGABLE gate"
+        echo 1 > "$FAILFILE"
+      fi
+    done < <(grep -n "debug-fail-start" "$CODE_ONLY/$file" 2>/dev/null)
+  done < <(cd "$CODE_ONLY" && grep -rl "debug-fail-start" . --include="*.kt" 2>/dev/null | sed "s|^\./||")
+fi
+
 # 4. The production entry point must go through the kernel factory, not build its own guard.
 if ! grep -rq "InterceptKernel.open" "$CODE_ONLY" --include="*.kt" 2>/dev/null; then
   say "  FAIL: nothing calls InterceptKernel.open - the atomic snapshot is not in the production path"

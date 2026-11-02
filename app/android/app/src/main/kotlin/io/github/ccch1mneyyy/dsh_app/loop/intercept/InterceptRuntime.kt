@@ -205,10 +205,19 @@ object InterceptRuntime {
         }
         requestedAtMono = mono()
         shownAtMono = 0L
-        val ok = InterceptPageActivity.start(
-            app, block.eventId, block.target.packageName, block.target.label,
-            config().trainingMs, now + PAGE_TTL_MS,
-        )
+        val ok = if (debugFailStartArmed()) {
+            // G2: a debuggable build can be told to pretend the launch failed. This exists because
+            // there is no other way to reach the "the page could not appear" path on a real device:
+            // with the accessibility service off the app never sees a foreground event at all, so the
+            // alert could never be observed. Release builds can never take this branch - see below.
+            Log.w(TAG, "debug failure switch is armed: pretending the page launch failed")
+            false
+        } else {
+            InterceptPageActivity.start(
+                app, block.eventId, block.target.packageName, block.target.label,
+                config().trainingMs, now + PAGE_TTL_MS,
+            )
+        }
         if (!ok) {
             VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, block.eventId)
             // The system refused the page: the interception did not happen, so nothing is owed.
@@ -361,6 +370,25 @@ object InterceptRuntime {
         requestedAtMono = 0L
         shownAtMono = 0L
         main.removeCallbacks(deadlineTick)
+    }
+
+    /**
+     * G2: true only in a debuggable build, when the marker file exists.
+     *
+     * Debuggable is checked from ApplicationInfo rather than BuildConfig so that no Gradle change is
+     * needed and a release build cannot reach this by any input: FLAG_DEBUGGABLE is set by the build
+     * type, not by anything at runtime.
+     */
+    private fun debugFailStartArmed(): Boolean {
+        val debuggable = (app.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!debuggable) return false
+        val dir = File(File(app.filesDir, "loop"), "intercept")
+        return File(dir, DEBUG_FAIL_START_MARKER).exists()
+    }
+
+    private companion object {
+        /** G2: created by hand on a debuggable build to exercise the "page could not appear" path. */
+        const val DEBUG_FAIL_START_MARKER = "debug-fail-start"
     }
 
     /** The page proved it is really on screen (attached + shown + laid out + focused). */
