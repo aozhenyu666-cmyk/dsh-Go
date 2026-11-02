@@ -1,46 +1,59 @@
 # WIRING-RESULT
 
-分支 / HEAD
 ```
-refs/heads/fix/r4-snapshot-fix-2026-11-02
-（HEAD 见 git ls-remote 原文，推送后追加）
+$ git ls-remote origin refs/heads/integration/r4-p4-2026-11-02
+16f8e1e52605aed61fe64e64003c8de130ec9373	refs/heads/integration/r4-p4-2026-11-02
 ```
 
-起点 `caeba65`。未 force push、未碰其他分支、未建 APK、未上手机。
+起点 `bf47bbf`。未 force push、未碰其他分支。
 
-| 任务 | 改动文件 | 红 | 绿 | 状态 |
-|---|---|---|---|---|
-| **F0** | 无 | — | `OK (258 tests)` / `wiring OK` | **DONE** |
-| **F1** | `core/Ledgers.kt` `core/Intercept.kt` `core/InterceptRepository.kt` `core/InterceptMigration.kt` `test/InterceptProductionPathTest.kt`(新) | `Tests run: 260, Failures: 2`<br>`FAIL -- see .kernel-tests/test.log`<br>`triggerCount (0) is smaller than receipts (1)` | `OK (260 tests)` / `PASS` / `wiring OK` | **DONE** |
-| **F2** | `core/Intercept.kt` `core/Ledgers.kt` `core/InterceptKernel.kt` `test/InterceptProductionPathTest.kt` | `Tests run: 266, Failures: 6`<br>`FAIL -- see .kernel-tests/test.log`<br>`a drill tap that did not land must report failure` | `OK (266 tests)` / `PASS` / `wiring OK` | **DONE** |
-| **F3** | `core/InterceptMigration.kt` `test/InterceptMigrationTest.kt` | `Tests run: 268, Failures: 1`<br>`FAIL -- see .kernel-tests/test.log`<br>`RecoveryRequired(max=150 receipts=100)` | `OK (268 tests)` / `PASS` / `wiring OK` | **DONE** |
-| **F4** | `intercept/InterceptRuntime.kt` `intercept/InterceptPlugin.kt` `lib/intercept/intercept_channel.dart` `lib/ui/phone/intercept_page.dart` `lib/l10n/parts/intercept_{en,zh}.arb` `test/InterceptProductionPathTest.kt` | 测试首次失败（fixture 触发更早检查）；**修正 fixture 后即通过 → 真实缺口在 UI 未显示** | `OK (269 tests)` / `wiring OK`<br>`No issues found! (ran in 10.3s)` | **DONE** |
-| **F5** | `intercept/InterceptRuntime.kt` `tooling/run-kernel-tests.sh` | 注释替换真实调用：`OK (269 tests)` `PASS` 但 `FAIL: nothing calls EnforcementAlert.notify` + `WIRING FAIL` | 恢复后 `OK (269 tests)` / `wiring OK` | **DONE** |
-| **F6** | `lib/l10n/gen/`（重新生成） | 原 diff 3056 行 | 26 行，只涉 2 个新 key；`--check` exit=0 | **DONE** |
-| **F7** | `test/InterceptProductionPathTest.kt` | —（回归包，非缺陷修复） | `OK (278 tests)` / `PASS` / `wiring OK` | **DONE** |
+| 任务 | 改动文件 | 最后 3 行 | 状态 |
+|---|---|---|---|
+| **G0** | 无 | `OK (278 tests)` / `PASS` / `wiring OK` | **DONE** |
+| **G1** | `core/Intercept.kt` `test/InterceptProductionPathTest.kt` | 红 `Tests run: 279, Failures: 1` · 绿 `OK (279 tests)` / `PASS` / `wiring OK` | **DONE** |
+| **G2** | `intercept/InterceptRuntime.kt` `tooling/run-kernel-tests.sh` `tooling/device-smoke.md` | 红 `FAIL: …outside a FLAG_DEBUGGABLE gate`+`WIRING FAIL` · 绿 `OK (279 tests)` / `wiring OK` | **DONE** |
+| **G3** | 分支 | `16f8e1e5… = refs/heads/integration/r4-p4-2026-11-02` | **DONE** |
+| **G4** | `runtime/out/x86_64/`（未入库） | `x86_64 done: 158M … rc.4`；arm64 `error: Termux index no longer has proot 5.1.107.101 for aarch64` | **STOPPED(arm64 的 proot .101 已下架)** |
+| **G5** | — | — | **STOPPED(G4 未完成；且本机只有 x86_64 模拟器，无 arm64 真机)** |
 
-## 五处真实缺陷（都已修）
+## G1 比指令单说的更严重
 
-1. **F1**：设置页暂停写一条 `pause-<now>` 回执但不加 `triggerCount` → `validate()` 永久拒绝提交。
-   之后暂停、白名单、回执全都写不进去，直到约 100 次拦截把该回执挤出上限；期间进程一死全丢。
-2. **F2**：提交失败只记 `storageError`，各方法仍 `return true`。内存前进而磁盘没动，下次启动改动消失且无回执。
-3. **F3**：回执上限 100 而计数一直累加 → 老用户 `blockedCount=150` 配 100 条回执被误判为数据损坏，**拒绝迁移用得最久的人**。
-4. **F4**：退回旧格式时 `recoveryIssue` 只进日志，status map 与 Dart 都读不到 → 用户不知道自己仍在旧格式。
-5. **F5**：`launchIntent` 从未赋值（通知点了没反应）；且 W3 检查跑在含注释的原文上，**注释能冒充真实调用**。
+指令单说的是「transact 回滚没还原 charged\* 三个字段」，确实存在、已修。但只修它测试仍红，真因是：
 
-## 两条过程记录
+```
+onUnavailable { endOpen(...)                              // endOpen 在尾部清空 charged*
+                state.copy(countToday = chargedCountToday)  // ← 永远读到 0
+```
 
-- **F2 的可测性**：`InterceptKernel.open` 增加了可选 `snapshotStore` 工厂，故障注入才能经由生产入口，
-  而不是手工 new Guard —— 后者正是上一轮 24 项全绿却什么都没生效的原因。
-- **F6 的噪声**：上一轮提交的 `l10n/gen` 含约 3000 行格式化重排（长字符串重新折行），把真正的两个新 key 淹没。
-  本轮回退到 `7d2ef4d` 后只用 `tool/l10n_merge.py` 重新生成，未跑 `dart format`。
+**每一次 NOT_SHOWN 退还的都是 0**，不只是提交失败之后。后果相同（countToday 归零、当日上限重置），
+但发生在普通路径上；F2 之前没有重试，所以没人看见。现改为在 `endOpen` 之前读取。
+## G2 一处偏离，已说明
 
-## 还没做的
+指令单要求 `BuildConfig.DEBUG`。本项目 AGP 9.1.0 **默认不生成 BuildConfig**，启用需改 `build.gradle.kts`（不在可改清单内）。
+改用 `ApplicationInfo.FLAG_DEBUGGABLE`：由 manifest build type 决定、运行时改不了，**意图不变（release 取不到该分支）**。
+新增第 5 道检查约束该文件名只能出现在该判断附近；负向验收：删掉判断 → 测试全过但 `WIRING FAIL`；恢复 → `wiring OK`。
 
-- **没有在手机上跑过任何一条。** `tooling/device-smoke.md` 是清单，不是结果。
-- 主动回复闭环、白名单撤销入口、`hostdeps.mjs`、rc.4、PRoot、D1–D7、APK、真机 —— 按约定未动。
-- 白名单检查（“数据对不上就不迁移”）本轮**未改**，等负责人决定。
+## G4 停下的原因（需要你决定）
 
-## 记法
+| 检查 | 结果 |
+|---|---|
+| `binary-aarch64` 的 proot | 只有 **5.1.107.102** |
+| `binary-x86_64` 的 proot | 同样只有 **5.1.107.102** |
+| `proot_5.1.107.101_aarch64.deb` | **404** |
+| `proot_5.1.107.102_aarch64.deb` | **200** |
 
-F0–F7 全部 **DONE**。手机上跑过之前，任何东西都不叫“通过”。
+x86_64 成功是因为本地缓存还留着 `.101` 的 deb；aarch64 没有这份缓存。
+
+**x86_64 已完成**：`rootfs-x86_64.tar.xz` 157.4 MB，`libproot.so` 内 `strings` = `5.1.107.101`，
+`rootfs ELF objects: 835, wrong-arch: 0, warnings: 0`。**arm64-v8a 为空**。
+
+没有擅自改 `PROOT_VERSION`：升 .102 等于换 vendored 二进制，而 l2s 布局我只验过 `.98` 与 `.101`。
+请明确二选一：**升到 .102 并重跑 l2s 迁移测试**，或**自行镜像 .101 的 deb**。
+## 设备情况（影响 G5）
+
+`adb devices` 非空，但唯一设备是 **x86_64 模拟器**（`ro.kernel.qemu=1`、`sdk_gphone64_x86_64`、API 34）。指令单要求 arm64 真机；模拟器验证不了 arm64 运行时，也代表不了真实 ROM 生命周期。
+若接受「x86_64 模拟器 + x86_64 运行时」作为第一轮证据，请明确说，我会照做并标注为模拟器结果。
+
+## 仍然不做
+
+主动交流闭环、白名单撤销、hostdeps.mjs / rc.4、PRoot 夹具、D1–D7。
