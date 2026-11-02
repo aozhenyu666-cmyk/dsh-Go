@@ -734,16 +734,20 @@ class InterceptGuard(
 fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
         return@synchronized transact {
+            // Read the charge BEFORE endOpen: it clears these three at its tail (they are per-event),
+            // so reading afterwards always refunded 0 - the daily counter dropped to zero and the
+            // cap was reset. That was true even without a failed commit; a failure just made it
+            // visible. Capturing first is the whole fix.
+            val refundAt = chargedLastTriggerAt
+            val refundPkg = chargedLastTriggerPackage
+            val refundCount = chargedCountToday
             endOpen(now, InterceptOutcome.NOT_SHOWN, code)
             // Give back exactly what this trigger charged.
             state = state.copy(
-                lastTriggerAt = chargedLastTriggerAt,
-                lastTriggerPackage = chargedLastTriggerPackage,
-                countToday = chargedCountToday,
+                lastTriggerAt = refundAt,
+                lastTriggerPackage = refundPkg,
+                countToday = refundCount,
             )
-            chargedLastTriggerAt = 0L
-            chargedLastTriggerPackage = null
-            chargedCountToday = 0
             true
         }
     }
@@ -857,6 +861,12 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         val stateBefore = state
         val ledgerBefore = ledger.state
         val appliedBefore = ledger.appliedIds()
+        // The charge recorded at Block time is part of the state this transaction owns: onUnavailable
+        // clears it inside the block, so a rollback that skipped it would leave the retry refunding 0
+        // and resetting the day's counter.
+        val chargedAtBefore = chargedLastTriggerAt
+        val chargedPkgBefore = chargedLastTriggerPackage
+        val chargedCountBefore = chargedCountToday
         val ok = block()
         if (!ok) return false
         persist()
@@ -865,6 +875,9 @@ fun onUnavailable(eventId: String, code: String, now: Long): Boolean = synchroni
         config = configBefore
         state = stateBefore
         ledger.restore(ledgerBefore, appliedBefore)
+        chargedLastTriggerAt = chargedAtBefore
+        chargedLastTriggerPackage = chargedPkgBefore
+        chargedCountToday = chargedCountBefore
         return false
     }
 /**
