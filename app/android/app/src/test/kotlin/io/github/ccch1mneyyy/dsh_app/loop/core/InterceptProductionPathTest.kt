@@ -403,4 +403,66 @@ class InterceptProductionPathTest {
         assertEquals("but every trigger is counted", 120L, again.ledger.state.triggerCount)
         assertNull(again.guard.storageError)
     }
+
+    // ---- G1: a failed NOT_SHOWN must not reset the daily counter to zero ----------------
+    //
+    // transact() restores config/state/ledger/applied but NOT chargedLastTriggerAt /
+    // chargedLastTriggerPackage / chargedCountToday. onUnavailable clears those inside the block, so
+    // after a failed commit the retry refunds 0 instead of the one charge - countToday drops to zero
+    // and the day's daily cap is reset, which is a bypass.
+
+    @Test
+    fun a_failed_not_shown_then_a_successful_retry_refunds_one_charge_not_zero() {
+        val dir = tmpDir()
+        var created: FailingStore? = null
+        val k = InterceptKernel.open(dir, { wall }, { "evt-" + (++seq) }) { f ->
+            FailingStore(AtomicJsonFile(f)).also { created = it }
+        }
+        val store = created!!
+
+        // dailyMax well above what we use, so nothing here is about the cap firing.
+        k.guard.setConfig(
+            InterceptConfig(
+                enabled = true,
+                targets = listOf(InterceptTarget(bili, "Bilibili")),
+                trainingMs = 0,
+                cooldownMs = 0,
+                dailyMax = 3,
+            ),
+            wall,
+        )
+
+        // Two interceptions that end normally: countToday is 2, and the second one's lastTriggerAt
+        // is the value a correct refund must restore.
+        repeat(2) { i ->
+            val t = wall + i * 100_000L
+            val d = k.guard.onForeground(bili, env(), t) as InterceptDecision.Block
+            assertTrue(k.guard.onPageShown(d.eventId, t))
+            assertTrue(k.guard.onExited(d.eventId, t + 1L))
+        }
+        val lastTriggerBeforeThird = k.guard.state.lastTriggerAt
+        assertEquals("two interceptions counted", 2, k.guard.state.countToday)
+
+        // Third interception: the commit for its NOT_SHOWN will fail.
+        val t3 = wall + 300_000L
+        val third = k.guard.onForeground(bili, env(), t3) as InterceptDecision.Block
+        assertEquals("the third trigger was charged", 3, k.guard.state.countToday)
+
+        store.failNextWrite = true
+        assertTrue("the failed NOT_SHOWN reports failure", !k.guard.onUnavailable(third.eventId, "no_visibility_proof", t3 + 1L))
+
+        // Retry the same event; this time the commit lands.
+        assertTrue("the retry succeeded", k.guard.onUnavailable(third.eventId, "no_visibility_proof", t3 + 2L))
+
+        assertEquals(
+            "the refund must give back the one charge, not reset the day",
+            2,
+            k.guard.state.countToday,
+        )
+        assertEquals(
+            "and the cooldown stamp must go back to the second interception",
+            lastTriggerBeforeThird,
+            k.guard.state.lastTriggerAt,
+        )
+    }
 }
