@@ -1,0 +1,86 @@
+name: Build R4 Android APK (phone test)
+on:
+  push:
+    branches: [build/r4-phone-apk-2026-11-02]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 115
+    env:
+      # Termux dropped 5.1.107.101 from its index; .102 only changes how /proc/<pid>/fd names are
+      # reported (termux/proot 7471c71), not the link2symlink store layout L2sMigration reads.
+      # The deb hash comes from the Termux index (index -> deb chain in termux_deb).
+      PROOT_VERSION: 5.1.107.102
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.7'
+          channel: stable
+          cache: true
+      - name: Install required Linux packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gpgv zstd xz-utils unzip file
+      - name: Build arm64 Linux runtime (proot 5.1.107.102)
+        run: |
+          bash runtime/build-runtime.sh arm64-v8a
+          test -f runtime/out/arm64-v8a/assets/runtime/manifest.json
+          test -f runtime/out/arm64-v8a/assets/runtime/rootfs-arm64-v8a.tar.xz
+          strings "$(find runtime/out/arm64-v8a -name libproot.so | head -1)" | grep -m1 '5\.1\.107' | tee PROOT-VERSION.txt
+      - name: Separate app ID and name so it installs next to other builds
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path("app/android/app/build.gradle.kts")
+          data = gradle.read_text(encoding="utf-8")
+          original = 'applicationId = "io.github.ccch1mneyyy.dsh_app"'
+          assert data.count(original) == 1, "Unexpected Gradle applicationId layout"
+          gradle.write_text(data.replace(original, 'applicationId = "io.github.ccch1mneyyy.dsh_app.r4"'), encoding="utf-8")
+          manifest = Path("app/android/app/src/main/AndroidManifest.xml")
+          data = manifest.read_text(encoding="utf-8")
+          original = 'android:label="DSH Go"'
+          assert data.count(original) == 1, "Unexpected AndroidManifest label"
+          manifest.write_text(data.replace(original, 'android:label="DSH Go R4"'), encoding="utf-8")
+          PY
+      - name: Build arm64 release APK
+        run: |
+          cd app
+          flutter pub get
+          flutter build apk --release --flavor arm64 --target-platform android-arm64 --build-name 1.0.4 --build-number ${{ github.run_number }}0 --dart-define=DSH_UPDATE_REPO=aozhenyu666-cmyk/dsh-Go
+      - name: Verify bundled runtime and package
+        run: |
+          APK=app/build/app/outputs/flutter-apk/app-arm64-release.apk
+          test -s "$APK"
+          python3 tooling/verify_apk_runtime.py "$APK" --plugin runtime/proactive/dsh-go-proactive
+          AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)
+          "$AAPT" dump badging "$APK" | grep 'io.github.ccch1mneyyy.dsh_app.r4'
+          cp "$APK" dsh-go-r4-p4-arm64.apk
+          sha256sum dsh-go-r4-p4-arm64.apk | tee APK-SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-go-r4-p4-arm64-apk
+          path: |
+            dsh-go-r4-p4-arm64.apk
+            APK-SHA256.txt
+            PROOT-VERSION.txt
+          retention-days: 14
+      - name: Publish phone-downloadable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "r4-p4-build-${{ github.run_number }}" \
+            dsh-go-r4-p4-arm64.apk APK-SHA256.txt PROOT-VERSION.txt \
+            --target "${{ github.sha }}" \
+            --title "DSH Go R4 第四阶段 · arm64 手动测试版" \
+            --notes "第四阶段拦截修复（原子快照、迁移、拦截失败提醒）的手动测试版。独立包名 .r4，可与官方版、R3 .mine 并存。云端临时调试签名，以后换正式签名需卸载重装。PRoot 5.1.107.102。请核对 SHA256 后安装。" \
+            --prerelease

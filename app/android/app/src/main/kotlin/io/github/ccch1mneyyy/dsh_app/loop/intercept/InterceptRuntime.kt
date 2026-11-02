@@ -386,10 +386,12 @@ object InterceptRuntime {
         return File(dir, DEBUG_FAIL_START_MARKER).exists()
     }
 
-    private companion object {
-        /** G2: created by hand on a debuggable build to exercise the "page could not appear" path. */
-        const val DEBUG_FAIL_START_MARKER = "debug-fail-start"
-    }
+    /**
+     * G2: created by hand on a debuggable build to exercise the "page could not appear" path.
+     * A plain member, not a companion: InterceptRuntime is an `object`, and Kotlin rejects a
+     * companion inside a standalone object ("modifier 'companion' is not applicable").
+     */
+    private const val DEBUG_FAIL_START_MARKER = "debug-fail-start"
 
     /** The page proved it is really on screen (attached + shown + laid out + focused). */
     fun onPageShown(eventId: String): Boolean {
