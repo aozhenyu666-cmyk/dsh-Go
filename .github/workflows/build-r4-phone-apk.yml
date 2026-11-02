@@ -56,6 +56,9 @@ jobs:
         run: |
           cd app
           flutter pub get
+          # The merged app_*.arb drive gen-l10n during the build; merge the parts first so a key
+          # that only exists in lib/l10n/parts cannot go missing again (run 1 failed on that).
+          python3 tool/l10n_merge.py
           flutter build apk --release --flavor arm64 --target-platform android-arm64 --build-name 1.0.4 --build-number ${{ github.run_number }}0 --dart-define=DSH_UPDATE_REPO=aozhenyu666-cmyk/dsh-Go
       - name: Verify bundled runtime and package
         run: |

@@ -4824,6 +4824,14 @@
       }
     }
   },
+  "interceptLegacyFormat": "拦截记录仍使用旧格式，原因：{reason}",
+  "@interceptLegacyFormat": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "launchScreenTitle": "启动画面",
   "launchDefault": "默认",
   "launchCustom": "自定义",

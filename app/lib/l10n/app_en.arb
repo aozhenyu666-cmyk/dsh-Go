@@ -2251,6 +2251,7 @@
   "interceptOutcomePaused": "Paused",
   "interceptOutcomeNotShown": "Never shown",
   "interceptEnforcementUnavailable": "The last block did not take effect: {detail}",
+  "interceptLegacyFormat": "Block records still use the old format: {reason}",
   "launchScreenTitle": "Launch screen",
   "launchDefault": "Default",
   "launchCustom": "Custom",
