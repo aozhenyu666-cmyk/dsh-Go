@@ -33,7 +33,11 @@ async function fixture(t, profile, behavior = {}) {
     if (req.url === '/original.mp4' || req.url === '/original.png') { res.end(req.url.endsWith('mp4') ? MP4 : PNG); return; }
     const creating = req.method === 'POST' && !req.url.endsWith('/cancel') && !req.url.endsWith('/status');
     if (creating && behavior.drop) { req.socket.destroy(); return; }
-    if (creating && behavior.stall) return;
+    if (creating && behavior.stall) {
+      // Time out only after submission, not during the preceding filesystem preparation.
+      controller.abort(new DOMException('deadline', 'TimeoutError'));
+      return;
+    }
     if (creating && behavior.reject) { res.writeHead(behavior.reject); res.end('{}'); return; }
     if (req.method === 'DELETE' || req.url.endsWith('/cancel')) { state = 'cancelled'; res.end('{}'); return; }
     const url = 'https://result.example/original.' + (profile.includes('video') ? 'mp4' : 'png');
@@ -106,7 +110,6 @@ for (const profile of ['openai-gpt-image', 'ark-image', 'ali-wan-image', 'silico
   });
   test(`${profile}: create timeout has an uncertain submission outcome`, async t => {
     const f = await fixture(t, profile, { stall: true });
-    f.context.signal = AbortSignal.timeout(30);
     await assert.rejects(generateMedia(request(profile), f.context), { code: 'submission_unknown' });
     assert.equal(f.wires.length, 1);
   });
@@ -158,7 +161,7 @@ for (const profile of ['ark-video', 'ali-video', 'silicon-video']) {
     assert.equal(f.wires.filter(w => w.method === 'DELETE' || w.path.endsWith('/cancel')).length, 0);
   });
   test(`${profile}: create timeout is unknown and not re-submitted`, async t => {
-    const f = await fixture(t, profile, { stall: true }); f.context.signal = AbortSignal.timeout(30);
+    const f = await fixture(t, profile, { stall: true });
     await assert.rejects(generateMedia(request(profile), f.context), { code: 'submission_unknown' }); assert.equal(f.wires.length, 1);
   });
 }
@@ -274,4 +277,71 @@ test('process exit after publishing MP4 before index can resume with new names a
   assert.deepEqual(await readFile(join(directory, orphan)), MP4);
   assert.equal((await recoverAdmission(admission.rid, f.context)).completed.meta.rid, admission.rid);
   assert.equal(f.wires.filter(w => w.method === 'POST').length, 0);
+});
+
+const defaultImageRow = {
+  id: 'img', enabled: true, keyRef: 'DSH_MEDIA_ARK_API_KEY',
+  provider: 'openai', baseUrl: 'https://api.openai.com/v1',
+  profile: 'openai-gpt-image', models: 'gpt-image-2,gpt-image-2.5-flare',
+};
+const defaultVideoRow = {
+  id: 'vid', enabled: true, keyRef: 'DSH_MEDIA_ARK_API_KEY',
+  provider: 'ark', baseUrl: 'https://ark.cn-beijing.volces.com',
+  profile: 'ark-video', models: 'doubao-seedance-2-5-260628',
+};
+const defaultSnapshot = defaults => runtimeSnapshot(Config({
+  services: [defaultImageRow, defaultVideoRow], defaults,
+}));
+
+test('per-kind defaults select the image or video target and model', () => {
+  const snapshot = defaultSnapshot({
+    serviceId: 'vid', modelId: 'doubao-seedance-2-5-260628',
+    imageServiceId: 'img', imageModelId: 'gpt-image-2.5-flare',
+    videoServiceId: 'vid', videoModelId: 'doubao-seedance-2-5-260628',
+  });
+  const image = selectedRequest({ prompt: '猫' }, snapshot, snapshot.services, 'generate_image');
+  assert.equal(image.request.service.id, 'img');
+  assert.equal(image.request.model.id, 'gpt-image-2.5-flare');
+  const edit = selectedRequest({ prompt: '猫', refs: ['/work/reference.png'] }, snapshot, snapshot.services, 'edit_image');
+  assert.equal(edit.request.service.id, 'img');
+  assert.equal(edit.request.model.id, 'gpt-image-2.5-flare');
+  const video = selectedRequest({ prompt: '猫' }, snapshot, snapshot.services, 'generate_video');
+  assert.equal(video.request.service.id, 'vid');
+  assert.equal(video.request.model.id, 'doubao-seedance-2-5-260628');
+});
+
+test('invalid per-kind defaults fall back to the legacy pair and then the first candidate', () => {
+  const snapshot = defaultSnapshot({
+    serviceId: 'img', modelId: 'gpt-image-2',
+    imageServiceId: 'removed', imageModelId: 'removed-model',
+    videoServiceId: 'removed', videoModelId: 'removed-model',
+  });
+  const image = selectedRequest({ prompt: '猫' }, snapshot, snapshot.services, 'generate_image');
+  assert.equal(image.request.service.id, 'img');
+  assert.equal(image.request.model.id, 'gpt-image-2');
+  const video = selectedRequest({ prompt: '猫' }, snapshot, snapshot.services, 'generate_video');
+  assert.equal(video.request.service.id, 'vid');
+  assert.equal(video.request.model.id, 'doubao-seedance-2-5-260628');
+  // A kind service that exists but cannot serve this tool falls back silently.
+  const unsupported = defaultSnapshot({ videoServiceId: 'img' });
+  assert.equal(selectedRequest({ prompt: '猫' }, unsupported, unsupported.services, 'generate_video')
+    .request.service.id, 'vid');
+});
+
+test('legacy-only defaults keep the old selection and fail-closed behavior', () => {
+  const snapshot = defaultSnapshot({ serviceId: 'img', modelId: 'gpt-image-2.5-flare' });
+  const image = selectedRequest({ prompt: '猫' }, snapshot, snapshot.services, 'generate_image');
+  assert.equal(image.request.service.id, 'img');
+  assert.equal(image.request.model.id, 'gpt-image-2.5-flare');
+  // The legacy service is ready but cannot serve video, so selection moves on.
+  const video = selectedRequest({ prompt: '猫' }, snapshot, snapshot.services, 'generate_video');
+  assert.equal(video.request.service.id, 'vid');
+  assert.equal(video.request.model.id, 'doubao-seedance-2-5-260628');
+  // A missing legacy target still fails closed instead of silently changing service.
+  const missing = defaultSnapshot({ serviceId: 'gone', modelId: 'gpt-image-2' });
+  assert.throws(() => selectedRequest({ prompt: '猫' }, missing, missing.services, 'generate_image'),
+    error => error.code === 'not_configured');
+  // Explicit arguments still win over every default.
+  const explicit = selectedRequest({ prompt: '猫', serviceId: 'vid' }, snapshot, snapshot.services, 'generate_video');
+  assert.equal(explicit.request.service.id, 'vid');
 });

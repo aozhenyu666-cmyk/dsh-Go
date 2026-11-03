@@ -7432,6 +7432,156 @@ class L10nZh extends L10n {
   String get hubQuickPanelItemsNone => '没有选择，左滑不会打开';
 
   @override
+  String get interceptTitle => '娱乐拦截';
+
+  @override
+  String get interceptSubtitle => '你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。';
+
+  @override
+  String get interceptEnabled => '开启娱乐拦截';
+
+  @override
+  String get interceptEnabledHint => '默认关闭。开启后每次打开下面这些 APP 都会被拦一次；冷却期内不会连着拦。';
+
+  @override
+  String get interceptTargets => '要拦的 APP';
+
+  @override
+  String get interceptTargetsHint => '这些包名是你自己选的，不是内置的。删掉一个就立刻不拦。';
+
+  @override
+  String get interceptNoTargets => '还没设任何目标 APP';
+
+  @override
+  String get interceptAddTarget => '加一个包名';
+
+  @override
+  String get interceptAddTargetHint => '填 Android 包名，例如 tv.danmaku.bili';
+
+  @override
+  String get interceptAddTargetInvalid => '包名不能为空，也不能有空格';
+
+  @override
+  String get interceptRemoveTarget => '移除';
+
+  @override
+  String get interceptWhitelist => '白名单';
+
+  @override
+  String get interceptWhitelistHint => '白名单里的包名永远不拦，哪怕在目标清单里。';
+
+  @override
+  String get interceptWhitelistEmpty => '白名单是空的';
+
+  @override
+  String get interceptMode => '拦截参数';
+
+  @override
+  String get interceptRelease => '放行时长（分钟）';
+
+  @override
+  String get interceptTraining => '训练题长度（秒）';
+
+  @override
+  String get interceptCooldown => '冷却（分钟）';
+
+  @override
+  String get interceptDailyMax => '每日上限';
+
+  @override
+  String get interceptDailyMaxOff => '不限次数';
+
+  @override
+  String get interceptPause => '暂停与恢复';
+
+  @override
+  String get interceptPauseHint => '暂停期间什么都不拦，到点自动恢复。';
+
+  @override
+  String get interceptPauseNow => '立刻暂停 30 分钟';
+
+  @override
+  String get interceptResume => '恢复拦截';
+
+  @override
+  String interceptPausedUntil(String time) {
+    return '已暂停，到 $time 恢复';
+  }
+
+  @override
+  String get interceptLedger => '行为拦截账';
+
+  @override
+  String get interceptLedgerTriggers => '触发';
+
+  @override
+  String get interceptLedgerBlocked => '真的拦住';
+
+  @override
+  String get interceptLedgerReleased => '用户放行';
+
+  @override
+  String get interceptLedgerExited => '用户退出';
+
+  @override
+  String get interceptLedgerPaused => '暂停';
+
+  @override
+  String get interceptReceipts => '最近回执';
+
+  @override
+  String get interceptReceiptsEmpty => '还没有回执';
+
+  @override
+  String interceptActive(String package) {
+    return '正在拦：$package';
+  }
+
+  @override
+  String interceptStorageError(String error) {
+    return '存档写入失败：$error';
+  }
+
+  @override
+  String interceptRecoveryIssue(String error) {
+    return '启动时读到坏存档：$error';
+  }
+
+  @override
+  String get interceptUnavailable => '这个版本没有接入拦截内核';
+
+  @override
+  String get interceptUnavailableHint => '只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。';
+
+  @override
+  String get interceptRefresh => '刷新';
+
+  @override
+  String get interceptOutcomeBlocked => '拦住了，还没有结局';
+
+  @override
+  String get interceptOutcomeReleased => '放行';
+
+  @override
+  String get interceptOutcomeExited => '紧急退出';
+
+  @override
+  String get interceptOutcomePaused => '暂停';
+
+  @override
+  String get interceptOutcomeNotShown => '没显示出来';
+
+  @override
+  String interceptEnforcementUnavailable(String detail) {
+    return '上次拦截没有真正生效：$detail';
+  }
+
+  @override
+  String interceptLegacyFormat(String reason) {
+    return '拦截记录仍使用旧格式，原因：$reason';
+  }
+
+  @override
   String get launchScreenTitle => '启动画面';
 
   @override
@@ -7709,6 +7859,188 @@ class L10nZh extends L10n {
 
   @override
   String get localEnvSignInInstallFirst => '安装后即可登录';
+
+  @override
+  String get loopEntryTitle => '触发测试';
+
+  @override
+  String get loopEntrySubtitle => '打开指定 APP 时弹出测试页（实验）';
+
+  @override
+  String get loopPageSubtitle => '第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。';
+
+  @override
+  String get loopEnabled => '开启触发测试';
+
+  @override
+  String get loopEnabledHint => 'DSH 正在操作手机或有确认在等你时不会弹出';
+
+  @override
+  String get loopTargetApp => '测试 APP';
+
+  @override
+  String get loopTargetNone => '未选择';
+
+  @override
+  String get loopPickApp => '选择测试 APP';
+
+  @override
+  String get loopNoApps => '没有找到可选的 APP';
+
+  @override
+  String get loopCooldown => '冷却时间';
+
+  @override
+  String get loopCooldownHint => '两次弹出之间至少隔这么久，点一下切换';
+
+  @override
+  String loopSeconds(int seconds) {
+    return '$seconds 秒';
+  }
+
+  @override
+  String get loopTimeout => '等你回应的时间';
+
+  @override
+  String get loopTimeoutHint => '超时就记成「超时未回应」，点一下切换';
+
+  @override
+  String loopVisitShort(String id) {
+    return '访问 $id';
+  }
+
+  @override
+  String get loopExport => '导出回执（JSON 复制到剪贴板）';
+
+  @override
+  String loopExportDone(int count) {
+    return '已把 $count 条回执复制到剪贴板';
+  }
+
+  @override
+  String get loopQuietHours => '免打扰时段';
+
+  @override
+  String get loopQuietHoursHint => '这段时间里不弹测试页，可以跨零点。点一下切换。';
+
+  @override
+  String get loopQuietHoursOff => '不限';
+
+  @override
+  String loopQuietHoursValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get loopDailyCap => '每天上限';
+
+  @override
+  String get loopDailyCapHint => '一天最多弹几次，过零点重新算';
+
+  @override
+  String get loopDailyCapOff => '不限次数';
+
+  @override
+  String loopDailyCapValue(int used, int cap) {
+    return '今天 $used/$cap 次';
+  }
+
+  @override
+  String get loopA11yNeeded => '需要先在系统设置里开启 DSH 的无障碍服务';
+
+  @override
+  String get loopA11yWaiting => '无障碍已开启，等待服务连接';
+
+  @override
+  String get loopA11yReady => '无障碍服务已连接';
+
+  @override
+  String loopCounters(int events, int readings, String app) {
+    return '收到 $events 个窗口事件，复核 $readings 次 · 最近前台 $app';
+  }
+
+  @override
+  String loopStorageError(String error) {
+    return '回执保存失败：$error';
+  }
+
+  @override
+  String loopRecoveredFromBackup(String file) {
+    return '回执文件损坏，已从备份（$file）恢复';
+  }
+
+  @override
+  String get loopDiagnostics => '无障碍诊断';
+
+  @override
+  String loopDiagnosticsSummary(int events, int readings, int faults) {
+    return '$events 个窗口事件、$readings 次前台复核、$faults 次失败';
+  }
+
+  @override
+  String loopDiagnosticsLastRead(String time) {
+    return '上次成功读到前台：$time';
+  }
+
+  @override
+  String get loopDiagnosticsClear => '清空诊断';
+
+  @override
+  String get loopFaultEvent => '窗口事件出错';
+
+  @override
+  String get loopFaultRead => '读前台失败';
+
+  @override
+  String get loopFaultVerify => '触发判定出错';
+
+  @override
+  String get loopFaultAttach => '连接失败';
+
+  @override
+  String get loopFaultSurface => '弹出问题失败';
+
+  @override
+  String get loopSurfaceNotification => '通过通知';
+
+  @override
+  String get loopReceipts => '回执';
+
+  @override
+  String get loopReceiptsEmpty => '还没有回执';
+
+  @override
+  String get loopClear => '清空回执';
+
+  @override
+  String get loopRefresh => '刷新';
+
+  @override
+  String get loopResultReturned => '点了返回';
+
+  @override
+  String get loopResultBack => '按了系统返回';
+
+  @override
+  String get loopResultDismissed => '离开了页面';
+
+  @override
+  String get loopResultTimeout => '超时未回应';
+
+  @override
+  String get loopResultAbandoned => '重启后关闭';
+
+  @override
+  String get loopResultUnavailable => '页面没能弹出';
+
+  @override
+  String get loopResultSuppressed => '未触发';
+
+  @override
+  String get loopResultError => '出错';
+
+  @override
+  String get loopResultOpen => '进行中';
 
   @override
   String get marketSectionOfficial => '官方';
@@ -9837,6 +10169,44 @@ class L10nZh extends L10n {
 
   @override
   String get phoneDndConnectPortHint => '在系统「无线调试」首页查看「IP 地址和端口」，填写冒号后的端口。请不要使用配对码页面的端口。';
+
+  @override
+  String get phoneDndShizukuReady => 'Shizuku · 可以用了';
+
+  @override
+  String get phoneDndAdbReady => '自连 ADB · 可以用了';
+
+  @override
+  String get phoneDndUsingShizuku => '正在使用：Shizuku';
+
+  @override
+  String get phoneDndUsingAdb => '正在使用：自连 ADB';
+
+  @override
+  String get phoneDndUseShizuku => '用 Shizuku';
+
+  @override
+  String get phoneDndPairOnce => '配对一次（不用装别的 App）';
+
+  @override
+  String get phoneDndEnable => '启用不打扰模式';
+
+  @override
+  String get phoneDisclosureTriggerTitle => '触发测试与主动搭话（默认关闭）';
+
+  @override
+  String get phoneDisclosureTriggerBody =>
+      '只有你打开「触发测试」或「主动搭话」之后，DSH 才会读取当前前台 APP 的名称（包名）：触发测试用它判断你有没有打开测试 APP；两者都用它避开系统设置、权限和安装页面，不在这些页面上弹出。不读页面内容，不录屏，不上传。随时可以关掉。';
+
+  @override
+  String phoneDndShizukuStatus(String reason) {
+    return 'Shizuku · $reason';
+  }
+
+  @override
+  String phoneDndAdbStatus(String reason) {
+    return '自连 ADB · $reason';
+  }
 
   @override
   String get phoneTaskResultReady => '任务完成 · 查看结果';
@@ -12030,6 +12400,196 @@ class L10nZh extends L10n {
   String plugViewGalleryPicture(int index) {
     return '第 $index 张';
   }
+
+  @override
+  String get proactiveTitle => '主动搭话';
+
+  @override
+  String get proactiveSubtitle => 'DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。';
+
+  @override
+  String get proactiveEnabled => '开启主动搭话';
+
+  @override
+  String get proactiveEnabledHint => '默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。';
+
+  @override
+  String get proactiveGap => '最短间隔';
+
+  @override
+  String get proactiveGapHint => '两次主动搭话之间至少隔这么久，实际间隔在这个范围和「最长间隔」之间随机';
+
+  @override
+  String proactiveGapValue(int min, int max) {
+    return '$min–$max 分钟';
+  }
+
+  @override
+  String get proactiveGapMax => '最长间隔';
+
+  @override
+  String get proactiveGapMaxHint => '随机间隔的上限，点一下切换';
+
+  @override
+  String proactiveMinutes(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get proactiveQuiet => '免打扰时段';
+
+  @override
+  String get proactiveQuietHint => '这段时间里不主动搭话，可以跨零点，点一下切换';
+
+  @override
+  String proactiveQuietValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get proactiveDaily => '每天上限';
+
+  @override
+  String get proactiveDailyHint => '一天最多几次，过零点重新算；没送达的不算';
+
+  @override
+  String proactiveDailyValue(int count) {
+    return '$count 次';
+  }
+
+  @override
+  String get proactiveState => '现在的状态';
+
+  @override
+  String get proactiveSession => '目标会话';
+
+  @override
+  String get proactiveSessionHint => '还没选：主动搭话不会发出去。点一下选一个活着的会话。';
+
+  @override
+  String get proactiveSessionNone => '不指定';
+
+  @override
+  String get proactiveSessionNoneHint => '不指定目标会话，主动搭话就不会发出';
+
+  @override
+  String proactiveSessionChosen(String id) {
+    return '发到 $id';
+  }
+
+  @override
+  String proactiveSessionUnavailable(String error) {
+    return '读不到会话列表（$error），先确认本机引擎已连上、插件已加载';
+  }
+
+  @override
+  String get proactivePickSession => '选一个会话';
+
+  @override
+  String get proactiveSessionIdle => '空闲，可以发';
+
+  @override
+  String get proactiveSessionRunning => '正在忙，发了会被拒（不会打断它）';
+
+  @override
+  String get proactiveSessionEmpty => '没有活着的会话。先在 DSH 里开一个对话，再回来选。';
+
+  @override
+  String get proactiveGateFree => '现在可以让路了：没有 DSH 任务，也不在黑名单页面上';
+
+  @override
+  String proactiveGateHold(String reason) {
+    return '正在让路：$reason';
+  }
+
+  @override
+  String get proactiveHoldDshTask => 'DSH 正在操作手机';
+
+  @override
+  String get proactiveHoldDshPrompt => '有确认在等你回应';
+
+  @override
+  String get proactiveHoldLocked => '锁屏了';
+
+  @override
+  String get proactiveHoldScreenOff => '屏幕关着';
+
+  @override
+  String get proactiveHoldProtected => '前台是权限/安全页面';
+
+  @override
+  String get proactiveHoldA11y => '无障碍没连上';
+
+  @override
+  String proactiveActiveStage(String stage) {
+    return '正在处理：$stage';
+  }
+
+  @override
+  String get proactiveWakeRestricted => '这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。';
+
+  @override
+  String proactiveWakeMode(String mode) {
+    return '唤醒方式：$mode';
+  }
+
+  @override
+  String get proactiveTransportReady => '已经连上本机引擎，可以真的问模型';
+
+  @override
+  String get proactiveTransportMissing => '还没连上引擎，现在只会用本地文案，不会调用模型';
+
+  @override
+  String proactiveQueued(int count) {
+    return '排队中：$count 条';
+  }
+
+  @override
+  String proactiveRecoveryIssue(String issue) {
+    return '上次的状态读不出来：$issue';
+  }
+
+  @override
+  String get proactiveReceipts => '回执';
+
+  @override
+  String get proactiveReceiptsEmpty => '还没有记录';
+
+  @override
+  String get proactiveOutcomeResponded => '你回应了';
+
+  @override
+  String get proactiveOutcomeDismissed => '你划掉了';
+
+  @override
+  String get proactiveOutcomeIgnoredSeen => '显示了但没回应';
+
+  @override
+  String get proactiveOutcomeAcked => '你点了「我看到了」';
+
+  @override
+  String get proactiveOutcomeUnconfirmed => '通知发了，不知道你看没看';
+
+  @override
+  String get proactiveOutcomeNotDelivered => '没能送到';
+
+  @override
+  String get proactiveOutcomeOpen => '进行中';
+
+  @override
+  String get proactiveMarkAccepted => '已交给 Agent';
+
+  @override
+  String get proactiveMarkGenerated => '模型已生成';
+
+  @override
+  String get proactiveMarkDelivered => '已送出';
+
+  @override
+  String get proactiveMarkShown => '界面显示了';
+
+  @override
+  String get proactiveMarkResponded => '你回应了';
 
   @override
   String get readListUpdating => '更新中 · 上次结果';

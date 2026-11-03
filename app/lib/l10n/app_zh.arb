@@ -4799,6 +4799,94 @@
   "hubQuickPanelSwipeHint": "在对话里从右向左滑。代码块、表格这些能横向滚动的内容不受影响。",
   "hubQuickPanelItems": "显示的入口",
   "hubQuickPanelItemsNone": "没有选择，左滑不会打开",
+  "interceptTitle": "娱乐拦截",
+  "interceptSubtitle": "你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。",
+  "interceptEnabled": "开启娱乐拦截",
+  "interceptEnabledHint": "默认关闭。开启后每次打开下面这些 APP 都会被拦一次；冷却期内不会连着拦。",
+  "interceptTargets": "要拦的 APP",
+  "interceptTargetsHint": "这些包名是你自己选的，不是内置的。删掉一个就立刻不拦。",
+  "interceptNoTargets": "还没设任何目标 APP",
+  "interceptAddTarget": "加一个包名",
+  "interceptAddTargetHint": "填 Android 包名，例如 tv.danmaku.bili",
+  "interceptAddTargetInvalid": "包名不能为空，也不能有空格",
+  "interceptRemoveTarget": "移除",
+  "interceptWhitelist": "白名单",
+  "interceptWhitelistHint": "白名单里的包名永远不拦，哪怕在目标清单里。",
+  "interceptWhitelistEmpty": "白名单是空的",
+  "interceptMode": "拦截参数",
+  "interceptRelease": "放行时长（分钟）",
+  "interceptTraining": "训练题长度（秒）",
+  "interceptCooldown": "冷却（分钟）",
+  "interceptDailyMax": "每日上限",
+  "interceptDailyMaxOff": "不限次数",
+  "interceptPause": "暂停与恢复",
+  "interceptPauseHint": "暂停期间什么都不拦，到点自动恢复。",
+  "interceptPauseNow": "立刻暂停 30 分钟",
+  "interceptResume": "恢复拦截",
+  "interceptPausedUntil": "已暂停，到 {time} 恢复",
+  "@interceptPausedUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "interceptLedger": "行为拦截账",
+  "interceptLedgerTriggers": "触发",
+  "interceptLedgerBlocked": "真的拦住",
+  "interceptLedgerReleased": "用户放行",
+  "interceptLedgerExited": "用户退出",
+  "interceptLedgerPaused": "暂停",
+  "interceptReceipts": "最近回执",
+  "interceptReceiptsEmpty": "还没有回执",
+  "interceptActive": "正在拦：{package}",
+  "@interceptActive": {
+    "placeholders": {
+      "package": {
+        "type": "String"
+      }
+    }
+  },
+  "interceptStorageError": "存档写入失败：{error}",
+  "@interceptStorageError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "interceptRecoveryIssue": "启动时读到坏存档：{error}",
+  "@interceptRecoveryIssue": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "interceptUnavailable": "这个版本没有接入拦截内核",
+  "interceptUnavailableHint": "只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。",
+  "interceptRefresh": "刷新",
+  "interceptOutcomeBlocked": "拦住了，还没有结局",
+  "interceptOutcomeReleased": "放行",
+  "interceptOutcomeExited": "紧急退出",
+  "interceptOutcomePaused": "暂停",
+  "interceptOutcomeNotShown": "没显示出来",
+  "interceptEnforcementUnavailable": "上次拦截没有真正生效：{detail}",
+  "@interceptEnforcementUnavailable": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "interceptLegacyFormat": "拦截记录仍使用旧格式，原因：{reason}",
+  "@interceptLegacyFormat": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "launchScreenTitle": "启动画面",
   "launchDefault": "默认",
   "launchCustom": "自定义",
@@ -4939,6 +5027,148 @@
   "localEnvPhoneNeedsRuntime": "安装本机运行环境后可用",
   "localEnvSignInNeedsRuntime": "需要本机运行环境",
   "localEnvSignInInstallFirst": "安装后即可登录",
+  "loopEntryTitle": "触发测试",
+  "loopEntrySubtitle": "打开指定 APP 时弹出测试页（实验）",
+  "loopPageSubtitle": "第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。",
+  "loopEnabled": "开启触发测试",
+  "loopEnabledHint": "DSH 正在操作手机或有确认在等你时不会弹出",
+  "loopTargetApp": "测试 APP",
+  "loopTargetNone": "未选择",
+  "loopPickApp": "选择测试 APP",
+  "loopNoApps": "没有找到可选的 APP",
+  "loopCooldown": "冷却时间",
+  "loopCooldownHint": "两次弹出之间至少隔这么久，点一下切换",
+  "loopSeconds": "{seconds} 秒",
+  "@loopSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "loopTimeout": "等你回应的时间",
+  "loopTimeoutHint": "超时就记成「超时未回应」，点一下切换",
+  "loopVisitShort": "访问 {id}",
+  "@loopVisitShort": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "loopExport": "导出回执（JSON 复制到剪贴板）",
+  "loopExportDone": "已把 {count} 条回执复制到剪贴板",
+  "@loopExportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "loopQuietHours": "免打扰时段",
+  "loopQuietHoursHint": "这段时间里不弹测试页，可以跨零点。点一下切换。",
+  "loopQuietHoursOff": "不限",
+  "loopQuietHoursValue": "{start}–{end}",
+  "@loopQuietHoursValue": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDailyCap": "每天上限",
+  "loopDailyCapHint": "一天最多弹几次，过零点重新算",
+  "loopDailyCapOff": "不限次数",
+  "loopDailyCapValue": "今天 {used}/{cap} 次",
+  "@loopDailyCapValue": {
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "cap": {
+        "type": "int"
+      }
+    }
+  },
+  "loopA11yNeeded": "需要先在系统设置里开启 DSH 的无障碍服务",
+  "loopA11yWaiting": "无障碍已开启，等待服务连接",
+  "loopA11yReady": "无障碍服务已连接",
+  "loopCounters": "收到 {events} 个窗口事件，复核 {readings} 次 · 最近前台 {app}",
+  "@loopCounters": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "readings": {
+        "type": "int"
+      },
+      "app": {
+        "type": "String"
+      }
+    }
+  },
+  "loopStorageError": "回执保存失败：{error}",
+  "@loopStorageError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "loopRecoveredFromBackup": "回执文件损坏，已从备份（{file}）恢复",
+  "@loopRecoveredFromBackup": {
+    "placeholders": {
+      "file": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDiagnostics": "无障碍诊断",
+  "loopDiagnosticsSummary": "{events} 个窗口事件、{readings} 次前台复核、{faults} 次失败",
+  "@loopDiagnosticsSummary": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "readings": {
+        "type": "int"
+      },
+      "faults": {
+        "type": "int"
+      }
+    }
+  },
+  "loopDiagnosticsLastRead": "上次成功读到前台：{time}",
+  "@loopDiagnosticsLastRead": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "loopDiagnosticsClear": "清空诊断",
+  "loopFaultEvent": "窗口事件出错",
+  "loopFaultRead": "读前台失败",
+  "loopFaultVerify": "触发判定出错",
+  "loopFaultAttach": "连接失败",
+  "loopFaultSurface": "弹出问题失败",
+  "loopSurfaceNotification": "通过通知",
+  "loopReceipts": "回执",
+  "loopReceiptsEmpty": "还没有回执",
+  "loopClear": "清空回执",
+  "loopRefresh": "刷新",
+  "loopResultReturned": "点了返回",
+  "loopResultBack": "按了系统返回",
+  "loopResultDismissed": "离开了页面",
+  "loopResultTimeout": "超时未回应",
+  "loopResultAbandoned": "重启后关闭",
+  "loopResultUnavailable": "页面没能弹出",
+  "loopResultSuppressed": "未触发",
+  "loopResultError": "出错",
+  "loopResultOpen": "进行中",
   "marketSectionOfficial": "官方",
   "marketSectionAdapted": "适配 DSH Go",
   "marketSectionAll": "全部",
@@ -6013,6 +6243,31 @@
   "phoneDndManualConnect": "按端口连接",
   "phoneDndConnectPortLabel": "连接端口",
   "phoneDndConnectPortHint": "在系统「无线调试」首页查看「IP 地址和端口」，填写冒号后的端口。请不要使用配对码页面的端口。",
+  "phoneDndShizukuReady": "Shizuku · 可以用了",
+  "phoneDndAdbReady": "自连 ADB · 可以用了",
+  "phoneDndUsingShizuku": "正在使用：Shizuku",
+  "phoneDndUsingAdb": "正在使用：自连 ADB",
+  "phoneDndUseShizuku": "用 Shizuku",
+  "phoneDndPairOnce": "配对一次（不用装别的 App）",
+  "phoneDndEnable": "启用不打扰模式",
+  "phoneDisclosureTriggerTitle": "触发测试与主动搭话（默认关闭）",
+  "phoneDisclosureTriggerBody": "只有你打开「触发测试」或「主动搭话」之后，DSH 才会读取当前前台 APP 的名称（包名）：触发测试用它判断你有没有打开测试 APP；两者都用它避开系统设置、权限和安装页面，不在这些页面上弹出。不读页面内容，不录屏，不上传。随时可以关掉。",
+  "phoneDndShizukuStatus": "Shizuku · {reason}",
+  "@phoneDndShizukuStatus": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "phoneDndAdbStatus": "自连 ADB · {reason}",
+  "@phoneDndAdbStatus": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "phoneTaskResultReady": "任务完成 · 查看结果",
   "phoneTaskEndedResult": "任务已结束 · 查看结果",
   "phoneBackgroundGuideTitle": "后台确认与返回",
@@ -7523,6 +7778,145 @@
       }
     }
   },
+  "proactiveTitle": "主动搭话",
+  "proactiveSubtitle": "DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。",
+  "proactiveEnabled": "开启主动搭话",
+  "proactiveEnabledHint": "默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。",
+  "proactiveGap": "最短间隔",
+  "proactiveGapHint": "两次主动搭话之间至少隔这么久，实际间隔在这个范围和「最长间隔」之间随机",
+  "proactiveGapValue": "{min}–{max} 分钟",
+  "@proactiveGapValue": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "proactiveGapMax": "最长间隔",
+  "proactiveGapMaxHint": "随机间隔的上限，点一下切换",
+  "proactiveMinutes": "{minutes} 分钟",
+  "@proactiveMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "proactiveQuiet": "免打扰时段",
+  "proactiveQuietHint": "这段时间里不主动搭话，可以跨零点，点一下切换",
+  "proactiveQuietValue": "{start}–{end}",
+  "@proactiveQuietValue": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveDaily": "每天上限",
+  "proactiveDailyHint": "一天最多几次，过零点重新算；没送达的不算",
+  "proactiveDailyValue": "{count} 次",
+  "@proactiveDailyValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "proactiveState": "现在的状态",
+  "proactiveSession": "目标会话",
+  "proactiveSessionHint": "还没选：主动搭话不会发出去。点一下选一个活着的会话。",
+  "proactiveSessionNone": "不指定",
+  "proactiveSessionNoneHint": "不指定目标会话，主动搭话就不会发出",
+  "proactiveSessionChosen": "发到 {id}",
+  "@proactiveSessionChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveSessionUnavailable": "读不到会话列表（{error}），先确认本机引擎已连上、插件已加载",
+  "@proactiveSessionUnavailable": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "proactivePickSession": "选一个会话",
+  "proactiveSessionIdle": "空闲，可以发",
+  "proactiveSessionRunning": "正在忙，发了会被拒（不会打断它）",
+  "proactiveSessionEmpty": "没有活着的会话。先在 DSH 里开一个对话，再回来选。",
+  "proactiveGateFree": "现在可以让路了：没有 DSH 任务，也不在黑名单页面上",
+  "proactiveGateHold": "正在让路：{reason}",
+  "@proactiveGateHold": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveHoldDshTask": "DSH 正在操作手机",
+  "proactiveHoldDshPrompt": "有确认在等你回应",
+  "proactiveHoldLocked": "锁屏了",
+  "proactiveHoldScreenOff": "屏幕关着",
+  "proactiveHoldProtected": "前台是权限/安全页面",
+  "proactiveHoldA11y": "无障碍没连上",
+  "proactiveActiveStage": "正在处理：{stage}",
+  "@proactiveActiveStage": {
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveWakeRestricted": "这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。",
+  "proactiveWakeMode": "唤醒方式：{mode}",
+  "@proactiveWakeMode": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveTransportReady": "已经连上本机引擎，可以真的问模型",
+  "proactiveTransportMissing": "还没连上引擎，现在只会用本地文案，不会调用模型",
+  "proactiveQueued": "排队中：{count} 条",
+  "@proactiveQueued": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "proactiveRecoveryIssue": "上次的状态读不出来：{issue}",
+  "@proactiveRecoveryIssue": {
+    "placeholders": {
+      "issue": {
+        "type": "String"
+      }
+    }
+  },
+  "proactiveReceipts": "回执",
+  "proactiveReceiptsEmpty": "还没有记录",
+  "proactiveOutcomeResponded": "你回应了",
+  "proactiveOutcomeDismissed": "你划掉了",
+  "proactiveOutcomeIgnoredSeen": "显示了但没回应",
+  "proactiveOutcomeAcked": "你点了「我看到了」",
+  "proactiveOutcomeUnconfirmed": "通知发了，不知道你看没看",
+  "proactiveOutcomeNotDelivered": "没能送到",
+  "proactiveOutcomeOpen": "进行中",
+  "proactiveMarkAccepted": "已交给 Agent",
+  "proactiveMarkGenerated": "模型已生成",
+  "proactiveMarkDelivered": "已送出",
+  "proactiveMarkShown": "界面显示了",
+  "proactiveMarkResponded": "你回应了",
   "readListUpdating": "更新中 · 上次结果",
   "readListOffline": "离线 · 上次结果",
   "readListFailed": "未更新 · 上次结果",

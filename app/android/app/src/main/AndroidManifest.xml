@@ -12,8 +12,6 @@
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
-    <!-- Proactive scheduler (loop/proactive/WakeAlarm.kt): re-plan the single alarm after reboot. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Composer voice input (voice/VoicePlugin.kt), asked for on the first tap of the mic. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -257,62 +255,6 @@
                 android:resource="@xml/phone_accessibility_service" />
         </service>
 
-        <!-- 触发测试 (loop/InteractionActivity.kt): the first loop's interaction page. Its own task
-             and affinity so finishing it returns to the test app and never touches the main task. -->
-        <activity
-            android:name=".loop.InteractionActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.loop"
-            android:launchMode="singleInstance"
-            android:noHistory="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
-            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
-
-        <!-- Proactive page (loop/proactive/ProactivePageActivity.kt): token-bound, own task. -->
-        <activity
-            android:name=".loop.proactive.ProactivePageActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.proactive"
-            android:launchMode="singleInstance"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
-            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
-        <!-- 娱乐 APP 拦截页 (loop/intercept/InterceptPageActivity.kt): bound to the intercept eventId,
-             own task, its own affinity so leaving it returns to whatever was in front before. -->
-        <activity
-            android:name=".loop.intercept.InterceptPageActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.intercept"
-            android:launchMode="singleInstance"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
-            android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
-        <!-- P0-A: 一手 hands back a verified answer here (loop/intercept/YishouPassActivity.kt).
-             Exported because 一手 is another app; a claim only counts with the hand-off secret. -->
-        <activity
-            android:name=".loop.intercept.YishouPassActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.yishou"
-            android:theme="@android:style/Theme.NoDisplay">
-            <intent-filter>
-                <action android:name="io.github.ccch1mneyyy.dsh_app.action.YISHOU_PASS" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
-        <!-- Proactive scheduler wake-ups: its own alarm (explicit intent), boot and app update. -->
-        <receiver
-            android:name=".loop.proactive.ProactiveWakeReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
-
         <!-- 不打扰模式: Shizuku binder provider (shell-uid channel). -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
@@ -370,11 +312,6 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
-        <!-- P0-A: whether 一手 can take a question request (InterceptRuntime.yishouAvailable). -->
-        <package android:name="com.yishou.app"/>
-        <intent>
-            <action android:name="com.yishou.app.action.TRAIN_FOR_DSH"/>
-        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

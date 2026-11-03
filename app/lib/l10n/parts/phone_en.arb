@@ -446,5 +446,16 @@
   },
   "phoneDndManualConnect": "Connect by port",
   "phoneDndConnectPortLabel": "Connection port",
-  "phoneDndConnectPortHint": "On the main Wireless debugging settings page, find “IP address & port” and enter the port after the colon. Do not use the pairing-code dialog’s port."
+  "phoneDndConnectPortHint": "On the main Wireless debugging settings page, find “IP address & port” and enter the port after the colon. Do not use the pairing-code dialog’s port.",
+  "phoneDndShizukuReady": "Shizuku · Ready",
+  "phoneDndAdbReady": "Direct ADB · Ready",
+  "phoneDndUsingShizuku": "Using Shizuku",
+  "phoneDndUsingAdb": "Using Direct ADB",
+  "phoneDndUseShizuku": "Use Shizuku",
+  "phoneDndPairOnce": "Pair once (no extra app)",
+  "phoneDndEnable": "Enable non-disruptive mode",
+  "phoneDisclosureTriggerTitle": "Trigger test and proactive chat (off by default)",
+  "phoneDisclosureTriggerBody": "Only after you switch on the trigger test or proactive chat does DSH read the name (package) of the foreground app: the trigger test uses it to tell whether you opened the test app, and both use it to stay off Settings, permission and install screens. No page content, no screen recording, no upload. You can switch them off at any time.",
+  "phoneDndShizukuStatus": "Shizuku · {reason}",
+  "phoneDndAdbStatus": "Direct ADB · {reason}"
 }

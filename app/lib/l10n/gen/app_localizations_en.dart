@@ -7861,6 +7861,160 @@ class L10nEn extends L10n {
   String get hubQuickPanelItemsNone => 'Nothing chosen: a left swipe won\'t open it';
 
   @override
+  String get interceptTitle => 'Entertainment block';
+
+  @override
+  String get interceptSubtitle =>
+      'When you open an app you marked as entertainment, DSH stops you once: solve a short drill or choose an authorization rule. The block and the check-ins keep separate books.';
+
+  @override
+  String get interceptEnabled => 'Turn on entertainment block';
+
+  @override
+  String get interceptEnabledHint =>
+      'Off by default. When on, opening one of the apps below is blocked once; the cooldown stops it from nagging.';
+
+  @override
+  String get interceptTargets => 'Apps to block';
+
+  @override
+  String get interceptTargetsHint =>
+      'These package names are yours, not built in. Removing one stops blocking it at once.';
+
+  @override
+  String get interceptNoTargets => 'No target app yet';
+
+  @override
+  String get interceptAddTarget => 'Add a package name';
+
+  @override
+  String get interceptAddTargetHint => 'An Android package name, e.g. tv.danmaku.bili';
+
+  @override
+  String get interceptAddTargetInvalid => 'A package name cannot be empty or contain spaces';
+
+  @override
+  String get interceptRemoveTarget => 'Remove';
+
+  @override
+  String get interceptWhitelist => 'Whitelist';
+
+  @override
+  String get interceptWhitelistHint => 'A whitelisted package is never blocked, even if it is a target.';
+
+  @override
+  String get interceptWhitelistEmpty => 'The whitelist is empty';
+
+  @override
+  String get interceptMode => 'Parameters';
+
+  @override
+  String get interceptRelease => 'Pass duration (minutes)';
+
+  @override
+  String get interceptTraining => 'Drill length (seconds)';
+
+  @override
+  String get interceptCooldown => 'Cooldown (minutes)';
+
+  @override
+  String get interceptDailyMax => 'Daily limit';
+
+  @override
+  String get interceptDailyMaxOff => 'No limit';
+
+  @override
+  String get interceptPause => 'Pause and resume';
+
+  @override
+  String get interceptPauseHint => 'Nothing is blocked while paused; it resumes on its own.';
+
+  @override
+  String get interceptPauseNow => 'Pause for 30 minutes';
+
+  @override
+  String get interceptResume => 'Resume blocking';
+
+  @override
+  String interceptPausedUntil(String time) {
+    return 'Paused until $time';
+  }
+
+  @override
+  String get interceptLedger => 'Block ledger';
+
+  @override
+  String get interceptLedgerTriggers => 'Triggered';
+
+  @override
+  String get interceptLedgerBlocked => 'Actually blocked';
+
+  @override
+  String get interceptLedgerReleased => 'Let through';
+
+  @override
+  String get interceptLedgerExited => 'Left';
+
+  @override
+  String get interceptLedgerPaused => 'Paused';
+
+  @override
+  String get interceptReceipts => 'Recent receipts';
+
+  @override
+  String get interceptReceiptsEmpty => 'No receipts yet';
+
+  @override
+  String interceptActive(String package) {
+    return 'Blocking now: $package';
+  }
+
+  @override
+  String interceptStorageError(String error) {
+    return 'Could not write state: $error';
+  }
+
+  @override
+  String interceptRecoveryIssue(String error) {
+    return 'Unreadable state at start-up: $error';
+  }
+
+  @override
+  String get interceptUnavailable => 'This build has no block kernel';
+
+  @override
+  String get interceptUnavailableHint =>
+      'Only the full phone build has it. Desktop and this build have no dsh/intercept channel.';
+
+  @override
+  String get interceptRefresh => 'Refresh';
+
+  @override
+  String get interceptOutcomeBlocked => 'Blocked, no ending yet';
+
+  @override
+  String get interceptOutcomeReleased => 'Let through';
+
+  @override
+  String get interceptOutcomeExited => 'Emergency exit';
+
+  @override
+  String get interceptOutcomePaused => 'Paused';
+
+  @override
+  String get interceptOutcomeNotShown => 'Never shown';
+
+  @override
+  String interceptEnforcementUnavailable(String detail) {
+    return 'The last block did not take effect: $detail';
+  }
+
+  @override
+  String interceptLegacyFormat(String reason) {
+    return 'Block records still use the old format: $reason';
+  }
+
+  @override
   String get launchScreenTitle => 'Launch screen';
 
   @override
@@ -8149,6 +8303,189 @@ class L10nEn extends L10n {
 
   @override
   String get localEnvSignInInstallFirst => 'Install it to sign in';
+
+  @override
+  String get loopEntryTitle => 'Trigger test';
+
+  @override
+  String get loopEntrySubtitle => 'Shows a test page when you open a chosen app (experimental)';
+
+  @override
+  String get loopPageSubtitle =>
+      'The first closed loop: open the test app → a test page appears → tap Back → a receipt is saved. Only the foreground app\'s package name is read, never page content.';
+
+  @override
+  String get loopEnabled => 'Turn on trigger test';
+
+  @override
+  String get loopEnabledHint => 'Never shows while DSH is operating the phone or a confirmation is waiting';
+
+  @override
+  String get loopTargetApp => 'Test app';
+
+  @override
+  String get loopTargetNone => 'None';
+
+  @override
+  String get loopPickApp => 'Choose the test app';
+
+  @override
+  String get loopNoApps => 'No apps found';
+
+  @override
+  String get loopCooldown => 'Cooldown';
+
+  @override
+  String get loopCooldownHint => 'Minimum time between two pages; tap to change';
+
+  @override
+  String loopSeconds(int seconds) {
+    return '$seconds s';
+  }
+
+  @override
+  String get loopTimeout => 'Time to answer';
+
+  @override
+  String get loopTimeoutHint => 'After this it counts as \"no answer in time\"; tap to change';
+
+  @override
+  String loopVisitShort(String id) {
+    return 'visit $id';
+  }
+
+  @override
+  String get loopExport => 'Export receipts (JSON to clipboard)';
+
+  @override
+  String loopExportDone(int count) {
+    return 'Copied $count receipts to the clipboard';
+  }
+
+  @override
+  String get loopQuietHours => 'Quiet hours';
+
+  @override
+  String get loopQuietHoursHint => 'No test page during this window; may cross midnight. Tap to change.';
+
+  @override
+  String get loopQuietHoursOff => 'Off';
+
+  @override
+  String loopQuietHoursValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get loopDailyCap => 'Daily limit';
+
+  @override
+  String get loopDailyCapHint => 'At most this many test pages a day; resets after midnight';
+
+  @override
+  String get loopDailyCapOff => 'No limit';
+
+  @override
+  String loopDailyCapValue(int used, int cap) {
+    return '$used/$cap today';
+  }
+
+  @override
+  String get loopA11yNeeded => 'Turn on DSH\'s accessibility service in system settings first';
+
+  @override
+  String get loopA11yWaiting => 'Accessibility is on, waiting for the service to connect';
+
+  @override
+  String get loopA11yReady => 'Accessibility service connected';
+
+  @override
+  String loopCounters(int events, int readings, String app) {
+    return '$events window events, $readings checks · last foreground $app';
+  }
+
+  @override
+  String loopStorageError(String error) {
+    return 'Couldn\'t save receipts: $error';
+  }
+
+  @override
+  String loopRecoveredFromBackup(String file) {
+    return 'The receipt file was damaged; loaded the backup ($file)';
+  }
+
+  @override
+  String get loopDiagnostics => 'Accessibility diagnostics';
+
+  @override
+  String loopDiagnosticsSummary(int events, int readings, int faults) {
+    return '$events window events, $readings foreground checks, $faults failures';
+  }
+
+  @override
+  String loopDiagnosticsLastRead(String time) {
+    return 'Last successful foreground read: $time';
+  }
+
+  @override
+  String get loopDiagnosticsClear => 'Clear diagnostics';
+
+  @override
+  String get loopFaultEvent => 'Window event failed';
+
+  @override
+  String get loopFaultRead => 'Foreground read failed';
+
+  @override
+  String get loopFaultVerify => 'Trigger check failed';
+
+  @override
+  String get loopFaultAttach => 'Connect failed';
+
+  @override
+  String get loopFaultSurface => 'Showing the question failed';
+
+  @override
+  String get loopSurfaceNotification => 'via notification';
+
+  @override
+  String get loopReceipts => 'Receipts';
+
+  @override
+  String get loopReceiptsEmpty => 'No receipts yet';
+
+  @override
+  String get loopClear => 'Clear receipts';
+
+  @override
+  String get loopRefresh => 'Refresh';
+
+  @override
+  String get loopResultReturned => 'Tapped Back';
+
+  @override
+  String get loopResultBack => 'Pressed system back';
+
+  @override
+  String get loopResultDismissed => 'Left the page';
+
+  @override
+  String get loopResultTimeout => 'No answer in time';
+
+  @override
+  String get loopResultAbandoned => 'Closed after restart';
+
+  @override
+  String get loopResultUnavailable => 'Page couldn\'t show';
+
+  @override
+  String get loopResultSuppressed => 'Not triggered';
+
+  @override
+  String get loopResultError => 'Error';
+
+  @override
+  String get loopResultOpen => 'In progress';
 
   @override
   String get marketSectionOfficial => 'Official';
@@ -10361,6 +10698,44 @@ class L10nEn extends L10n {
   @override
   String get phoneDndConnectPortHint =>
       'On the main Wireless debugging settings page, find “IP address & port” and enter the port after the colon. Do not use the pairing-code dialog’s port.';
+
+  @override
+  String get phoneDndShizukuReady => 'Shizuku · Ready';
+
+  @override
+  String get phoneDndAdbReady => 'Direct ADB · Ready';
+
+  @override
+  String get phoneDndUsingShizuku => 'Using Shizuku';
+
+  @override
+  String get phoneDndUsingAdb => 'Using Direct ADB';
+
+  @override
+  String get phoneDndUseShizuku => 'Use Shizuku';
+
+  @override
+  String get phoneDndPairOnce => 'Pair once (no extra app)';
+
+  @override
+  String get phoneDndEnable => 'Enable non-disruptive mode';
+
+  @override
+  String get phoneDisclosureTriggerTitle => 'Trigger test and proactive chat (off by default)';
+
+  @override
+  String get phoneDisclosureTriggerBody =>
+      'Only after you switch on the trigger test or proactive chat does DSH read the name (package) of the foreground app: the trigger test uses it to tell whether you opened the test app, and both use it to stay off Settings, permission and install screens. No page content, no screen recording, no upload. You can switch them off at any time.';
+
+  @override
+  String phoneDndShizukuStatus(String reason) {
+    return 'Shizuku · $reason';
+  }
+
+  @override
+  String phoneDndAdbStatus(String reason) {
+    return 'Direct ADB · $reason';
+  }
 
   @override
   String get phoneTaskResultReady => 'Task complete · View result';
@@ -12639,6 +13014,200 @@ class L10nEn extends L10n {
   String plugViewGalleryPicture(int index) {
     return 'Picture $index';
   }
+
+  @override
+  String get proactiveTitle => 'Proactive messages';
+
+  @override
+  String get proactiveSubtitle =>
+      'DSH says something on its own every so often, or after you open a chosen app. Every rule runs on this phone; when the model is not available it says nothing at all.';
+
+  @override
+  String get proactiveEnabled => 'Turn on proactive messages';
+
+  @override
+  String get proactiveEnabledHint =>
+      'Off by default. When on, it finds you at random intervals; it steps back while DSH is operating the phone, while a confirmation is waiting, when the screen is locked, and during quiet hours.';
+
+  @override
+  String get proactiveGap => 'Shortest gap';
+
+  @override
+  String get proactiveGapHint =>
+      'At least this long between two messages; the real gap is random between this and the longest gap';
+
+  @override
+  String proactiveGapValue(int min, int max) {
+    return '$min–$max min';
+  }
+
+  @override
+  String get proactiveGapMax => 'Longest gap';
+
+  @override
+  String get proactiveGapMaxHint => 'Upper bound of the random gap; tap to change';
+
+  @override
+  String proactiveMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get proactiveQuiet => 'Quiet hours';
+
+  @override
+  String get proactiveQuietHint => 'No proactive message during this window; may cross midnight. Tap to change.';
+
+  @override
+  String proactiveQuietValue(String start, String end) {
+    return '$start–$end';
+  }
+
+  @override
+  String get proactiveDaily => 'Daily limit';
+
+  @override
+  String get proactiveDailyHint => 'At most this many a day, recounted after midnight; undelivered ones do not count';
+
+  @override
+  String proactiveDailyValue(int count) {
+    return '$count times';
+  }
+
+  @override
+  String get proactiveState => 'Right now';
+
+  @override
+  String get proactiveSession => 'Target session';
+
+  @override
+  String get proactiveSessionHint => 'Not chosen yet: nothing is sent. Tap to pick a live session.';
+
+  @override
+  String get proactiveSessionNone => 'None';
+
+  @override
+  String get proactiveSessionNoneHint => 'With no target session, no proactive message is sent';
+
+  @override
+  String proactiveSessionChosen(String id) {
+    return 'Sent to $id';
+  }
+
+  @override
+  String proactiveSessionUnavailable(String error) {
+    return 'Couldn\'t read the session list ($error); check that the local engine is connected and the plugin is loaded';
+  }
+
+  @override
+  String get proactivePickSession => 'Pick a session';
+
+  @override
+  String get proactiveSessionIdle => 'Idle, ready to receive';
+
+  @override
+  String get proactiveSessionRunning => 'Busy; it will be refused, not interrupted';
+
+  @override
+  String get proactiveSessionEmpty => 'No live session. Open a chat in DSH first, then come back.';
+
+  @override
+  String get proactiveGateFree => 'Clear: no DSH task running and no protected page in front';
+
+  @override
+  String proactiveGateHold(String reason) {
+    return 'Holding back: $reason';
+  }
+
+  @override
+  String get proactiveHoldDshTask => 'DSH is operating the phone';
+
+  @override
+  String get proactiveHoldDshPrompt => 'A confirmation is waiting for you';
+
+  @override
+  String get proactiveHoldLocked => 'the screen is locked';
+
+  @override
+  String get proactiveHoldScreenOff => 'the screen is off';
+
+  @override
+  String get proactiveHoldProtected => 'a permission or security page is in front';
+
+  @override
+  String get proactiveHoldA11y => 'accessibility is not connected';
+
+  @override
+  String proactiveActiveStage(String stage) {
+    return 'Working on: $stage';
+  }
+
+  @override
+  String get proactiveWakeRestricted =>
+      'This phone restricts background wakeups, so a proactive message is only attempted while DSH is open or the screen changes. For more reliable timing, allow DSH to run in the background and to autostart in system settings.';
+
+  @override
+  String proactiveWakeMode(String mode) {
+    return 'Wake mode: $mode';
+  }
+
+  @override
+  String get proactiveTransportReady => 'Connected to the engine on this machine, so it can really ask the model';
+
+  @override
+  String get proactiveTransportMissing => 'Not connected to the engine yet: local text only, the model is not called';
+
+  @override
+  String proactiveQueued(int count) {
+    return 'Queued: $count';
+  }
+
+  @override
+  String proactiveRecoveryIssue(String issue) {
+    return 'The last state could not be read: $issue';
+  }
+
+  @override
+  String get proactiveReceipts => 'Receipts';
+
+  @override
+  String get proactiveReceiptsEmpty => 'Nothing yet';
+
+  @override
+  String get proactiveOutcomeResponded => 'You responded';
+
+  @override
+  String get proactiveOutcomeDismissed => 'You dismissed it';
+
+  @override
+  String get proactiveOutcomeIgnoredSeen => 'Shown, not answered';
+
+  @override
+  String get proactiveOutcomeAcked => 'You said you saw it';
+
+  @override
+  String get proactiveOutcomeUnconfirmed => 'Notification sent; whether you saw it is unknown';
+
+  @override
+  String get proactiveOutcomeNotDelivered => 'Never delivered';
+
+  @override
+  String get proactiveOutcomeOpen => 'In progress';
+
+  @override
+  String get proactiveMarkAccepted => 'handed to the agent';
+
+  @override
+  String get proactiveMarkGenerated => 'model answered';
+
+  @override
+  String get proactiveMarkDelivered => 'sent out';
+
+  @override
+  String get proactiveMarkShown => 'shown on screen';
+
+  @override
+  String get proactiveMarkResponded => 'you responded';
 
   @override
   String get readListUpdating => 'Updating · previous results';

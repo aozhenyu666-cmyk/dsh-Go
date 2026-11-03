@@ -237,6 +237,19 @@ class DshConnection {
     );
   }
 
+  /// The address to dial for [url] when it names this engine, by the address
+  /// this connection dials or the authority the engine knows itself by; null
+  /// for anything else. Only these may carry [cookie]. The result is always on
+  /// [baseUri], never the address in [url], and keeps [url]'s query as written.
+  Uri? ownUri(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme != baseUri.scheme || uri.userInfo.isNotEmpty) return null;
+    final named = _authorityOf(uri);
+    if (named != authority && named != _authorityOf(baseUri)) return null;
+    if (!uri.path.startsWith('${baseUri.path}/')) return null;
+    return baseUri.replace(path: uri.path, query: uri.hasQuery ? uri.query : null);
+  }
+
   Uri webSocketUri(String path) {
     final http = resolve(path);
     return http.replace(scheme: http.scheme == 'https' ? 'wss' : 'ws');
@@ -349,9 +362,28 @@ class DshConnection {
     required int maxBytes,
     bool autoUncompress = false,
     Duration timeout = const Duration(seconds: 30),
+  }) => _getBounded(resolve(path, query), maxBytes: maxBytes, autoUncompress: autoUncompress, timeout: timeout);
+
+  /// [getBounded] for a whole [url] that [ownUri] accepts. Anything else is
+  /// refused here, before a socket opens, so the cookie can't leave this engine.
+  Future<DshHttpResponse> getBoundedOwn(
+    String url, {
+    required int maxBytes,
+    bool autoUncompress = false,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final uri = ownUri(url);
+    if (uri == null) throw ArgumentError.value(url, 'url', 'not this engine');
+    return _getBounded(uri, maxBytes: maxBytes, autoUncompress: autoUncompress, timeout: timeout);
+  }
+
+  Future<DshHttpResponse> _getBounded(
+    Uri uri, {
+    required int maxBytes,
+    required bool autoUncompress,
+    required Duration timeout,
   }) async {
     if (maxBytes < 1) throw ArgumentError.value(maxBytes, 'maxBytes');
-    final uri = resolve(path, query);
     final http = HttpClient()
       ..connectionTimeout = connectTimeout
       ..autoUncompress = autoUncompress;
@@ -411,12 +443,25 @@ class DshConnection {
   Future<WebSocket> connectWebSocket(String path, {Duration? timeout}) async {
     final headers = <String, Object>{if (cookie != null) 'Cookie': cookie!.header, 'Host': ?hostHeader};
     final uri = webSocketUri(path);
+    var abandoned = false;
     try {
-      return await WebSocket.connect(
-        uri.toString(),
-        headers: headers,
-        customClient: _http,
-      ).timeout(timeout ?? connectTimeout);
+      return await WebSocket.connect(uri.toString(), headers: headers, customClient: _http)
+          .then((socket) {
+            // A timeout does not cancel the upgrade. Own a late socket until it
+            // can be handed to the caller; closing HttpClient cannot reclaim it.
+            if (abandoned || _closed) {
+              unawaited(socket.close().catchError((_) {}));
+              throw const DshClosedException('WebSocket connection abandoned');
+            }
+            return socket;
+          })
+          .timeout(
+            timeout ?? connectTimeout,
+            onTimeout: () {
+              abandoned = true;
+              throw TimeoutException('WebSocket connect timed out');
+            },
+          );
     } on WebSocketException catch (error) {
       final status = error.httpStatusCode;
       if (status != null) {

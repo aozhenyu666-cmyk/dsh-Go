@@ -661,5 +661,20 @@
   },
   "phoneDndManualConnect": "按端口连接",
   "phoneDndConnectPortLabel": "连接端口",
-  "phoneDndConnectPortHint": "在系统「无线调试」首页查看「IP 地址和端口」，填写冒号后的端口。请不要使用配对码页面的端口。"
+  "phoneDndConnectPortHint": "在系统「无线调试」首页查看「IP 地址和端口」，填写冒号后的端口。请不要使用配对码页面的端口。",
+  "phoneDndShizukuReady": "Shizuku · 可以用了",
+  "phoneDndAdbReady": "自连 ADB · 可以用了",
+  "phoneDndUsingShizuku": "正在使用：Shizuku",
+  "phoneDndUsingAdb": "正在使用：自连 ADB",
+  "phoneDndUseShizuku": "用 Shizuku",
+  "phoneDndPairOnce": "配对一次（不用装别的 App）",
+  "phoneDndEnable": "启用不打扰模式",
+  "phoneDisclosureTriggerTitle": "触发测试与主动搭话（默认关闭）",
+  "phoneDisclosureTriggerBody": "只有你打开「触发测试」或「主动搭话」之后，DSH 才会读取当前前台 APP 的名称（包名）：触发测试用它判断你有没有打开测试 APP；两者都用它避开系统设置、权限和安装页面，不在这些页面上弹出。不读页面内容，不录屏，不上传。随时可以关掉。",
+  "phoneDndShizukuStatus": "Shizuku · {reason}",
+  "@phoneDndShizukuStatus": {"placeholders":{"reason":{"type":"String"}}},
+  "@phoneDndShizukuStatus": {"placeholders":{"reason":{"type":"String"}}},
+  "phoneDndAdbStatus": "自连 ADB · {reason}",
+  "@phoneDndAdbStatus": {"placeholders":{"reason":{"type":"String"}}},
+  "@phoneDndAdbStatus": {"placeholders":{"reason":{"type":"String"}}}
 }
