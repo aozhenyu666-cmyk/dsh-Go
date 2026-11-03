@@ -286,3 +286,51 @@ curl GitHub Compare API: /repos/<owner>/<repo>/compare/<base>...<head>?per_page=
 本文件 §10.2/§10.3 的全部结论就是这样得出的。
 
 若一定要本地 merge，需要先用 `git bundle` 或换个网络环境把 231 个对象取回来。
+
+### 10.9 同步执行结果（已完成）
+
+**提交**：`8a718ff`（取代早期不完整的 `1faea07`）
+
+**真实差异**：
+
+| 项 | 数量 |
+|---|---|
+| 上游新增 | 275 |
+| 上游修改 | 583 |
+| 上游删除 | 3 |
+| **合计** | **861** |
+
+**已验证**：858 个新增/修改文件的 git blob SHA 与上游 tree **逐一比对，858/858 一致**。
+
+### 10.10 三个差点被上游悄悄回退的 R4 修复（重要）
+
+| 文件 | 上游版本 | 后果 | 处理 |
+|---|---|---|---|
+| `runtime/build-runtime.sh` | 把 proot 固定回 **5.1.107.98** | .98 已从 Termux 下架，**构建必然失败** | 保留 R4 的 `.101`，只吸收上游的 `RUNTIME_REVISION=r15` |
+| `runtime/lib/rtbuild.py` | 删掉 R4 的 **147 行 ELF 架构审计** | 构建校验缺失，可能打出错架构的包 | 三方合并，两边都保留 |
+| `app/lib/l10n/parts/phone_*.arb` | 删除 R4 UI 仍在用的 `phoneDnd*` / `phoneDisclosure*` | Dart 编译失败 | 合并后补回 |
+
+**教训**：同步时必须逐文件比对「R4 改过 且 上游也改过」的 17 个文件，
+不能只看「上游新增了什么」。
+
+### 10.11 两个必须记住的工具陷阱
+
+1. **GitHub Compare API 上限 300 个文件**。231 个提交的真实差异是 861 个文件，
+   用 compare API 拿到的清单会**按字母序截断**，且不报错。
+   正确做法：`gh api repos/<o>/<r>/git/trees/<sha>?recursive=1` 拿完整树，
+   与本地 `git ls-tree -r` 的 blob SHA 逐条比对。
+2. **本机 curl 经代理会返回被截断的 body 且 exit 0**。390/858 个文件内容不对但无报错。
+   正确做法：文件下载后**必须用 `git hash-object` 与上游 tree SHA 校验**；
+   或直接用 `gh api .../contents/<path>`（base64，带长度）。
+
+### 10.12 同步后状态
+
+```
+kernel      OK (294 tests) + wiring OK
+flutter     No issues found!
+python      Ran 9 tests, OK
+l10n        50 parts, 5648 keys
+R4 自有区   loop/core、loop/intercept、intercept l10n 与 r4/main 完全一致
+```
+
+**下一条命令**：命令四（主动交流系统）。前置条件已满足：R4 建立在最新上游之上。
