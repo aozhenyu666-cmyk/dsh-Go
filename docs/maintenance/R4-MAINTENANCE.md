@@ -334,3 +334,48 @@ R4 自有区   loop/core、loop/intercept、intercept l10n 与 r4/main 完全一
 ```
 
 **下一条命令**：命令四（主动交流系统）。前置条件已满足：R4 建立在最新上游之上。
+
+### 10.13 已完成并推送
+
+| 分支 | 提交 | 含义 |
+|---|---|---|
+| `r4/main` | `ad54e2e5` | **长期维护主线**，已含上游 8e36cdbf 全部内容 |
+| `r4/upstream-sync-2026-11-03` | `ad54e2e5` | 同步工作分支（与 r4/main 同点） |
+
+**上游基准**：`8e36cdbf3b151ea819a53ecd88f7be91b497254a`
+
+### 10.14 一处为推送而做的取舍
+
+上游的 `.github/workflows/ci.yml` 与 `pr-gate.yml` **已从本 fork 移除**。理由：
+
+- `ci.yml` 只监听推送到 `main` 的提交与 PR，本 fork 从不向 main 推送；
+- `pr-gate.yml` 用于关闭发往上游项目的 PR，与本 fork 无关；
+- 当前 token 有 `gist/read:org/repo`，**没有 `workflow`**，GitHub 拒绝任何修改 workflow 文件的推送。
+
+**不影响任何 R4 能力**：fork 自己的 `build-r3-phone-apk.yml` 与 `build-r4-phone-apk.yml` 都保留，
+APK 正是由后者产出的。若以后获得 `workflow` 权限，可从上游直接 checkout 回来。
+
+### 10.15 以后同步上游的最短路径（已验证可用的命令）
+
+```bash
+# 1) 取上游树（不要用 compare API，它有 300 文件上限）
+gh api "repos/ccch1mneyyy/dsh-Go/git/trees/<upstream-sha>?recursive=1" > tree.json
+
+# 2) 本地基线表的 SHA 对照
+git ls-tree -r <base-sha> > base.txt
+
+# 3) 逐文件下载（gh api contents 比 curl 可靠）
+gh api "repos/ccch1mneyyy/dsh-Go/contents/<path>?ref=<sha>" --jq .content | base64 -d > <path>
+
+# 4) 必须校验：下载不等于拿到
+git hash-object <path>        # 必须等于 tree.json 里该文件的 sha
+
+# 5) 两侧都改过 → 三方合并
+git merge-file -p --diff3 <ours> <base> <theirs>
+```
+
+**三条禁令**（本轮都踩过）：
+
+1. 不要用 Compare API 算文件清单 —— 300 上限且不报错；
+2. 不要信任未经 SHA 校验的下载 —— curl 经代理会返回截断内容且 exit 0；
+3. 不要因为「上游改了」就整份覆盖 —— 本轮有 3 处上游会回退 R4 的修复。
