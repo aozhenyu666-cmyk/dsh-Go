@@ -65,7 +65,15 @@ Question cards: pick an answer, or tap **Other answer** to write your own, then 
 
 Approval cards: check the command, files and reason, then tap **Allow once** or **Decline**.
 
-**Allow for chat** approves everything for the rest of this chat, including requests already waiting. **Auto-approving** appears above the composer; tap it to turn it off. Approvals are asked again after the app restarts. A chat with **Full access** or **Auto review** also shows a capsule above the composer; tap it to change the chat's permissions. To skip approvals in all new chats on this phone's engine, set the new-chat default to **Full access** under Permissions in [Settings](10-settings.md).
+**Allow for chat** approves ordinary tool approvals for the rest of this chat, including requests already waiting. **Auto-approving** appears above the composer; tap it to turn it off. Approvals are asked again after the app restarts. A chat with **Full access** or **Auto review** also shows a capsule above the composer; tap it to change the chat's permissions. To skip approvals in all new chats on this phone's engine, set the new-chat default to **Full access** under Permissions in [Settings](10-settings.md).
+
+### Separate authorization for scheduled tasks
+
+With the patched bundled engine, creating a task or changing its name, instructions or timing requires a separate confirmation. The question shows the complete instructions, rule, time zone and resolved trigger time. Review them, select "授权 / Authorize", then submit. Full access, Auto review and chat-wide auto-approval cannot replace this confirmation. While saving in the task editor, the confirmation appears there; tasks requested in a chat are confirmed in that chat.
+
+Rejection, no answer, a two-minute authorization timeout or an unavailable confirmation interface does not save the change. A trigger time that has already passed must be proposed and confirmed again. A rejected edit leaves the existing task unchanged. Cancelling a save, leaving the editor or switching hosts attempts to reject that page's outstanding requests; it cannot undo an operation another client already confirmed first.
+
+Authorization covers only the displayed task, not arbitrary future actions. It does not reduce the target chat's permissions or replace system isolation of credentials and tool execution. Existing tasks are not retrospectively authorized; inspect them and delete any you do not recognize. Remote hosts need the same engine fix: updating only the phone UI does not enforce authorization on an unpatched remote engine.
 
 ## Copy, quote and regenerate
 
@@ -80,11 +88,23 @@ Touch and hold your own message for **Copy**, **Select text** and **Edit and res
 
 ## Organize the chat list
 
-Touch and hold a chat for **Pin**, **Rename**, **Move to folder**, **Share**, **Select** and **Archive**.
+Touch and hold a chat for **Pin**, **Rename**, **Move to folder**, **Share**, **Select**, **Archive** and **Delete permanently**.
 
 - **Archive** stops a turn in progress. Tap **Undo** on the notice within 4 seconds to keep the chat as it was, turn included; leaving the app archives it at once.
-- Chats can't be deleted; archiving removes them from the list. To get one back, tap **Search chats**, find it and tap **Restore and open**.
+- **Delete permanently** removes the chat record from this host and cannot be undone — unlike archive. The working folder, generated files, branched chats, shared attachments and published cloud shares stay; delete cloud shares separately.
+- Deletion asks for confirmation first. A running chat must be stopped; the host also refuses while a chat has subagents, related jobs or reminders. It needs a host that supports it: on an older host the action says so and archive stays the only option — it never falls back to archive silently.
+- After selecting several chats, **Delete** in the action bar removes them in one go; failures are listed one by one and only acknowledged chats leave the list. If the connection drops and the result is unconfirmed, the rest of the batch stops — refresh the list before deciding.
+- To get an archived chat back, tap **Search chats**, find it and tap **Restore and open**.
 - Filter the list with **All**, **Running**, **Pending** and **Unread**. The ⋯ at the end of the workspace row sorts by **Recent activity** or **Date created**, and has **New folder** and **Manage folders**.
+
+## Swipe-left shortcuts
+
+<!-- nav: commonSettings,hubSettingsInterface,hubQuickPanel -->
+`Settings › Interface › Swipe-left shortcuts`
+
+Swipe right to left over the chat and **Shortcuts** slides in from the right; tap one to open that page. It starts with **Plugins**, **Local engine** and **Settings**. Swiping on code blocks, tables and other content that scrolls sideways still scrolls them. Back closes the panel first.
+
+You can turn off **Open with a left swipe**, and under **What it lists** tick what to show and drag to reorder. There's no swipe while the chat list stays open at the side.
 
 ## Hardware keyboard
 

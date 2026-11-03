@@ -13,7 +13,7 @@ class L10nZh extends L10n {
   String get a11yRestoreTitle => '自动恢复无障碍';
 
   @override
-  String get searchKwA11yRestore => '无障碍,恢复,重连,自动恢复,掉线,授权,ADB,Shizuku';
+  String get searchKwA11yRestore => '无障碍,恢复,重连,自动恢复,掉线,授权,ADB,Shizuku,Sui,root';
 
   @override
   String get a11yRestoreNeedsGrant => '需要授权';
@@ -28,10 +28,25 @@ class L10nZh extends L10n {
   String get a11yRestoreGrant => '授权并开启';
 
   @override
+  String get a11yRestoreGrantShizuku => '通过 Shizuku 授予';
+
+  @override
+  String get a11yRestoreGrantShizukuPermission => '先授权 Shizuku，再授予权限';
+
+  @override
+  String get a11yRestoreGrantAdb => '通过自连 ADB 授予';
+
+  @override
+  String get a11yRestoreRootNote => '通过已授权的 root 连接，只授予这一项权限。';
+
+  @override
   String get a11yRestoreSetup => '配置 Shizuku 或无线调试';
 
   @override
   String get a11yRestoreWaiting => '请在 Shizuku 中允许授权';
+
+  @override
+  String get a11yRestoreWaitingSui => '请在 Sui 中允许授权';
 
   @override
   String get a11yRestoreComputer => '也可以连接电脑，执行一次：';
@@ -3188,6 +3203,18 @@ class L10nZh extends L10n {
   String get catalogAllSettings => '全部设置';
 
   @override
+  String get diagnosticsForAi => '让 AI 看诊断';
+
+  @override
+  String get diagnosticsForAiHint => '把环境快照写进引擎，AI 自己读';
+
+  @override
+  String get diagnosticsForAiDone => '已写入诊断，问 AI「看下诊断」就行';
+
+  @override
+  String get diagnosticsForAiFailed => '写不进去：本机运行时还没装好';
+
+  @override
   String get chatBackgroundTaskNotice => '后台任务通知';
 
   @override
@@ -3204,6 +3231,15 @@ class L10nZh extends L10n {
 
   @override
   String get chatUnsent => '未发送';
+
+  @override
+  String get chatFailedSubmission => '未送达 · 已保留';
+
+  @override
+  String get chatEditFailedSubmission => '编辑后重发';
+
+  @override
+  String get chatErrReasoningEffortUnsupported => '当前模型不支持此推理档位，请调整档位或换模型';
 
   @override
   String get chatSteerNextStep => '插话 · 下一步生效';
@@ -3438,6 +3474,23 @@ class L10nZh extends L10n {
 
   @override
   String get chatExpandTodos => '展开清单';
+
+  @override
+  String chatDockFolded(int count) {
+    return '$count 条状态已叠起';
+  }
+
+  @override
+  String get chatDockSpread => '展开';
+
+  @override
+  String get chatDockFold => '收起状态条';
+
+  @override
+  String get chatDockNext => '下一张';
+
+  @override
+  String get chatDockPrevious => '上一张';
 
   @override
   String get chatTodoNotStarted => '未开始';
@@ -4407,6 +4460,42 @@ class L10nZh extends L10n {
   String commonMonthDay(String month, int day) {
     return '$month月$day日';
   }
+
+  @override
+  String get engineNewChatDefaultsLast => '新对话默认（上次选择）';
+
+  @override
+  String get engineNewChatDefaultsFixed => '新对话默认（固定）';
+
+  @override
+  String get engineNewChatUseLast => '沿用上次';
+
+  @override
+  String get engineNewChatUseFixed => '固定默认';
+
+  @override
+  String get engineNewChatDefaultsHint => '保存在当前主机，只影响新对话的模型和思考深度。权限仍用独立默认，不继承临时会话授权。';
+
+  @override
+  String get engineNewChatDefaultsLegacy => '此引擎仅支持沿用上次选择；不支持固定默认，也无法确认切换时默认值是否保存成功。';
+
+  @override
+  String get engineNewChatDefaultsUnsupported => '此主机没有可编辑的默认模型设置';
+
+  @override
+  String get engineNewChatDefaultsSelectionUnavailable => '此模型或思考深度已不可用，请重新选择。';
+
+  @override
+  String get engineNewChatDefaultsInheritedEffort => '主机基础配置指定了思考深度，不能在这里为无思考模型清除。请先调整主机配置。';
+
+  @override
+  String get engineNewChatDefaultsSaving => '正在保存并确认默认值…';
+
+  @override
+  String get engineNewChatDefaultsUnconfirmed => '没能确认完整默认值，请刷新后检查模型和思考深度。主机基础配置或其他客户端可能已改变它们。';
+
+  @override
+  String get engineModelDefaultSaveFailed => '当前对话的模型已切换，但新对话默认未保存。请到设置 › 模型检查并重试。';
 
   @override
   String get engineAccountSignedIn => '已登录 DeepSeek 账号';
@@ -5479,6 +5568,9 @@ class L10nZh extends L10n {
 
   @override
   String get engineModelContextLength => '上下文长度';
+
+  @override
+  String get engineModelContextOverrideHint => '留空使用渠道目录里的值；改大后引擎按新值计算上下文占用与压缩。';
 
   @override
   String get engineModelMaxOutput => '最大输出';
@@ -7240,7 +7332,40 @@ class L10nZh extends L10n {
   String get hubInterfacePhoneLayout => '手机布局';
 
   @override
+  String get hubTableTint => '表格底色';
+
+  @override
+  String get hubTableTintFollow => '跟随主题';
+
+  @override
+  String get hubTableTintFill => '淡底整表';
+
+  @override
+  String get hubTableTintNone => '无底色';
+
+  @override
+  String get hubTableTintFillHint => '隔行淡一档，长表格更好扫读';
+
+  @override
+  String get hubTableTintFollowHint => '表头浅底，表身跟随正文';
+
+  @override
+  String get hubTableTintNoneHint => '只剩网格线，最轻';
+
+  @override
   String get hubAbout => '关于 DSH Go';
+
+  @override
+  String get hubAboutAuthor => 'DSH Go 原作者';
+
+  @override
+  String get hubAboutBilibili => 'B站主页';
+
+  @override
+  String get hubAboutX => 'X 主页';
+
+  @override
+  String get hubAboutGithub => 'GitHub 主页';
 
   @override
   String get hubAboutNewVersion => '有新版本';
@@ -7286,154 +7411,25 @@ class L10nZh extends L10n {
   String get hubPermissionPhoneConfirm => '手机操控确认';
 
   @override
-  String get interceptTitle => '娱乐拦截';
+  String get hubHardwareEnterSends => '外接键盘按 Enter 发送';
 
   @override
-  String get interceptSubtitle => '你打开自己标记的娱乐 APP 时，DSH 会先拦一下：做完一道小题，或者选一条授权规则，才能进去。拦截和主动搭话各记一本账。';
+  String get hubHardwareEnterSendsHint => '开启后，Shift+Enter 换行。屏幕键盘仍换行；Ctrl/⌘+Enter 始终可发送。';
 
   @override
-  String get interceptEnabled => '开启娱乐拦截';
+  String get hubQuickPanel => '左滑快捷入口';
 
   @override
-  String get interceptEnabledHint => '默认关闭。开启后每次打开下面这些 APP 都会被拦一次；冷却期内不会连着拦。';
+  String get hubQuickPanelSwipe => '左滑打开';
 
   @override
-  String get interceptTargets => '要拦的 APP';
+  String get hubQuickPanelSwipeHint => '在对话里从右向左滑。代码块、表格这些能横向滚动的内容不受影响。';
 
   @override
-  String get interceptTargetsHint => '这些包名是你自己选的，不是内置的。删掉一个就立刻不拦。';
+  String get hubQuickPanelItems => '显示的入口';
 
   @override
-  String get interceptNoTargets => '还没设任何目标 APP';
-
-  @override
-  String get interceptAddTarget => '加一个包名';
-
-  @override
-  String get interceptAddTargetHint => '填 Android 包名，例如 tv.danmaku.bili';
-
-  @override
-  String get interceptAddTargetInvalid => '包名不能为空，也不能有空格';
-
-  @override
-  String get interceptRemoveTarget => '移除';
-
-  @override
-  String get interceptWhitelist => '白名单';
-
-  @override
-  String get interceptWhitelistHint => '白名单里的包名永远不拦，哪怕在目标清单里。';
-
-  @override
-  String get interceptWhitelistEmpty => '白名单是空的';
-
-  @override
-  String get interceptMode => '拦截参数';
-
-  @override
-  String get interceptRelease => '放行时长（分钟）';
-
-  @override
-  String get interceptTraining => '训练题长度（秒）';
-
-  @override
-  String get interceptCooldown => '冷却（分钟）';
-
-  @override
-  String get interceptDailyMax => '每日上限';
-
-  @override
-  String get interceptDailyMaxOff => '不限次数';
-
-  @override
-  String get interceptPause => '暂停与恢复';
-
-  @override
-  String get interceptPauseHint => '暂停期间什么都不拦，到点自动恢复。';
-
-  @override
-  String get interceptPauseNow => '立刻暂停 30 分钟';
-
-  @override
-  String get interceptResume => '恢复拦截';
-
-  @override
-  String interceptPausedUntil(String time) {
-    return '已暂停，到 $time 恢复';
-  }
-
-  @override
-  String get interceptLedger => '行为拦截账';
-
-  @override
-  String get interceptLedgerTriggers => '触发';
-
-  @override
-  String get interceptLedgerBlocked => '真的拦住';
-
-  @override
-  String get interceptLedgerReleased => '用户放行';
-
-  @override
-  String get interceptLedgerExited => '用户退出';
-
-  @override
-  String get interceptLedgerPaused => '暂停';
-
-  @override
-  String get interceptReceipts => '最近回执';
-
-  @override
-  String get interceptReceiptsEmpty => '还没有回执';
-
-  @override
-  String interceptActive(String package) {
-    return '正在拦：$package';
-  }
-
-  @override
-  String interceptStorageError(String error) {
-    return '存档写入失败：$error';
-  }
-
-  @override
-  String interceptRecoveryIssue(String error) {
-    return '启动时读到坏存档：$error';
-  }
-
-  @override
-  String get interceptUnavailable => '这个版本没有接入拦截内核';
-
-  @override
-  String get interceptUnavailableHint => '只有手机端完整版本才有。桌面版和当前构建里没有 dsh/intercept 通道。';
-
-  @override
-  String get interceptRefresh => '刷新';
-
-  @override
-  String get interceptOutcomeBlocked => '拦住了，还没有结局';
-
-  @override
-  String get interceptOutcomeReleased => '放行';
-
-  @override
-  String get interceptOutcomeExited => '紧急退出';
-
-  @override
-  String get interceptOutcomePaused => '暂停';
-
-  @override
-  String get interceptOutcomeNotShown => '没显示出来';
-
-  @override
-  String interceptEnforcementUnavailable(String detail) {
-    return '上次拦截没有真正生效：$detail';
-  }
-
-  @override
-  String interceptLegacyFormat(String reason) {
-    return '拦截记录仍使用旧格式，原因：$reason';
-  }
+  String get hubQuickPanelItemsNone => '没有选择，左滑不会打开';
 
   @override
   String get launchScreenTitle => '启动画面';
@@ -7552,6 +7548,81 @@ class L10nZh extends L10n {
   String get searchKwIconShortcut => '快捷方式,自定义图标,桌面图片,换图标';
 
   @override
+  String get liveThinking => '正在思考';
+
+  @override
+  String get liveWorking => '正在干活';
+
+  @override
+  String get liveJuggling => '子代理在帮忙';
+
+  @override
+  String get liveSweeping => '正在整理上下文';
+
+  @override
+  String liveRunsCount(int count) {
+    return '$count 个对话在跑';
+  }
+
+  @override
+  String get liveChipThinking => '思考中';
+
+  @override
+  String get liveChipWorking => '干活中';
+
+  @override
+  String get liveChipJuggling => '协作中';
+
+  @override
+  String get liveChipSweeping => '整理中';
+
+  @override
+  String get liveChipApproval => '待确认';
+
+  @override
+  String get liveChipQuestion => '待回答';
+
+  @override
+  String get liveChipDone => '完成';
+
+  @override
+  String get liveChipFailed => '出错';
+
+  @override
+  String get livePublicRunning => 'DSH 正在干活';
+
+  @override
+  String get livePublicWaiting => 'DSH 在等你处理';
+
+  @override
+  String get livePublicDone => 'DSH 做完了';
+
+  @override
+  String get livePublicFailed => 'DSH 出错了';
+
+  @override
+  String get liveSettingsTitle => '实时活动';
+
+  @override
+  String get liveSettingsSwitch => '显示实时活动';
+
+  @override
+  String get liveSettingsSubtitle => '干活、等你处理、操作手机时，显示在状态栏胶囊和锁屏上；支持的手机会放进灵动岛';
+
+  @override
+  String get liveSettingsFooter =>
+      'Android 16 的实时活动（Live Updates）：小米 HyperOS 3.1+、OPPO / 一加 ColorOS 16、荣耀 MagicOS 10 和 Pixel 会显示；vivo 原子岛和三星 Now Bar 目前只对厂商合作的应用开放。';
+
+  @override
+  String get liveUnsupported => '这台手机的系统还不支持实时活动';
+
+  @override
+  String get liveBlockedTitle => '系统没有允许实时活动';
+
+  @override
+  String get liveBlockedText => '在系统设置里为 DSH Go 打开「实时活动」（有的手机叫「在流体云中显示」）';
+
+  @override
   String get localeTitle => '语言';
 
   @override
@@ -7638,188 +7709,6 @@ class L10nZh extends L10n {
 
   @override
   String get localEnvSignInInstallFirst => '安装后即可登录';
-
-  @override
-  String get loopEntryTitle => '触发测试';
-
-  @override
-  String get loopEntrySubtitle => '打开指定 APP 时弹出测试页（实验）';
-
-  @override
-  String get loopPageSubtitle => '第一条闭环：打开测试 APP → 弹出测试页 → 点返回 → 记一条回执。只读前台 APP 的包名，不读页面内容。';
-
-  @override
-  String get loopEnabled => '开启触发测试';
-
-  @override
-  String get loopEnabledHint => 'DSH 正在操作手机或有确认在等你时不会弹出';
-
-  @override
-  String get loopTargetApp => '测试 APP';
-
-  @override
-  String get loopTargetNone => '未选择';
-
-  @override
-  String get loopPickApp => '选择测试 APP';
-
-  @override
-  String get loopNoApps => '没有找到可选的 APP';
-
-  @override
-  String get loopCooldown => '冷却时间';
-
-  @override
-  String get loopCooldownHint => '两次弹出之间至少隔这么久，点一下切换';
-
-  @override
-  String loopSeconds(int seconds) {
-    return '$seconds 秒';
-  }
-
-  @override
-  String get loopTimeout => '等你回应的时间';
-
-  @override
-  String get loopTimeoutHint => '超时就记成「超时未回应」，点一下切换';
-
-  @override
-  String loopVisitShort(String id) {
-    return '访问 $id';
-  }
-
-  @override
-  String get loopExport => '导出回执（JSON 复制到剪贴板）';
-
-  @override
-  String loopExportDone(int count) {
-    return '已把 $count 条回执复制到剪贴板';
-  }
-
-  @override
-  String get loopQuietHours => '免打扰时段';
-
-  @override
-  String get loopQuietHoursHint => '这段时间里不弹测试页，可以跨零点。点一下切换。';
-
-  @override
-  String get loopQuietHoursOff => '不限';
-
-  @override
-  String loopQuietHoursValue(String start, String end) {
-    return '$start–$end';
-  }
-
-  @override
-  String get loopDailyCap => '每天上限';
-
-  @override
-  String get loopDailyCapHint => '一天最多弹几次，过零点重新算';
-
-  @override
-  String get loopDailyCapOff => '不限次数';
-
-  @override
-  String loopDailyCapValue(int used, int cap) {
-    return '今天 $used/$cap 次';
-  }
-
-  @override
-  String get loopA11yNeeded => '需要先在系统设置里开启 DSH 的无障碍服务';
-
-  @override
-  String get loopA11yWaiting => '无障碍已开启，等待服务连接';
-
-  @override
-  String get loopA11yReady => '无障碍服务已连接';
-
-  @override
-  String loopCounters(int events, int readings, String app) {
-    return '收到 $events 个窗口事件，复核 $readings 次 · 最近前台 $app';
-  }
-
-  @override
-  String loopStorageError(String error) {
-    return '回执保存失败：$error';
-  }
-
-  @override
-  String loopRecoveredFromBackup(String file) {
-    return '回执文件损坏，已从备份（$file）恢复';
-  }
-
-  @override
-  String get loopDiagnostics => '无障碍诊断';
-
-  @override
-  String loopDiagnosticsSummary(int events, int readings, int faults) {
-    return '$events 个窗口事件、$readings 次前台复核、$faults 次失败';
-  }
-
-  @override
-  String loopDiagnosticsLastRead(String time) {
-    return '上次成功读到前台：$time';
-  }
-
-  @override
-  String get loopDiagnosticsClear => '清空诊断';
-
-  @override
-  String get loopFaultEvent => '窗口事件出错';
-
-  @override
-  String get loopFaultRead => '读前台失败';
-
-  @override
-  String get loopFaultVerify => '触发判定出错';
-
-  @override
-  String get loopFaultAttach => '连接失败';
-
-  @override
-  String get loopFaultSurface => '弹出问题失败';
-
-  @override
-  String get loopSurfaceNotification => '通过通知';
-
-  @override
-  String get loopReceipts => '回执';
-
-  @override
-  String get loopReceiptsEmpty => '还没有回执';
-
-  @override
-  String get loopClear => '清空回执';
-
-  @override
-  String get loopRefresh => '刷新';
-
-  @override
-  String get loopResultReturned => '点了返回';
-
-  @override
-  String get loopResultBack => '按了系统返回';
-
-  @override
-  String get loopResultDismissed => '离开了页面';
-
-  @override
-  String get loopResultTimeout => '超时未回应';
-
-  @override
-  String get loopResultAbandoned => '重启后关闭';
-
-  @override
-  String get loopResultUnavailable => '页面没能弹出';
-
-  @override
-  String get loopResultSuppressed => '未触发';
-
-  @override
-  String get loopResultError => '出错';
-
-  @override
-  String get loopResultOpen => '进行中';
 
   @override
   String get marketSectionOfficial => '官方';
@@ -8254,6 +8143,193 @@ class L10nZh extends L10n {
   String get searchKwMediaGeneration => '生图,画图,文生图,视频生成,AI 绘画,生成图片,生成视频';
 
   @override
+  String get mediaSettingsDefaults => '默认';
+
+  @override
+  String get mediaSettingsLegacyDefault => '旧版通用默认';
+
+  @override
+  String get mediaSettingsLegacyDefaultHint => '0.2.x 的设置；图片和视频没有单独默认时使用';
+
+  @override
+  String get mediaSettingsLegacyDefaultStale => '指向的服务已不可用；清除它可避免生成时报错';
+
+  @override
+  String get mediaSettingsLegacyDefaultClear => '清除旧版通用默认';
+
+  @override
+  String get mediaSettingsDefaultModel => '默认模型';
+
+  @override
+  String get mediaSettingsDefaultFooterLegacy => '旧版插件只有一个默认模型；更新插件后可以分别设置图片和视频。';
+
+  @override
+  String get mediaSettingsDefaultsFooter => '图片和视频分别选择默认模型；留空自动使用第一个可用的。';
+
+  @override
+  String get mediaSettingsNoVideoModels => '这台主机的目录里还没有视频模型';
+
+  @override
+  String get mediaSettingsServices => '服务';
+
+  @override
+  String get mediaSettingsAddService => '添加服务';
+
+  @override
+  String get mediaSettingsAddServiceHint => '从服务商预设开始，地址、协议和模型都会自动带好';
+
+  @override
+  String mediaSettingsServiceLimit(int count) {
+    return '最多 $count 个服务';
+  }
+
+  @override
+  String get mediaSettingsNoServices => '还没有服务。添加一个服务商就能开始生成图片或视频。';
+
+  @override
+  String get mediaSettingsNoModels => '未选模型';
+
+  @override
+  String get mediaSettingsKeyMissing => '未配置 API Key';
+
+  @override
+  String get mediaSettingsCatalogMissing => '这个主机的插件没有提供模型目录；已有服务仍可编辑，但暂时不能新增服务或选择默认模型。';
+
+  @override
+  String get mediaSettingsCatalogBroken => '模型目录读不了（可能版本不兼容）；已有服务仍可编辑，但暂时不能新增服务或选择默认模型。';
+
+  @override
+  String get mediaSettingsCatalogEmpty => '模型目录里还没有模型；已有服务仍可编辑，但暂时不能新增服务或选择默认模型。';
+
+  @override
+  String get mediaSettingsNoPresets => '目录里还没有可添加的服务。';
+
+  @override
+  String get mediaSettingsLimits => '请求上限';
+
+  @override
+  String get mediaSettingsLimitsHint => '限制单次请求的图片张数和字节数；默认是插件硬上限';
+
+  @override
+  String get mediaSettingsMaxImages => '单次图片张数';
+
+  @override
+  String get mediaSettingsMaxImageBytes => '单张原件字节上限';
+
+  @override
+  String get mediaSettingsMaxResponseBytes => '服务响应字节上限';
+
+  @override
+  String get mediaSettingsMaxTotalImageBytes => '单次图片总字节上限';
+
+  @override
+  String get mediaSettingsMaxVideoBytes => '视频原件字节上限';
+
+  @override
+  String get mediaSettingsBudget => '费用保护';
+
+  @override
+  String get mediaSettingsDailyBudget => '每日预算（元）';
+
+  @override
+  String get mediaSettingsDailyBudgetHint => '按上海日期重置；用完即暂停生成';
+
+  @override
+  String get mediaSettingsUnknownPriceHold => '无可靠价格时每次预留（元）';
+
+  @override
+  String get mediaSettingsUnknownPriceHoldHint => '逐次确认的预留金额，不是供应商的收费上限';
+
+  @override
+  String get mediaSettingsApiKey => 'API Key';
+
+  @override
+  String get mediaSettingsReuseKey => '复用密钥';
+
+  @override
+  String get mediaSettingsReuseKeyHint => '同一服务商的图片和视频共用一个 API Key，不用再填一次。';
+
+  @override
+  String get mediaSettingsReuseKeyNone => '同一服务商还没有其它服务。';
+
+  @override
+  String get mediaSettingsReuseKeyShared => '已复用';
+
+  @override
+  String get mediaSettingsModels => '模型';
+
+  @override
+  String get mediaSettingsModelsEmpty => '目录里没有这个协议的模型';
+
+  @override
+  String get mediaSettingsModelKeepOne => '至少保留一个模型';
+
+  @override
+  String get mediaSettingsModelMissing => '目录中不存在';
+
+  @override
+  String get mediaSettingsAdvanced => '高级';
+
+  @override
+  String get mediaSettingsBaseUrl => 'API 根地址';
+
+  @override
+  String get mediaSettingsBaseUrlInvalid => '地址要以 https:// 开头';
+
+  @override
+  String get mediaSettingsProvider => '服务商标识';
+
+  @override
+  String get mediaSettingsKeyRef => '凭据名';
+
+  @override
+  String get mediaSettingsKeyRefInvalid => '凭据名只能包含字母、数字和下划线';
+
+  @override
+  String get mediaSettingsResponseFormat => '返回格式';
+
+  @override
+  String get mediaSettingsResponseFormatAuto => '按协议';
+
+  @override
+  String get mediaSettingsServiceId => '服务 ID';
+
+  @override
+  String get mediaSettingsServiceGone => '这个服务已经不在了';
+
+  @override
+  String get mediaSettingsServiceGoneBody => '它可能已在别处被删掉。返回上一页可以重新添加。';
+
+  @override
+  String get mediaSettingsDelete => '删除服务';
+
+  @override
+  String mediaSettingsDeleteTitle(String name) {
+    return '删除「$name」？';
+  }
+
+  @override
+  String get mediaSettingsDeleteBody => '只会从这台主机的设置里删掉这个服务，API Key 会保留；指向它的默认模型会一并清空。';
+
+  @override
+  String get mediaSettingsNoImageModels => '目录里还没有图像模型';
+
+  @override
+  String get mediaSettingsNoAvailableService => '还没有可用的服务（先添加并填好 Key）';
+
+  @override
+  String get mediaSettingsNoImageService => '还没有可用的图像服务（先添加并填好 Key）';
+
+  @override
+  String get mediaSettingsNoVideoService => '还没有可用的视频服务（先添加并填好 Key）';
+
+  @override
+  String get mediaSettingsKeyExternal => '由其它设置管理，这里只引用';
+
+  @override
+  String get mediaSettingsEnabledHint => '关闭后不再用这个服务生成';
+
+  @override
   String get nearbyThisChat => '本对话';
 
   @override
@@ -8322,6 +8398,21 @@ class L10nZh extends L10n {
 
   @override
   String get performanceRemoteHint => '推荐连接电脑或服务器，减少本机负担';
+
+  @override
+  String get performanceRefresh => '刷新率';
+
+  @override
+  String get performanceRefreshMax => '最高';
+
+  @override
+  String get performanceRefreshSystem => '系统';
+
+  @override
+  String get performanceRefreshHint => '自动：动时用最高刷新率，停下交回系统；系统：完全由系统决定。';
+
+  @override
+  String get searchKwRefreshRate => '刷新率 高刷 120Hz 90Hz 流畅';
 
   @override
   String get petActionSending => '正在发送…';
@@ -8681,13 +8772,7 @@ class L10nZh extends L10n {
   String get phoneDndHiddenScreen => '在看不见的屏幕上操作';
 
   @override
-  String get phoneDndShizukuReady => 'Shizuku · 可以用了';
-
-  @override
   String get phoneNotReadyYet => '还没准备好';
-
-  @override
-  String get phoneDndAdbReady => '自连 ADB · 可以用了';
 
   @override
   String get phoneActionFailedLater => '没有成功，稍后再试';
@@ -8723,22 +8808,91 @@ class L10nZh extends L10n {
   String get phoneDndReactivate => '重启手机后重新激活。';
 
   @override
-  String get phoneDndKeepDebugging => '连接 Wi-Fi，并保持开发者选项和无线调试开启。';
-
-  @override
-  String get phoneDndUsingShizuku => '正在使用：Shizuku';
-
-  @override
-  String get phoneDndUsingAdb => '正在使用：自连 ADB';
+  String get phoneDndKeepDebugging => '用 Shizuku 或自连 ADB 时，连接 Wi‑Fi 并保持无线调试开启。';
 
   @override
   String get phoneReady => '可以用了';
 
   @override
-  String get phoneDndUseShizuku => '用 Shizuku';
+  String get phoneDndDirectAdb => '自连 ADB';
 
   @override
-  String get phoneDndDirectAdb => '自连 ADB';
+  String get phoneDndChannels => '通道';
+
+  @override
+  String get phoneDndShizukuFor => '装了 Shizuku App 的手机';
+
+  @override
+  String get phoneDndSuiFor => 'Magisk 或 KernelSU 装了 Sui 模块';
+
+  @override
+  String get phoneDndRootFor => '已 root 的手机';
+
+  @override
+  String get phoneDndAdbFor => '不装别的 App，用无线调试';
+
+  @override
+  String get phoneDndStateInUse => '使用中';
+
+  @override
+  String get phoneDndStateNotReady => '未就绪';
+
+  @override
+  String get phoneDndStateUsable => '可以用';
+
+  @override
+  String get phoneDndStateNeedsGrant => '待授权';
+
+  @override
+  String get phoneDndStateNotRunning => '未运行';
+
+  @override
+  String get phoneDndStateNotInstalled => '未安装';
+
+  @override
+  String get phoneDndStateNotFound => '未检测到';
+
+  @override
+  String get phoneDndStateViaSui => '由 Sui 提供';
+
+  @override
+  String get phoneDndStateWaiting => '等待授权';
+
+  @override
+  String get phoneDndStateDisconnected => '未连接';
+
+  @override
+  String get phoneDndStateNotPaired => '未配对';
+
+  @override
+  String get phoneDndShizukuViaSui => '这台手机的 Shizuku 接口由 Sui 提供，请改用 Sui。';
+
+  @override
+  String get phoneDndSuiMissing => '没有检测到 Sui。在 Magisk 或 KernelSU 里装好 Sui 模块并重启手机，再回到这里。';
+
+  @override
+  String get phoneDndSuiRunning => 'Sui 接口可用';
+
+  @override
+  String get phoneDndSuiStopped => 'Sui 接口当前不可用。确认 Sui 模块已启用，重启手机后再试。';
+
+  @override
+  String get phoneDndSuiAllSet => 'Sui 这边准备好了。';
+
+  @override
+  String get phoneDndSuiPermissionFailed => '没能请求 Sui 授权。确认 Sui 模块已启用后再试。';
+
+  @override
+  String get phoneDndRootWaiting => '正在等待 root 授权，请在 root 管理器的弹窗里选择。';
+
+  @override
+  String get phoneDndRootConnected => 'root 已连接。断开后要回到这里再选一次；打开上面的「保持 root 通道」，DSH Go 才会自己再去申请。';
+
+  @override
+  String get phoneDndRootConnectedKept => 'root 已连接。断开后 DSH Go 会自己向 root 管理器再次申请。';
+
+  @override
+  String get phoneDndRootRetry => '重新申请 root 授权';
 
   @override
   String get phoneDndInstallShizuku => '先装 Shizuku（免费、开源）。已经在用冰箱、黑阈这类工具的话，多半已经装了。';
@@ -8780,9 +8934,6 @@ class L10nZh extends L10n {
   String get phoneDndConnected => '已连接';
 
   @override
-  String get phoneDndPairOnce => '配对一次（不用装别的 App）';
-
-  @override
   String get phoneDndDeveloperOptionsStep => '打开开发者选项：在「关于手机」里连点「版本号」7 次。小米在「我的设备 → 全部参数与信息」里点「OS 版本」，vivo 点「软件版本号」。';
 
   @override
@@ -8814,9 +8965,6 @@ class L10nZh extends L10n {
 
   @override
   String get phoneDndXiaomiUsbHint => '打开「USB 调试（安全设置）」需插入 SIM 卡并登录小米账号。';
-
-  @override
-  String get phoneDndEnable => '启用不打扰模式';
 
   @override
   String get phoneDndEnterCodeTitle => '填写配对码';
@@ -9042,13 +9190,6 @@ class L10nZh extends L10n {
 
   @override
   String get phoneDisclosureWhenBody => '只在你发起任务，或点「读一下当前屏幕」时。平时不读。';
-
-  @override
-  String get phoneDisclosureTriggerTitle => '触发测试与主动搭话（默认关闭）';
-
-  @override
-  String get phoneDisclosureTriggerBody =>
-      '只有你打开「触发测试」或「主动搭话」之后，DSH 才会读取当前前台 APP 的名称（包名）：触发测试用它判断你有没有打开测试 APP；两者都用它避开系统设置、权限和安装页面，不在这些页面上弹出。不读页面内容，不录屏，不上传。随时可以关掉。';
 
   @override
   String get phoneDisclosureWhoTitle => '发给谁';
@@ -9431,18 +9572,47 @@ class L10nZh extends L10n {
   }
 
   @override
-  String phoneDndShizukuStatus(String reason) {
-    return 'Shizuku · $reason';
-  }
-
-  @override
-  String phoneDndAdbStatus(String reason) {
-    return '自连 ADB · $reason';
-  }
-
-  @override
   String phoneDndBrowserFailed(String url) {
     return '打不开浏览器。网址：$url';
+  }
+
+  @override
+  String phoneDndChannelReady(String channel) {
+    return '$channel · 可以用了';
+  }
+
+  @override
+  String phoneDndChannelStatus(String channel, String reason) {
+    return '$channel · $reason';
+  }
+
+  @override
+  String phoneDndUsing(String channel) {
+    return '正在使用：$channel';
+  }
+
+  @override
+  String phoneDndEnableWith(String mode) {
+    String _temp0 = intl.Intl.selectLogic(mode, {
+      'shizuku': '用 Shizuku 开启',
+      'sui': '用 Sui 开启',
+      'root': '用 Root 开启',
+      'adb': '用自连 ADB 开启',
+      'other': '启用不打扰模式',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String phoneDndSwitchTo(String mode) {
+    String _temp0 = intl.Intl.selectLogic(mode, {
+      'shizuku': '改用 Shizuku',
+      'sui': '改用 Sui',
+      'root': '改用 Root',
+      'adb': '改用自连 ADB',
+      'other': '改用这个通道',
+    });
+    return '$_temp0';
   }
 
   @override
@@ -9660,6 +9830,15 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get phoneDndManualConnect => '按端口连接';
+
+  @override
+  String get phoneDndConnectPortLabel => '连接端口';
+
+  @override
+  String get phoneDndConnectPortHint => '在系统「无线调试」首页查看「IP 地址和端口」，填写冒号后的端口。请不要使用配对码页面的端口。';
+
+  @override
   String get phoneTaskResultReady => '任务完成 · 查看结果';
 
   @override
@@ -9688,6 +9867,88 @@ class L10nZh extends L10n {
 
   @override
   String get phoneBackgroundNotificationBlocked => '请允许手机操控通知的弹出提醒';
+
+  @override
+  String get phonePrivilegedUpgrade => '此版本尚不支持该特权通道，请更新 DSH Go 后使用。';
+
+  @override
+  String get phonePrivilegedSui => 'Sui';
+
+  @override
+  String get phonePrivilegedRoot => 'Root';
+
+  @override
+  String get phonePrivilegedSuiDescription => '使用 Sui 模块提供的接口，仅在主动点击时申请授权。';
+
+  @override
+  String get phonePrivilegedRootDescription => '适用于 Magisk、KernelSU 或 APatch；只有主动选择后才首次执行 root 命令。';
+
+  @override
+  String get phonePrivilegedRootPrepare => '申请 root 授权';
+
+  @override
+  String get phonePrivilegedRootUnchecked => '尚未检查';
+
+  @override
+  String get phonePrivilegedGrantRoot => '通过 root 授予';
+
+  @override
+  String get phonePrivilegedGrantSui => '通过 Sui 授予';
+
+  @override
+  String get phonePrivilegedGrantSuiPermission => '先授权 Sui，再授予权限';
+
+  @override
+  String get phonePrivilegedSuggested => '建议';
+
+  @override
+  String get phonePrivilegedRootRiskTitle => '给 DSH Go root 权限？';
+
+  @override
+  String get phonePrivilegedRootRiskBody =>
+      'root 管理器（Magisk、KernelSU 或 APatch）会弹窗问你。允许后，DSH Go 以 root 运行自己的后台服务；只有打开「保持 root 通道」，断开或重启后才会自己再去申请。';
+
+  @override
+  String phoneKeepTitle(String mode) {
+    String _temp0 = intl.Intl.selectLogic(mode, {
+      'shizuku': '保持 Shizuku 通道',
+      'sui': '保持 Sui 通道',
+      'root': '保持 root 通道',
+      'adb': '保持自连 ADB 通道',
+      'other': '保持这个通道',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get phoneKeepRootDescription => '断开、重开 App 或重启手机后，DSH Go 会自己再向 root 管理器申请；给不给仍由管理器决定。';
+
+  @override
+  String get phoneKeepSharedDescription => '断开、重开 App 或重启手机后，DSH Go 用已有的授权自己连回去，不会替你申请授权。';
+
+  @override
+  String get phoneKeepAdbDescription => '断开、重开 App 或重启手机后，DSH Go 用已有的配对在 Wi‑Fi 下自己连回去；有「自动恢复无障碍」的权限时，还会试着打开一次无线调试。';
+
+  @override
+  String get phoneKeepRestoring => '正在重新连接';
+
+  @override
+  String get phoneKeepWaiting => '等通道可用后再连';
+
+  @override
+  String get phoneKeepWaitingService => '等所选服务运行后再连';
+
+  @override
+  String get phoneKeepWaitingPermission => '还没有授权；授权后会自己连上';
+
+  @override
+  String get phoneKeepWaitingNetwork => '等连上 Wi‑Fi 后再连';
+
+  @override
+  String get phoneKeepNotPaired => '还没有配对，请先完成无线调试配对';
+
+  @override
+  String get phoneKeepFailed => '没连上；下次打开 App 或开始操控时再试';
 
   @override
   String get phoneModeTitle => '选择确认方式';
@@ -11771,196 +12032,6 @@ class L10nZh extends L10n {
   }
 
   @override
-  String get proactiveTitle => '主动搭话';
-
-  @override
-  String get proactiveSubtitle => 'DSH 每隔一段随机时间，或者在你打开某个 APP 之后，主动跟你说一句话。全部规则在本机执行，模型不可用时就不说话。';
-
-  @override
-  String get proactiveEnabled => '开启主动搭话';
-
-  @override
-  String get proactiveEnabledHint => '默认关闭。开启后会按下面的间隔随机找你；DSH 正在操作手机、有确认在等你、锁屏或免打扰时一律让路。';
-
-  @override
-  String get proactiveGap => '最短间隔';
-
-  @override
-  String get proactiveGapHint => '两次主动搭话之间至少隔这么久，实际间隔在这个范围和「最长间隔」之间随机';
-
-  @override
-  String proactiveGapValue(int min, int max) {
-    return '$min–$max 分钟';
-  }
-
-  @override
-  String get proactiveGapMax => '最长间隔';
-
-  @override
-  String get proactiveGapMaxHint => '随机间隔的上限，点一下切换';
-
-  @override
-  String proactiveMinutes(int minutes) {
-    return '$minutes 分钟';
-  }
-
-  @override
-  String get proactiveQuiet => '免打扰时段';
-
-  @override
-  String get proactiveQuietHint => '这段时间里不主动搭话，可以跨零点，点一下切换';
-
-  @override
-  String proactiveQuietValue(String start, String end) {
-    return '$start–$end';
-  }
-
-  @override
-  String get proactiveDaily => '每天上限';
-
-  @override
-  String get proactiveDailyHint => '一天最多几次，过零点重新算；没送达的不算';
-
-  @override
-  String proactiveDailyValue(int count) {
-    return '$count 次';
-  }
-
-  @override
-  String get proactiveState => '现在的状态';
-
-  @override
-  String get proactiveSession => '目标会话';
-
-  @override
-  String get proactiveSessionHint => '还没选：主动搭话不会发出去。点一下选一个活着的会话。';
-
-  @override
-  String get proactiveSessionNone => '不指定';
-
-  @override
-  String get proactiveSessionNoneHint => '不指定目标会话，主动搭话就不会发出';
-
-  @override
-  String proactiveSessionChosen(String id) {
-    return '发到 $id';
-  }
-
-  @override
-  String proactiveSessionUnavailable(String error) {
-    return '读不到会话列表（$error），先确认本机引擎已连上、插件已加载';
-  }
-
-  @override
-  String get proactivePickSession => '选一个会话';
-
-  @override
-  String get proactiveSessionIdle => '空闲，可以发';
-
-  @override
-  String get proactiveSessionRunning => '正在忙，发了会被拒（不会打断它）';
-
-  @override
-  String get proactiveSessionEmpty => '没有活着的会话。先在 DSH 里开一个对话，再回来选。';
-
-  @override
-  String get proactiveGateFree => '现在可以让路了：没有 DSH 任务，也不在黑名单页面上';
-
-  @override
-  String proactiveGateHold(String reason) {
-    return '正在让路：$reason';
-  }
-
-  @override
-  String get proactiveHoldDshTask => 'DSH 正在操作手机';
-
-  @override
-  String get proactiveHoldDshPrompt => '有确认在等你回应';
-
-  @override
-  String get proactiveHoldLocked => '锁屏了';
-
-  @override
-  String get proactiveHoldScreenOff => '屏幕关着';
-
-  @override
-  String get proactiveHoldProtected => '前台是权限/安全页面';
-
-  @override
-  String get proactiveHoldA11y => '无障碍没连上';
-
-  @override
-  String proactiveActiveStage(String stage) {
-    return '正在处理：$stage';
-  }
-
-  @override
-  String get proactiveWakeRestricted => '这台手机限制了后台唤醒，所以只在你打开 DSH、或者屏幕有变化的时候才会尝试主动搭话。想更准时，可以在系统设置里允许 DSH 后台运行和自启动。';
-
-  @override
-  String proactiveWakeMode(String mode) {
-    return '唤醒方式：$mode';
-  }
-
-  @override
-  String get proactiveTransportReady => '已经连上本机引擎，可以真的问模型';
-
-  @override
-  String get proactiveTransportMissing => '还没连上引擎，现在只会用本地文案，不会调用模型';
-
-  @override
-  String proactiveQueued(int count) {
-    return '排队中：$count 条';
-  }
-
-  @override
-  String proactiveRecoveryIssue(String issue) {
-    return '上次的状态读不出来：$issue';
-  }
-
-  @override
-  String get proactiveReceipts => '回执';
-
-  @override
-  String get proactiveReceiptsEmpty => '还没有记录';
-
-  @override
-  String get proactiveOutcomeResponded => '你回应了';
-
-  @override
-  String get proactiveOutcomeDismissed => '你划掉了';
-
-  @override
-  String get proactiveOutcomeIgnoredSeen => '显示了但没回应';
-
-  @override
-  String get proactiveOutcomeAcked => '你点了「我看到了」';
-
-  @override
-  String get proactiveOutcomeUnconfirmed => '通知发了，不知道你看没看';
-
-  @override
-  String get proactiveOutcomeNotDelivered => '没能送到';
-
-  @override
-  String get proactiveOutcomeOpen => '进行中';
-
-  @override
-  String get proactiveMarkAccepted => '已交给 Agent';
-
-  @override
-  String get proactiveMarkGenerated => '模型已生成';
-
-  @override
-  String get proactiveMarkDelivered => '已送出';
-
-  @override
-  String get proactiveMarkShown => '界面显示了';
-
-  @override
-  String get proactiveMarkResponded => '你回应了';
-
-  @override
   String get readListUpdating => '更新中 · 上次结果';
 
   @override
@@ -13551,7 +13622,7 @@ class L10nZh extends L10n {
   String get searchKwAppRules => '名单,黑名单,白名单,禁止,应用';
 
   @override
-  String get searchKwDnd => '免打扰,Shizuku,ADB,后台操作';
+  String get searchKwDnd => '免打扰,Shizuku,Sui,root,ADB,后台操作';
 
   @override
   String get searchKwEngine => '引擎,运行环境,启动,停止,重启,DSH';
@@ -13624,6 +13695,9 @@ class L10nZh extends L10n {
 
   @override
   String get searchKwTextSize => '字号,字体,文字大小,大字,字体大小';
+
+  @override
+  String get searchKwTableTint => '表格,底色,表头,斑马纹,条纹,背景';
 
   @override
   String get searchKwFoldTurns => '收起,折叠,过程,步骤';
@@ -13705,6 +13779,9 @@ class L10nZh extends L10n {
 
   @override
   String get searchKwNotifyQuestion => '提问提醒';
+
+  @override
+  String get searchKwNotifyLive => '灵动岛,实时活动,流体云,超级岛,原子岛,胶囊,状态栏进度,锁屏进度';
 
   @override
   String get searchKwNotifySystem => '声音,横幅,锁屏,系统通知';
@@ -13824,6 +13901,84 @@ class L10nZh extends L10n {
 
   @override
   String get searchKwUsageStats => '统计,使用统计,匿名,隐私,数据,改进,遥测,分析';
+
+  @override
+  String get searchKwQuickPanel => '左滑,快捷入口,手势,滑动,目录,自定义目录,快捷,常用入口';
+
+  @override
+  String get shellDeletePermanently => '永久删除';
+
+  @override
+  String get shellDeleteNoUndo => '无法撤销，与归档不同';
+
+  @override
+  String get shellDeleteChecking => '正在检查此主机是否支持永久删除…';
+
+  @override
+  String get shellDeleteUnsupported => '此主机不支持安全永久删除，仍可使用归档。';
+
+  @override
+  String get shellDeleteUnavailable => '安全永久删除暂不可用，请重连或更新此主机；不会改为归档。';
+
+  @override
+  String shellDeleteChatConfirmation(String title) {
+    return '永久删除「$title」？';
+  }
+
+  @override
+  String shellDeleteChatsConfirmation(int count) {
+    return '永久删除 $count 个对话？';
+  }
+
+  @override
+  String get shellDeleteWarning =>
+      '将从此主机永久删除所选对话记录，无法撤销，与归档不同。\n\n工作目录、生成的文件、分叉对话、共享附件和已发布的云端分享都会保留。云端分享需另行删除。主机会拒绝删除仍有任务或关联工作的对话。';
+
+  @override
+  String get shellDeleteOwnerChanged => '主机或连接已变化。请取消后重新发起删除，原确认不再有效。';
+
+  @override
+  String get shellDeletingChats => '正在删除对话…';
+
+  @override
+  String shellChatsDeleted(int count) {
+    return '已永久删除 $count 个对话';
+  }
+
+  @override
+  String shellDeletePartial(int deleted, int failed) {
+    return '已删除 $deleted 个，失败 $failed 个';
+  }
+
+  @override
+  String get shellDeleteRunning => '请先停止运行中的工作；主机还会检查活动任务和定时任务。';
+
+  @override
+  String get shellDeleteRelated => '此对话有关联的子代理工作，主机为保护它们拒绝删除。';
+
+  @override
+  String get shellDeleteWriterHeld => '其他进程正在使用此对话，请先在该进程中关闭后重试。';
+
+  @override
+  String get shellDeleteNotFound => '此主机上已没有这个对话，请刷新列表。';
+
+  @override
+  String get shellDeleteConnectionLost => '连接已断开，删除结果未确认，请刷新对话列表后再操作。';
+
+  @override
+  String get shellDeleteArchivePending => '此对话正在等待归档，请先完成或撤销归档。';
+
+  @override
+  String get shellDeleteInventoryChanged => '对话列表已变化，请刷新后重新选择。';
+
+  @override
+  String get shellDeleteProtocolError => '删除结果未确认，请刷新对话列表后再操作。';
+
+  @override
+  String get shellDeleteNotAttempted => '未执行，请核对对话列表后重试。';
+
+  @override
+  String get shellDeleteFailed => '主机无法确认删除结果，请刷新后再决定是否重试。';
 
   @override
   String get setupAppearanceTitle => '选择外观';
@@ -14729,6 +14884,14 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get shellQuickPanel => '快捷入口';
+
+  @override
+  String shellQuickPanelHint(String path) {
+    return '在「$path」里调整';
+  }
+
+  @override
   String starPromptTitle(int hours) {
     String _temp0 = intl.Intl.pluralLogic(
       hours,
@@ -15101,13 +15264,13 @@ class L10nZh extends L10n {
   String get stateChatStopSteered => '没能停下本轮，已作为插话发送';
 
   @override
-  String get stateChatTextOnlyModel => '当前模型只能读文字，图片已作为文件发给 AI。想让 AI 直接看图，请换成 V4.1 Flash';
+  String get stateChatTextOnlyModel => '当前模型未声明支持图片，已按文件发送。可换模型，或把自定义模型的输入类型设为「文本和图片」';
 
   @override
   String get stateAttachmentUploadFailed => '附件上传失败';
 
   @override
-  String get stateChatImageModelRequired => '当前模型看不了图片，换成 V4.1 Flash 再发';
+  String get stateChatImageModelRequired => '当前模型未声明支持图片。请换模型，或把自定义模型的输入类型设为「文本和图片」再发';
 
   @override
   String get stateSendFailed => '发送失败';
@@ -15778,8 +15941,11 @@ class L10nZh extends L10n {
 
   @override
   String stateAttachmentFileLimit(String name) {
-    return '文件「$name」超过 30 MB';
+    return '文件「$name」超过 200 MB';
   }
+
+  @override
+  String get stateAttachmentTotalLimit => '附件总大小超过 400 MB';
 
   @override
   String stateBotFinished(String name) {
@@ -16074,6 +16240,12 @@ class L10nZh extends L10n {
 
   @override
   String get updateInstallCancelledMessage => '安装包还在，随时可以再装。';
+
+  @override
+  String get updateInstallUnconfirmed => '尚未确认安装结果';
+
+  @override
+  String get updateInstallUnconfirmedMessage => '安装包已保留。可先检查系统提示，再重试或用系统安装器打开。';
 
   @override
   String get updateSignatureMismatch => '签名不一致，不能直接覆盖';
@@ -16758,6 +16930,19 @@ class L10nZh extends L10n {
   @override
   String viewUiReplyCancel(String value) {
     return '取消：$value';
+  }
+
+  @override
+  String viewUiReplyOther(String value) {
+    return '其他：$value';
+  }
+
+  @override
+  String get viewUiFreeTextHint => '其他（自己填）';
+
+  @override
+  String viewUiChosenOther(String value) {
+    return '已填写：$value';
   }
 
   @override
