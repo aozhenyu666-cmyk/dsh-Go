@@ -193,3 +193,96 @@ R4 功能已完整，APK 已能构建。**下一阶段是长期维护能力的�
 ```
 
 **禁止**：`reset --hard`、`clean -fd`、force push、整份重写冲突文件。
+---
+
+## 10. 上游同步方案（命令二产出）
+
+### 10.1 现状定性
+
+```
+             bf015944 (旧上游 1.0.4)  ← 分叉点
+              /                    \
+   74 提交   /                      \  231 提交
+            /                        \
+   r4/main (9bd93fb)          upstream/main (8e36cdbf)
+```
+
+**两边都在同一个点上往前走了**，没有一方包含另一方。
+
+### 10.2 上游 231 个提交里改了什么（按性质归类）
+
+| 类别 | 代表提交 | 与 R4 关系 |
+|---|---|---|
+| 新增 WebFiles 插件 | `MainActivity` +1 行注册 | 无冲突，直接继承 |
+| 刷新率 / Live Update | `app.dart`、`MainActivity` 重构 | R4 只 +4/+3 行，局部合并 |
+| **PRoot 临时目录回收** | `4ac19eef fix(runtime): reclaim abandoned PRoot glue directories safely` | **与 R4 关注的同一区域**，需重点验证 |
+| PRoot 启动错误分类 | `8fe1c1cd` | 与 R4 的 `DirectLaunch` 相邻，需验证 |
+| Node 解析器修复 | `DshProcess` +NODE_OPTIONS | 与 R4 的 `DshProcess` +6 行可能同段 |
+| 背景输入 / 触摸回执 | `bbf4fc26` `05f12f05` | 无冲突 |
+| 会话与连接修复 | `df9931e6` `2a703754` | 无冲突 |
+| conscrypt 2.5.3→2.8.0 | `build.gradle.kts` | R4 的 +41 行是 flavor/签名，不同段 |
+| CI 流水线精简 | `05723f7b` | 与 R4 的 APK workflow 并存 |
+
+### 10.3 冲突面实测
+
+| 文件 | 上游 | R4 | 判断 |
+|---|---|---|---|
+| `MainActivity.kt` | +45 −9 | +3 −0 | **易**（不同区域） |
+| `DshProcess.kt` | +32 −15 | +6 −1 | **中**（可能同段，需人工看） |
+| `AndroidManifest.xml` | +13 −0 | +63 −0 | **易**（都是新增） |
+| `build.gradle.kts` | +1 −1 | +41 −0 | **易** |
+| `app.dart` | +13 −2 | +4 −0 | **易** |
+| `app_{en,zh}.arb` | +235/+352 | 少量 key | **中**（需重新生成） |
+| `l10n/gen/*`、`l10n/parts/phone_*` | +0 −0 | — | **无冲突**（上游无实质改动） |
+| `.gitignore` `THIRD_PARTY_NOTICES.md` | +7 −1 / +2 −2 | 少量 | **易**（取并集） |
+
+### 10.4 同步流程（写入本文件，长期有效）
+
+```bash
+# 0) 每次开工先读本文件，再确认状态
+git -C <repo> fetch upstream            # 若失败见 §10.5
+
+# 1) 看清上游新增
+git log --oneline r4/main..upstream/main
+git diff --stat r4/main...upstream/main
+
+# 2) 在临时分支上试合并，不直接动 r4/main
+git switch -c tmp/upstream-sync-<date> r4/main
+git merge upstream/main                 # 冲突只出现在 §10.3 列出的文件
+
+# 3) 冲突处理规则
+#    - l10n/gen/*.dart 与 app_*.arb：不手工合，改 parts 后重新生成
+#        python app/tool/l10n_merge.py
+#    - AndroidManifest / build.gradle.kts / .gitignore：取并集，两边条目都保留
+#    - MainActivity / app.dart / DshProcess：逐 hunk 合并，两边的新增都保留
+#    - 任何 loop/core、loop/intercept、runtime/build-runtime.sh 的冲突 = 异常，停下报告
+
+# 4) 回归（顺序不能省）
+bash tooling/run-kernel-tests.sh         # 必须 OK + wiring OK
+cd app && flutter analyze lib
+cd examples/plugins/dsh-go-bili && node --test
+
+# 5) 合入并构建
+git branch -f r4/main tmp/upstream-sync-<date>
+git push origin r4/main
+git push origin r4/main:build/r4-phone-apk-2026-11-02   # 触发 CI
+```
+
+### 10.5 fetch 失败的应对（实测记录）
+
+本机 `git fetch upstream` 多次在连接阶段停滞（CPU 0、无输出），而：
+
+- `Test-NetConnection github.com:443` → True
+- `gh api` 与 `curl` 到 GitHub API → 正常
+- `codeload` tarball → 可下载但慢（120s / 2.9MB）
+
+**替代方案（已验证可用）**：用 GitHub API 取差异，不必本地 fetch：
+
+```powershell
+curl GitHub Compare API: /repos/<owner>/<repo>/compare/<base>...<head>?per_page=250
+# 返回 files[].patch，可直接看每个文件的真实改动
+```
+
+本文件 §10.2/§10.3 的全部结论就是这样得出的。
+
+若一定要本地 merge，需要先用 `git bundle` 或换个网络环境把 231 个对象取回来。
