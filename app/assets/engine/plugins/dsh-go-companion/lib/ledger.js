@@ -73,9 +73,10 @@ export function summarize(entries, dayStart) {
   }
   let lastTopicId = ''
   let lastAt = 0
+  const TALKED = new Set(['generated', 'delivered', 'displayed', 'replied', 'substantive'])
   for (const e of entries) {
     if (Number(e.at) >= dayStart && Object.hasOwn(counts, e.state)) counts[e.state] += 1
-    if (e.topicId && Number(e.at) >= lastAt) {
+    if (e.topicId && TALKED.has(e.state) && Number(e.at) >= lastAt) {
       lastTopicId = String(e.topicId)
       lastAt = Number(e.at) || 0
     }

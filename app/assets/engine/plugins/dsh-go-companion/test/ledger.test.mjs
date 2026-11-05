@@ -36,11 +36,12 @@ test('汇总：只算当天，记录最近话题', () => {
   const rows = [
     { requestId: 'r1', state: 'generated', at: NOW, topicId: 'topic:a' },
     { requestId: 'r1', state: 'accepted', at: NOW, topicId: 'topic:a' },
-    { requestId: 'r2', state: 'failed', at: NOW, topicId: 'topic:b' },
+    { requestId: 'r2', state: 'generated', at: NOW, topicId: 'topic:b' },
+    { requestId: 'r3', state: 'failed', at: NOW, topicId: 'topic:c' },
     { requestId: 'r0', state: 'generated', at: NOW - 3 * DAY, topicId: 'topic:old' },
   ]
   const s = summarize(rows, NOW - DAY)
-  assert.equal(s.counts.generated, 1)
+  assert.equal(s.counts.generated, 2)
   assert.equal(s.counts.accepted, 1)
   assert.equal(s.counts.failed, 1)
   assert.equal(s.lastTopicId, 'topic:b')
