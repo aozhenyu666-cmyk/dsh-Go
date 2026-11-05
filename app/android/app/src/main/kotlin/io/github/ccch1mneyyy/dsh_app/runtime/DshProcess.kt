@@ -111,6 +111,10 @@ class DshProcess(
         var authPending = !safe && AppAuthGuest.file(rootfs).isFile
         // On-device voice input: the recognizer's phone settings, same rule.
         var speechPending = !safe && SpeechGuest.file(rootfs).isFile
+        // Prebuilt plugins shipped in the APK: same rule.
+        var builtinPending = !safe && BuiltinPluginGuest.file(rootfs).isFile
+        // PC fish bridge over MCP: same rule; absent unless the deploy script wrote an endpoint.
+        var fishPending = !safe && FishMcpGuest.file(rootfs).isFile
         for (arg in launchArgv) {
             if (!bindsPlaced && arg == "/usr/bin/env") {
                 allBinds.forEach { argv += "-b"; argv += it }
@@ -131,7 +135,11 @@ class DshProcess(
                 if (withAuth != null) authPending = false
                 val withSpeech = if (speechPending) SpeechGuest.launchArg(withAuth ?: withSearch ?: withPhone ?: selected ?: arg) else null
                 if (withSpeech != null) speechPending = false
-                argv += expand(withSpeech ?: withAuth ?: withSearch ?: withPhone ?: selected ?: arg)
+                val withBuiltin = if (builtinPending) BuiltinPluginGuest.launchArg(withSpeech ?: withAuth ?: withSearch ?: withPhone ?: selected ?: arg) else null
+                if (withBuiltin != null) builtinPending = false
+                val withFish = if (fishPending) FishMcpGuest.launchArg(withBuiltin ?: withSpeech ?: withAuth ?: withSearch ?: withPhone ?: selected ?: arg) else null
+                if (withFish != null) fishPending = false
+                argv += expand(withFish ?: withBuiltin ?: withSpeech ?: withAuth ?: withSearch ?: withPhone ?: selected ?: arg)
             }
         }
         check(!safe || profileSelected) { "safe mode: this runtime's launch command has no `dsh web` to replace" }

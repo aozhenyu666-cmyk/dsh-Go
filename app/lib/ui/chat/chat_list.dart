@@ -759,7 +759,7 @@ class _ChatListState extends ConsumerState<ChatList> {
     return DshUiScope(
       sessionId: widget.sessionId,
       messageId: item.id,
-      state: !item.text.contains('dsh-ui')
+      state: !item.text.contains('dsh-ui') && !item.text.contains('{')
           ? DshUiState.expired
           : dshUiStateFor(
               items: s.items,

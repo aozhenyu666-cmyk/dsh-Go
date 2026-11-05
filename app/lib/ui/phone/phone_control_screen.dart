@@ -413,6 +413,8 @@ class _PhoneControlScreenState extends ConsumerState<PhoneControlScreen> {
     if (runtime.runtimeMissing) return context.l10n.localEnvPhoneNeedsRuntime;
     if (runtime.phase != RuntimePhase.running) return context.l10n.phoneControlAfterEngineStarts;
     if (!s.a11y.enabled) return context.l10n.phoneControlNeedsAccessibility;
+    if (!s.a11y.serviceConnected) return context.l10n.phoneControlAccessibilityReconnect;
+    if (!s.a11y.healthy) return context.l10n.phoneControlAccessibilityReconnect;
     return context.l10n.phoneControlReady;
   }
 

@@ -15,8 +15,10 @@ import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
  * (`pm grant` from a computer or a root shell, or the one tap through the privileged channel), it
  * puts [PhoneA11yService] back into ENABLED_ACCESSIBILITY_SERVICES when something took it out (a
  * force stop does, on stock Android too), and takes it out and back in when it stays listed but
- * unbound (the system's 「无法运行」 state) so the system binds it afresh. It writes that list and
- * ACCESSIBILITY_ENABLED, no other setting, and backs off so it can't loop.
+ * unbound (the system's 「无法运行」 state) so the system binds it afresh. It also treats a
+ * bound-but-silently-dead service as not connected: [A11yHealth] marks it DEAD only after
+ * consecutive empty tree probes, so a quiet screen is not mistaken for a broken service.
+ * It writes that list and ACCESSIBILITY_ENABLED, no other setting, and backs off so it can't loop.
  *
  * Checked when [PhoneControl] comes up (the app's start), after an update ([Receiver]), when a
  * task starts or needs the main screen, and on [PhoneControl]'s 2-second tick.
@@ -42,7 +44,7 @@ object A11yKeeper {
         val app = context.applicationContext
         val plan = plan ?: KeeperPlan(app.packageName, PhoneA11yService::class.java.name).also { plan = it }
         val on = PhoneControl.switchedOn(app)
-        val connected = PhoneA11yService.isConnected()
+        val connected = PhoneA11yService.isAlive()
         val granted = on && !connected && granted(app)
         val list = if (granted) read(app) else null
         val step = plan.next(on, granted, list, connected, SystemClock.elapsedRealtime())

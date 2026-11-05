@@ -10,6 +10,7 @@ package io.github.ccch1mneyyy.dsh_app.phone
  */
 object PhoneToolCatalog {
     const val APPS = "apps"
+    const val NOW = "now"
     const val OPEN = "open"
     const val INTENT = "intent"
     const val NOTIFY = "notify"
@@ -63,6 +64,15 @@ object PhoneToolCatalog {
             "列出这台手机上能打开的应用（名称 · 包名）。",
             // l10n:keep agent tool catalog
             linkedMapOf("query" to str("按名称或包名筛选，可省略")),
+            emptyList(),
+        ),
+        Tool(
+            NOW,
+            // l10n:keep agent tool catalog
+            "读取手机此刻的状态：前台应用包名、已停留分钟、亮屏、充电。" +
+                // l10n:keep agent tool catalog
+                "判断是否要主动介入前先调它，再把 app / appMinutes 交给关系内核。",
+            emptyMap<String, Any?>(),
             emptyList(),
         ),
         Tool(

@@ -9,4 +9,12 @@
     <string name="overlay_ball_paused">已暂停，点按展开</string>
     <string name="overlay_ball_stopped">已停止</string>
     <string name="overlay_collapse">收起</string>
+    <!-- 看门狗（phone/a11y/A11yWatchdogService.kt）。 -->
+    <string name="watchdog_channel">DSH 守护</string>
+    <string name="watchdog_title">DSH 守护</string>
+    <string name="watchdog_ok">无障碍连接正常。</string>
+    <string name="watchdog_off">手机操控已关闭，守护待命。</string>
+    <string name="watchdog_restored">无障碍已自动恢复。</string>
+    <string name="watchdog_needs_grant">无障碍掉了。授予“修改安全设置”权限后可以自动修复。</string>
+    <string name="watchdog_needs_manual">无障碍掉了，点一下修复。</string>
 </resources>

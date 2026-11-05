@@ -41,6 +41,11 @@ const pluginSkillName = 'dsh-go-plugin';
 /// how to use the app. Read-only; installed and kept current the same way.
 const guideSkillName = 'dsh-go-guide';
 
+/// The fourth: the relationship core's daily workflow (shipped with the
+/// prebuilt `dsh-go-relationship` plugin). The phone-side model only follows
+/// this text and calls prepared tools; it writes no code.
+const relationshipSkillName = 'dsh-go-relationship';
+
 /// The managed line inside SKILL.md's front matter.
 const uiSkillManagedMarker = '# dsh-go:managed';
 
@@ -150,7 +155,11 @@ final uiSkillBundleLoaderProvider = Provider<UiSkillBundleLoader>((ref) => loadU
 
 /// The other skills installed next to [uiSkillName] on each engine start.
 final extraSkillLoadersProvider = Provider<List<UiSkillBundleLoader>>(
-  (ref) => [() => loadUiSkillBundle(null, pluginSkillName), () => loadUiSkillBundle(null, guideSkillName)],
+  (ref) => [
+    () => loadUiSkillBundle(null, pluginSkillName),
+    () => loadUiSkillBundle(null, guideSkillName),
+    () => loadUiSkillBundle(null, relationshipSkillName),
+  ],
 );
 
 /// Installs the skill each time the on-device engine comes up (and at launch

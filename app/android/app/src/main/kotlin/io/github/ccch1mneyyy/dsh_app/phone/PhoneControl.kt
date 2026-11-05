@@ -22,6 +22,7 @@ import android.provider.Settings
 import io.github.ccch1mneyyy.dsh_app.MainActivity
 import io.github.ccch1mneyyy.dsh_app.R
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.A11yKeeper
+import io.github.ccch1mneyyy.dsh_app.phone.a11y.A11yWatchdogService
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.PhoneA11yService
 import io.github.ccch1mneyyy.dsh_app.phone.background.BackgroundControl
 import io.github.ccch1mneyyy.dsh_app.phone.background.SecureSettingsGrant
@@ -148,6 +149,7 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
         ticker.scheduleWithFixedDelay({ tick() }, 2, 2, TimeUnit.SECONDS)
         // The app's start: a force stop took the accessibility service out of the settings.
         ticker.execute(::keep)
+        if (switchedOn(app)) A11yWatchdogService.start(app)
     }
 
     // ── Switch and app lists ────────────────────────────────────────────────────────
@@ -161,9 +163,11 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
             // l10n:keep agent stop reason
             tasks.stop("手机操控已关闭")
             stopBridge()
+            A11yWatchdogService.stop(app)
         } else {
             tasks.clearStop()
             ticker.execute(::keep)
+            A11yWatchdogService.start(app)
         }
         emitStatus()
         return true
@@ -421,23 +425,52 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
         }
     }
 
-    fun status(): Map<String, Any?> = linkedMapOf(
-        "enabled" to isEnabled(),
-        "bridgeListening" to bridge.listening,
-        "a11y" to linkedMapOf("enabled" to a11yEnabledInSettings(), "serviceConnected" to (PhoneRegistry.mainDriver != null)),
-        "overlay" to (PhoneRegistry.overlayGate != null),
-        "notifications" to nm.areNotificationsEnabled(),
-        "confirmationNotifications" to notificationGate.available(),
-        "background" to backgroundStatus(),
-        "a11yKeeper" to keeperStatus(),
-        "task" to tasks.snapshot().toMap(),
-        "device" to linkedMapOf(
-            "manufacturer" to Build.MANUFACTURER,
-            "sdkInt" to Build.VERSION.SDK_INT,
-            "sideloaded" to sideloaded(),
-            "restricted" to RestrictedSettings.read(app),
-        ),
-    )
+    fun status(): Map<String, Any?> {
+        val a11yNow = android.os.SystemClock.elapsedRealtime()
+        val a11yScreenOn = runCatching {
+            app.getSystemService(android.os.PowerManager::class.java)?.isInteractive == true
+        }.getOrDefault(true)
+        val a11yHealth = PhoneA11yService.health(a11yNow, a11yScreenOn)
+        runCatching { PhoneRegistry.mainDriver?.foregroundPackage() }
+            .getOrNull()
+            ?.let { io.github.ccch1mneyyy.dsh_app.phone.a11y.NowFeed.onApp(it, a11yNow) }
+        val nowState = io.github.ccch1mneyyy.dsh_app.phone.a11y.NowFeed.snapshot(a11yNow)
+        return linkedMapOf(
+            "enabled" to isEnabled(),
+            "bridgeListening" to bridge.listening,
+            "a11y" to linkedMapOf(
+                "enabled" to a11yEnabledInSettings(),
+                "serviceConnected" to (PhoneRegistry.mainDriver != null),
+                "alive" to a11yHealth.alive,
+                "healthy" to a11yHealth.healthy,
+                "verdict" to a11yHealth.verdict.name.lowercase(),
+                "lastEventAgeMs" to a11yHealth.lastEventAgeMs(a11yNow),
+                "lastProbeAgeMs" to a11yHealth.lastProbeAgeMs(a11yNow),
+                "probeOk" to a11yHealth.lastProbeOk,
+                "failures" to a11yHealth.failures,
+                "lastReason" to a11yHealth.lastReason,
+            ),
+            "now" to linkedMapOf(
+                "app" to nowState.app,
+                "appMinutes" to nowState.appMinutes,
+                "screenOn" to nowState.screenOn,
+                "charging" to nowState.charging,
+                "lastEventAgeMs" to nowState.lastEventAgeMs,
+            ),
+            "overlay" to (PhoneRegistry.overlayGate != null),
+            "notifications" to nm.areNotificationsEnabled(),
+            "confirmationNotifications" to notificationGate.available(),
+            "background" to backgroundStatus(),
+            "a11yKeeper" to keeperStatus(),
+            "task" to tasks.snapshot().toMap(),
+            "device" to linkedMapOf(
+                "manufacturer" to Build.MANUFACTURER,
+                "sdkInt" to Build.VERSION.SDK_INT,
+                "sideloaded" to sideloaded(),
+                "restricted" to RestrictedSettings.read(app),
+            ),
+        )
+    }
 
     private fun backgroundStatus(): Map<String, Any?> = try {
         background.status()
@@ -576,7 +609,9 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
     }
 
     override fun a11yState(): A11yState = when {
-        PhoneRegistry.mainDriver != null -> A11yState.CONNECTED
+        // A bound-but-stale service is not usable: report it as not connected so tasks don't
+        // start on a dead tree; the keeper will rebind after the health probe says DEAD.
+        PhoneA11yService.isHealthy() -> A11yState.CONNECTED
         a11yEnabledInSettings() -> A11yState.ENABLED_NOT_CONNECTED
         else -> A11yState.DISABLED
     }

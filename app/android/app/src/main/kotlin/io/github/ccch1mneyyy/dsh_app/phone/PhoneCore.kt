@@ -2,6 +2,8 @@ package io.github.ccch1mneyyy.dsh_app.phone
 
 import java.time.ZoneId
 
+import io.github.ccch1mneyyy.dsh_app.phone.a11y.NowFeed
+
 enum class A11yState { CONNECTED, ENABLED_NOT_CONNECTED, DISABLED }
 
 /** What the core needs from the device; [PhoneControl] on Android, a fake in the JVM tests. */
@@ -150,6 +152,7 @@ class PhoneCore(
         }
         return when (name) {
             PhoneToolCatalog.APPS -> apps(a)
+            PhoneToolCatalog.NOW -> now()
             PhoneToolCatalog.OPEN -> open(a, scope)
             PhoneToolCatalog.INTENT -> intent(a)
             PhoneToolCatalog.NOTIFY -> notify(a)
@@ -165,6 +168,25 @@ class PhoneCore(
     }
 
     // ── System actions ──────────────────────────────────────────────────────────────
+
+    private fun now(): Out {
+        if (env.a11yState() != A11yState.CONNECTED) {
+            // l10n:keep agent tool result
+            return Out("无障碍服务没连上，读不到前台应用。先在 设置 → 手机操控 里恢复。", error = true, summary = "读取手机状态")
+        }
+        // Window events can lag on some ROMs; the focused window is the better answer for "now".
+        runCatching { env.driver(PhoneScreen.MAIN)?.foregroundPackage() }
+            .getOrNull()
+            ?.let { NowFeed.onApp(it, android.os.SystemClock.elapsedRealtime()) }
+        val snapshot = NowFeed.snapshot(android.os.SystemClock.elapsedRealtime())
+        val text = buildString {
+            append("前台应用：").append(snapshot.app ?: "未知").append('\n')
+            append("已停留：").append(snapshot.appMinutes).append(" 分钟\n")
+            append("亮屏：").append(if (snapshot.screenOn) "是" else "否").append('\n')
+            append("充电：").append(if (snapshot.charging) "是" else "否")
+        }
+        return Out(text, summary = "读取手机状态")
+    }
 
     private fun apps(a: Args): Out {
         val q = a.str("query")

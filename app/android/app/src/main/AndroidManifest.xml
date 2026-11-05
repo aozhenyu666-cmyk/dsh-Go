@@ -253,6 +253,31 @@
                 android:resource="@xml/phone_accessibility_service" />
         </service>
 
+        <!-- 无障碍看门狗: separate process so an OEM kill of the Flutter process does not take the keeper with it. -->
+        <service
+            android:name=".phone.a11y.A11yWatchdogService"
+            android:process=":watchdog"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Watches the accessibility service and restores it after the app process is killed" />
+        </service>
+        <receiver
+            android:name=".phone.a11y.WatchdogCheckReceiver"
+            android:process=":watchdog"
+            android:exported="false" />
+        <receiver
+            android:name=".phone.a11y.WatchdogReceiver"
+            android:process=":watchdog"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.USER_PRESENT" />
+            </intent-filter>
+        </receiver>
+
         <!-- 触发测试 (loop/InteractionActivity.kt): the first loop's interaction page. Its own task
              and affinity so finishing it returns to the test app and never touches the main task. -->
         <activity

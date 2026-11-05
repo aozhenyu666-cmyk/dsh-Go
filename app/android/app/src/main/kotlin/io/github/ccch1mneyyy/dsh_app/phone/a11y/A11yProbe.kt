@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import io.github.ccch1mneyyy.dsh_app.phone.AppVisibility
@@ -85,6 +86,23 @@ internal class A11yProbe(private val service: PhoneA11yService, private val driv
                         "\n----\n${r.screen?.text}"
                 }
                 "fg" -> "fg=${driver.foregroundPackage()} availability=${driver.availability()} enabled=${PhoneA11yService.isEnabled(service)}"
+                "health" -> {
+                    val now = SystemClock.elapsedRealtime()
+                    val screenOn = runCatching {
+                        service.getSystemService(PowerManager::class.java)?.isInteractive == true
+                    }.getOrDefault(true)
+                    val h = PhoneA11yService.health(now, screenOn)
+                    "connected=${h.connected} alive=${h.alive} healthy=${h.healthy} verdict=${h.verdict} " +
+                        "lastEventAgeMs=${h.lastEventAgeMs(now)} lastProbeAgeMs=${h.lastProbeAgeMs(now)} " +
+                        "probeOk=${h.lastProbeOk} failures=${h.failures} lastPackage=${h.lastPackage} lastReason=${h.lastReason}"
+                }
+                "now" -> {
+                    val now = SystemClock.elapsedRealtime()
+                    runCatching { driver.foregroundPackage() }.getOrNull()?.let { NowFeed.onApp(it, now) }
+                    val s = NowFeed.snapshot(now)
+                    "app=${s.app} appMinutes=${s.appMinutes} screenOn=${s.screenOn} " +
+                        "charging=${s.charging} lastEventAgeMs=${s.lastEventAgeMs}"
+                }
                 "status" -> { overlay.status(a.s("text")); "ok" }
                 "confirm" -> overlay.confirm(ConfirmRequest(a.s("sentence") ?: AppStrings.get(service, R.string.overlay_probe_confirm), a.s("app"), null, a.b("first"), (a.i("ms") ?: 30_000).toLong())).name
                 "handoff" -> overlay.handoff(a.s("reason") ?: AppStrings.get(service, R.string.overlay_probe_password), (a.i("ms") ?: 60_000).toLong()).name

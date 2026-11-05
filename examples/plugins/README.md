@@ -10,6 +10,7 @@
 | [`dsh-go-example-readaloud`](dsh-go-example-readaloud/) | v1.2 能力：朗读一条回复、开口即停、每秒 10 次的字幕、悬浮字幕 | 要 |
 | [`dsh-go-example-styles`](dsh-go-example-styles/) | 视图 v2：语义文字、富文本、可读颜色、卡片与比例列，保留 v1 文字回退 | 要 |
 | [`dsh-go-example-album`](dsh-go-example-album/) | 聊天页「插件」弹层：图集、空状态、环形进度、趋势线，跟随 App 主题色 | 要 |
+| [`dsh-go-relationship`](dsh-go-relationship/) | R4 关系内核：关系线程、双向承诺、用户理解、干预决策（本地 SQLite，工具不依赖桥接） | 不要，任何主机 |
 
 安装：`dsh plugin --profile web add /绝对路径/<插件目录>`。端到端：`e2e/host-e2e.sh`（真 DSH + 桥接，按用户的方式安装三个示例）。MIT © DSH-TUI (ccch1mneyyy)。
 
@@ -23,5 +24,6 @@
 | [`dsh-go-example-readaloud`](dsh-go-example-readaloud/) | v1.2 capabilities: read a reply aloud, stop on speech, a 10-per-second caption, a floating caption | Yes |
 | [`dsh-go-example-styles`](dsh-go-example-styles/) | View v2: semantic text, spans, readable colours, cards and proportional columns with v1 text fallbacks | Yes |
 | [`dsh-go-example-album`](dsh-go-example-album/) | The chat page's Plugins sheet: a gallery, an empty state, a ring and a trend, in the app's palette | Yes |
+| [`dsh-go-relationship`](dsh-go-relationship/) | R4 relationship core: threads, bidirectional commitments, user model, intervention policy (local SQLite, tools need no bridge) | No, any host |
 
 Install: `dsh plugin --profile web add /absolute/path/to/<plugin>`. End to end: `e2e/host-e2e.sh` (real DSH + bridge, installs the three the way a person does). MIT © DSH-TUI (ccch1mneyyy).

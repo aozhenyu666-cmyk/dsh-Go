@@ -298,6 +298,18 @@ class RuntimeController private constructor(private val app: Context) : DshProce
                 if (!safe && !SpeechGuest.writeFiles(installer.rootfs)) {
                     log("[dsh-app] voice input overlay not written; the voice model keeps DSH's defaults", "system")
                 }
+                // Prebuilt plugins (relationship core, …) ship in the APK; no pnpm and no model-written code.
+                if (!safe && !BuiltinPluginGuest.writeFiles(app, installer.rootfs)) {
+                    log("[dsh-app] bundled plugins not written; relationship core is unavailable this run", "system")
+                }
+                if (!safe) {
+                    val fishConfig = FishMcpGuest.configFile(installer.rootfs)
+                    if (FishMcpGuest.writeFiles(installer.rootfs)) {
+                        log("[dsh-app] PC fish bridge overlay written; mcp__fish__* tools will load at startup", "system")
+                    } else if (fishConfig.isFile) {
+                        log("[dsh-app] PC fish bridge config is invalid; starting without mcp__fish__*", "system")
+                    }
+                }
                 if (pendingPhoneStorage && !storage) log("[dsh-app] phone storage requested but permission not granted", "system")
                 val env = LinkedHashMap<String, String>()
                 env["TZ"] = java.util.TimeZone.getDefault().id

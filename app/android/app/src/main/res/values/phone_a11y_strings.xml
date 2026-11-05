@@ -9,4 +9,12 @@
     <string name="overlay_ball_paused">Paused. Tap to expand</string>
     <string name="overlay_ball_stopped">Stopped</string>
     <string name="overlay_collapse">Collapse</string>
+    <!-- Watchdog (phone/a11y/A11yWatchdogService.kt). -->
+    <string name="watchdog_channel">DSH watchdog</string>
+    <string name="watchdog_title">DSH watchdog</string>
+    <string name="watchdog_ok">Accessibility is connected.</string>
+    <string name="watchdog_off">Phone control is off; the watchdog is idle.</string>
+    <string name="watchdog_restored">Accessibility was restored.</string>
+    <string name="watchdog_needs_grant">Accessibility dropped. Grant secure-settings access to repair automatically.</string>
+    <string name="watchdog_needs_manual">Accessibility dropped. Tap to repair.</string>
 </resources>
