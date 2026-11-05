@@ -105,6 +105,7 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
             }
             "userActivity" -> { ProactiveRuntime.onUserActivity(); result.success(true) }
             "tick" -> { ProactiveRuntime.tick("app"); result.success(true) }
+            "tickNow" -> { ProactiveRuntime.tick("app_manual", force = true); result.success(true) }
             // The plugin's own /status and /config, carried over the authenticated connection by
             // Dart. The answer is returned raw: this page only displays sessions, it never decides
             // that one may be used (the plugin refuses missing, archived and busy agents itself).

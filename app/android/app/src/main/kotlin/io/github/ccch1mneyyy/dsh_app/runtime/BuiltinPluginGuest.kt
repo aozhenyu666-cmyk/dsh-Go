@@ -93,7 +93,7 @@ object BuiltinPluginGuest {
             files = listOf("package.json", "cordis.patch.yml", "lib/index.js"),
         ),
         // Phone-local memory authority: SQLite (JSON fallback) under DSH_HOME.
-        // Also contributes the native memory panel and the composer strip.
+        // Also contributes the native memory panel and a composer action.
         Plugin(
             id = "dsh-go-memory",
             entry = "lib/index.js",
@@ -105,6 +105,22 @@ object BuiltinPluginGuest {
                 "lib/store.js",
                 "lib/migrate.js",
                 "lib/view.js",
+            ),
+        ),
+        // One proactive decision center: topic pool from fish-memory, cold-session turns,
+        // and a requestId ledger. The app's alarms only wake it.
+        Plugin(
+            id = "dsh-go-companion",
+            entry = "lib/index.js",
+            files = listOf(
+                "package.json",
+                "cordis.patch.yml",
+                "lib/index.js",
+                "lib/core.js",
+                "lib/topics.js",
+                "lib/prompt.js",
+                "lib/ledger.js",
+                "lib/plan.js",
             ),
         ),
     )

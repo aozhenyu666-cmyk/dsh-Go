@@ -1,14 +1,14 @@
 package io.github.ccch1mneyyy.dsh_app.loop.core
 
 /**
- * T8, App side of the dsh-go-proactive protocol (runtime/proactive/dsh-go-proactive/README.md).
+ * T8, App side of the companion proactive protocol (app/assets/engine/plugins/dsh-go-companion).
  *
  * The HTTP itself runs in Dart, which already holds the engine connection and its cookie; Dart
  * passes (status, parsed JSON body) through unchanged and this object decides what it means.
  * Keeping the meaning here keeps it in one place and testable on the JVM.
  *
  *   App                              plugin (engine)                       DSH agent
- *   RequestAgent ── POST /request ──▶ followup(user message)  ──────────▶ inbox
+ *   RequestAgent ── POST /request ──▶ topic prompt as followup  ──────────▶ inbox
  *                ◀── 202 accepted ─┤
  *   poll ───────── GET /result?waitMs=20000 (long poll) ─────────────────▶ turn/start, user/message
  *                ◀── claimed ──────┤                                      assistant/message
@@ -16,7 +16,7 @@ package io.github.ccch1mneyyy.dsh_app.loop.core
  *   CancelAgent ── POST /cancel ───▶ record cancelled; later text dropped (turn is not aborted)
  */
 object AgentWire {
-    const val PREFIX = "/dsh-go-proactive/v1"
+    const val PREFIX = "/dsh-go-companion/v1"
     const val POLL_WAIT_MS = 20_000L
 
     /** What one HTTP answer means. */

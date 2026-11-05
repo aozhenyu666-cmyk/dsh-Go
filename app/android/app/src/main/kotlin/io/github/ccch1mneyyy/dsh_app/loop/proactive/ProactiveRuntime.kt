@@ -163,14 +163,14 @@ object ProactiveRuntime {
         }
     }
 
-    /** Alarm, boot, app open: one evaluation, no loop. */
-    fun tick(reason: String) {
+    /** Alarm, boot, app open: one evaluation, no loop. [force] = the user's 「现在试一次」. */
+    fun tick(reason: String, force: Boolean = false) {
         val c = coordinator ?: return
         val s = scheduler ?: return
         watchTasks()
         applySwitches()
         dispatch(c.setGate(gate()))
-        when (val d = s.evaluate(clocks())) {
+        when (val d = s.evaluate(clocks(), force)) {
             is ProactiveScheduler.Decision.Fire -> submit(d.request, fromScheduler = true)
             is ProactiveScheduler.Decision.Wait -> Unit
         }

@@ -166,8 +166,8 @@ class ProactiveScheduler(
         persist()
     }
 
-    /** Deterministic: the same state and clocks give the same answer. */
-    fun evaluate(now: Clocks): Decision = synchronized(lock) {
+    /** Deterministic: the same state and clocks give the same answer. [force] is the user's 「现在试一次」. */
+    fun evaluate(now: Clocks, force: Boolean = false): Decision = synchronized(lock) {
         val s = state
         val c = config
         rollDay(now)
@@ -175,10 +175,10 @@ class ProactiveScheduler(
             !c.enabled -> Decision.Wait(0, "disabled")
             s.pausedForIgnored -> Decision.Wait(0, "paused_ignored")
             s.pendingEventId != null -> Decision.Wait(now.wall + RECHECK_MS, "pending")
-            inQuiet(now.wall) -> Decision.Wait(quietEndAfter(now.wall), "quiet")
-            c.dailyMax > 0 && state.countToday >= c.dailyMax -> Decision.Wait(nextDayStart(now.wall), "daily_max")
-            !due(now) -> Decision.Wait(dueWall(now), "not_due")
-            userRecentlyActive(now) -> Decision.Wait(userActiveUntil(now), "user_active")
+            !force && inQuiet(now.wall) -> Decision.Wait(quietEndAfter(now.wall), "quiet")
+            !force && c.dailyMax > 0 && state.countToday >= c.dailyMax -> Decision.Wait(nextDayStart(now.wall), "daily_max")
+            !force && !due(now) -> Decision.Wait(dueWall(now), "not_due")
+            !force && userRecentlyActive(now) -> Decision.Wait(userActiveUntil(now), "user_active")
             else -> Decision.Fire(EventRequest(
                 eventId = ids(), source = "SCHEDULER", kind = "random_chat", dedupeKey = "scheduler:random",
                 priority = c.priority, createdAt = now.wall, ttlMs = c.eventTtlMs, needsAgent = true,

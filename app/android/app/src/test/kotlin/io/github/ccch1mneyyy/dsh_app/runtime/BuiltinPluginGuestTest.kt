@@ -42,8 +42,10 @@ class BuiltinPluginGuestTest {
         assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-fish-strict/lib/index.js\n"))
         assertTrue(yaml.contains("- id: dsh-go-memory\n"))
         assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-go-memory/lib/index.js\n"))
+        assertTrue(yaml.contains("- id: dsh-go-companion\n"))
+        assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-go-companion/lib/index.js\n"))
         // package.json is what makes the copied .js files ESM on the guest.
         assertTrue(BuiltinPluginGuest.PLUGINS.all { it.files.contains("package.json") })
-        assertEquals(5, BuiltinPluginGuest.PLUGINS.size)
+        assertEquals(6, BuiltinPluginGuest.PLUGINS.size)
     }
 }

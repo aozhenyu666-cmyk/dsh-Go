@@ -95,7 +95,27 @@ class _ProactivePageState extends State<ProactivePage> {
 
   Future<void> _setEnabled(bool on) async {
     final config = _status?.config ?? const ProactiveConfig();
+    // 开启时如果还没选会话，自动取第一个空闲的活会话：否则插件会 409 no-session，
+    // 用户看到的就是“开了但从来不说话”。
+    if (on && _sessions.sessionId == null) {
+      final sessions = await _channel.agentSessions();
+      final pick = sessions.agents.where((a) => a.idle).firstOrNull ?? sessions.agents.firstOrNull;
+      if (pick != null) {
+        await _channel.setAgentSession(pick.id);
+        await _refresh();
+      }
+    }
     await _save(config.copyWith(enabled: on));
+  }
+
+  /// 「现在试一次」：跳过间隔/安静/日上限，但仍受 pending 与 agent busy 约束。
+  Future<void> _tryNow() async {
+    final ok = await _channel.tickNow();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? '已触发一次主动尝试' : '触发失败：先确认引擎已连接')),
+    );
+    await _refresh();
   }
 
   /// Lets the person type any number of minutes instead of cycling presets.
@@ -218,6 +238,13 @@ class _ProactivePageState extends State<ProactivePage> {
               subtitleMaxLines: 2,
               value: _sessions.sessionId == null && _sessions.ready ? l10n.proactiveSessionNone : null,
               onTap: () => unawaited(_pickSession()),
+            ),
+            ListPageRow(
+              icon: AppIcons.send,
+              title: '现在试一次',
+              subtitle: '跳过间隔/安静/日上限，立即走一次计划 → 回合；仍受忙闲与在途请求限制',
+              subtitleMaxLines: 2,
+              onTap: status == null ? null : () => unawaited(_tryNow()),
             ),
           ],
         ),

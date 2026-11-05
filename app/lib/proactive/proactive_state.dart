@@ -241,7 +241,16 @@ class ProactiveChannel {
     }
   }
 
-  /// The plugin's live sessions and the configured target (`GET /dsh-go-proactive/v1/status`).
+  /// 「现在试一次」: one forced evaluation; bypasses quiet/daily/gap, still refuses a busy desk.
+  Future<bool> tickNow() async {
+    try {
+      return await _methods.invokeMethod<bool>('tickNow') ?? false;
+    } on Exception {
+      return false;
+    }
+  }
+
+  /// The plugin's live sessions and the configured target (`GET /dsh-go-companion/v1/status`).
   ///
   /// Carried over the same authenticated connection D1 uses. The answer is parsed here only to
   /// display it; nothing in this class decides whether a session may be used — the plugin refuses
