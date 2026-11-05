@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -51,24 +53,75 @@ class FocusPageActivity : Activity() {
     }
 
     private fun render() {
-        val pad = (24 * resources.displayMetrics.density).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(9, 14, 24))
-            setPadding(pad, pad, pad, pad)
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.rgb(11, 18, 32), Color.rgb(16, 27, 51)),
+            )
+            setPadding(dp(24), dp(48), dp(24), dp(32))
         }
-        root.addView(text("你离开了正在做的事", 15f, Color.rgb(148, 163, 184)))
-        root.addView(text("回到「" + FocusRuntime.state().task + "」", 30f, Color.WHITE).apply {
-            setPadding(0, pad / 2, 0, pad / 2)
-            gravity = Gravity.CENTER
-        })
-        root.addView(text("刚才在「" + label + "」停留了 " + secondsOff.coerceAtLeast(1) + " 秒", 15f, Color.rgb(203, 213, 225)))
-        root.addView(text("不用从头想：先回到刚才那一步。", 14f, Color.rgb(148, 163, 184)).apply {
-            setPadding(0, pad / 3, 0, pad)
-        })
 
-        root.addView(button("回到任务") {
+        root.addView(
+            TextView(this).apply {
+                text = "!"
+                textSize = 26f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = circle(Color.rgb(37, 99, 235))
+                layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+            },
+        )
+
+        root.addView(
+            TextView(this).apply {
+                text = "你离开了正在做的事"
+                textSize = 15f
+                setTextColor(MUTED)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(20), 0, dp(6))
+            },
+        )
+        root.addView(
+            TextView(this).apply {
+                text = "回到「" + FocusRuntime.state().task.ifBlank { "手头这件事" } + "」"
+                textSize = 27f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setLineSpacing(0f, 1.15f)
+            },
+        )
+        root.addView(
+            TextView(this).apply {
+                text = "刚才在「" + label + "」停留了 " + secondsOff.coerceAtLeast(1) + " 秒"
+                textSize = 14f
+                setTextColor(SOFT)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(14), 0, 0)
+            },
+        )
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(Color.rgb(19, 28, 46), dp(18), Color.rgb(34, 48, 74))
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(28) }
+        }
+        card.addView(
+            TextView(this).apply {
+                text = "不用从头想。先回到刚才那一步，再决定要不要休息。"
+                textSize = 14f
+                setTextColor(SOFT)
+                setLineSpacing(0f, 1.35f)
+            },
+        )
+        root.addView(card)
+
+        root.addView(button("回到任务", primary = true) {
             FocusRuntime.onReturned()
             val target = FocusRuntime.taskPackage()
             val launch = if (target.isNotBlank()) packageManager.getLaunchIntentForPackage(target) else null
@@ -88,44 +141,67 @@ class FocusPageActivity : Activity() {
             finish()
         })
 
-        root.addView(text(
-            "监督在后台运行；即使 DSH 引擎被系统清掉，这一页仍然会拦。",
-            12f, Color.rgb(100, 116, 139),
-        ).apply { setPadding(0, pad, 0, 0); gravity = Gravity.CENTER })
+        root.addView(
+            TextView(this).apply {
+                text = "监督在后台运行；即使 DSH 引擎被系统清掉，这一页仍然会拦。"
+                textSize = 12f
+                setTextColor(FAINT)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(24), 0, 0)
+            },
+        )
 
         setContentView(root)
     }
 
-    private fun text(value: String, size: Float, color: Int): TextView = TextView(this).apply {
-        text = value
-        textSize = size
-        setTextColor(color)
-        gravity = Gravity.CENTER
-    }
-
-    private fun button(label: String, secondary: Boolean = false, onTap: () -> Unit): Button =
+    private fun button(label: String, primary: Boolean = false, secondary: Boolean = false, onTap: () -> Unit): Button =
         Button(this).apply {
             text = label
             textSize = 17f
             isAllCaps = false
-            setTextColor(if (secondary) Color.rgb(203, 213, 225) else Color.WHITE)
-            setBackgroundColor(if (secondary) Color.rgb(30, 41, 59) else Color.rgb(37, 99, 235))
-            val p = (14 * resources.displayMetrics.density).toInt()
-            setPadding(p, p, p, p)
-            val margin = (10 * resources.displayMetrics.density).toInt()
+            setTextColor(if (secondary) SOFT else Color.WHITE)
+            background = rounded(
+                when {
+                    primary -> Color.rgb(37, 99, 235)
+                    secondary -> Color.rgb(19, 28, 46)
+                    else -> Color.rgb(30, 41, 59)
+                },
+                dp(16),
+                if (secondary) Color.rgb(34, 48, 74) else Color.TRANSPARENT,
+            )
+            stateListAnimator = null
+            backgroundTintList = null
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-            lp.setMargins(0, margin, 0, 0)
+                dp(54),
+            ).apply { topMargin = dp(12) }
             layoutParams = lp
             setOnClickListener { onTap() }
         }
+
+    private fun rounded(fill: Int, radius: Int, stroke: Int): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(fill)
+            cornerRadius = radius.toFloat()
+            if (stroke != Color.TRANSPARENT) setStroke(dp(1), stroke)
+        }
+
+    private fun circle(fill: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(fill)
+    }
+
+    private fun dp(v: Int): Int =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
     companion object {
         private const val EXTRA_PACKAGE = "focus.package"
         private const val EXTRA_LABEL = "focus.label"
         private const val EXTRA_SECONDS = "focus.seconds"
+
+        private val MUTED = Color.rgb(148, 163, 184)
+        private val SOFT = Color.rgb(203, 213, 225)
+        private val FAINT = Color.rgb(100, 116, 139)
 
         fun start(context: Context, pkg: String, label: String, seconds: Long): Boolean = runCatching {
             context.startActivity(

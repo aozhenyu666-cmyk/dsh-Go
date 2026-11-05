@@ -250,6 +250,33 @@ class _ProactivePageState extends State<ProactivePage> {
         ),
         const SizedBox(height: 24),
         ListPageCard(
+          title: '伙伴今日',
+          children: [
+            ListPageRow(
+              icon: AppIcons.chart,
+              title: '主动链路',
+              subtitle:
+                  '尝试 ${_sessions.today['accepted'] ?? 0} · 生成 ${_sessions.today['generated'] ?? 0} · '
+                  '回应 ${_sessions.today['replied'] ?? 0} · 实质 ${_sessions.today['substantive'] ?? 0} · '
+                  '未回 ${_sessions.today['none'] ?? 0}',
+              subtitleMaxLines: 2,
+            ),
+            ListPageRow(
+              icon: AppIcons.bookmark,
+              title: '最近聊过的话题',
+              subtitle: _sessions.lastTopicId ?? '还没有（记忆里没有未完成话题）',
+              subtitleMaxLines: 2,
+            ),
+            ListPageRow(
+              icon: AppIcons.folder,
+              title: '本地记忆库',
+              subtitle: _sessions.memoryExists ? '已连接' : '未找到：先让它记住一条，再来试',
+              subtitleMaxLines: 2,
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        ListPageCard(
           title: l10n.proactiveState,
           children: [
             ListPageRow(

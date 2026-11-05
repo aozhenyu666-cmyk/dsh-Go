@@ -281,7 +281,14 @@ class ProactiveChannel {
 /// sessions exist and which are idle. Nothing here creates a session: the plugin refuses to, by
 /// design (AGENT_PROTOCOL.md), and the page only picks among live ones.
 class ProactiveAgentSessions {
-  const ProactiveAgentSessions({this.sessionId, this.agents = const [], this.error});
+  const ProactiveAgentSessions({
+    this.sessionId,
+    this.agents = const [],
+    this.error,
+    this.today = const {},
+    this.lastTopicId,
+    this.memoryExists = false,
+  });
 
   /// The configured target; null means "not chosen yet", and then no proactive turn happens.
   final String? sessionId;
@@ -292,6 +299,15 @@ class ProactiveAgentSessions {
   /// Why the list could not be read (no plugin, no connection, unparseable answer).
   final String? error;
 
+  /// Today's ledger counts from dsh-go-companion: accepted / generated / replied / substantive / none.
+  final Map<String, int> today;
+
+  /// The last topic that was actually generated to (24h topic cooldown).
+  final String? lastTopicId;
+
+  /// Whether `fish-memory.sqlite` exists for the selected session.
+  final bool memoryExists;
+
   bool get ready => error == null;
 
   static ProactiveAgentSessions fromWire(Object? raw) {
@@ -301,6 +317,14 @@ class ProactiveAgentSessions {
       return ProactiveAgentSessions(error: '${error['code']}');
     }
     final agents = raw['agents'];
+    final today = raw['today'];
+    final memory = raw['memory'];
+    final counts = <String, int>{};
+    if (today is Map) {
+      for (final e in today.entries) {
+        if (e.key is String && e.value is num) counts[e.key as String] = (e.value as num).toInt();
+      }
+    }
     return ProactiveAgentSessions(
       sessionId: raw['sessionId'] is String ? raw['sessionId'] as String : null,
       agents: [
@@ -308,6 +332,9 @@ class ProactiveAgentSessions {
           if (a is Map && a['id'] is String)
             ProactiveAgentRef(a['id'] as String, a['status'] is String ? a['status'] as String : 'unknown'),
       ],
+      today: counts,
+      lastTopicId: raw['lastTopicId'] is String ? raw['lastTopicId'] as String : null,
+      memoryExists: memory is Map && memory['exists'] == true,
     );
   }
 }
