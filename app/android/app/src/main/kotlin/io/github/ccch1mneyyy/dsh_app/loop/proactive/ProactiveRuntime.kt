@@ -209,6 +209,16 @@ object ProactiveRuntime {
         val c = coordinator ?: return
         val before = c.active()?.takeIf { it.token == token }
         dispatch(c.onSurface(token, report))
+        // 展示回执交给 companion 账本：posted = 送达，shown = 真正显示，dismissed = 用户划掉。
+        val agentRequestId = before?.agentRequestId
+        if (agentRequestId != null) {
+            when (report) {
+                SurfaceReport.Posted -> reportOutcome(agentRequestId, "delivered")
+                SurfaceReport.Shown -> reportOutcome(agentRequestId, "displayed")
+                SurfaceReport.Dismissed -> reportOutcome(agentRequestId, "dismissed")
+                else -> Unit
+            }
+        }
         if (report == SurfaceReport.Shown && before != null) runCatching { LoopRuntime.onKernelShown(c.find(before.eventId)) }
         // 「我看到了」: the scheduler learns about the confirmation (and book A records it) at once,
         // but the attempt stays pending until the reply window decides answered vs ignored. It is
@@ -216,6 +226,19 @@ object ProactiveRuntime {
         // the next attempt the way an answer does.
         if (report == SurfaceReport.Acked && before != null) scheduler?.onAcked(before.eventId, clocks())
         if (report is SurfaceReport.Answered || report == SurfaceReport.Dismissed) scheduler?.onUserActivity(clocks())
+    }
+
+    /** Fire-and-forget: one delivery receipt for the companion ledger; a missing plugin is harmless. */
+    private val reportedOutcomes = mutableSetOf<String>()
+    private val ignoreResult = object : io.flutter.plugin.common.MethodChannel.Result {
+        override fun success(result: Any?) {}
+        override fun error(code: String, message: String?, details: Any?) {}
+        override fun notImplemented() {}
+    }
+
+    private fun reportOutcome(requestId: String, stage: String) {
+        if (requestId.isBlank() || !reportedOutcomes.add(requestId + ":" + stage)) return
+        fetchPluginRoute(ignoreResult, "POST", "/outcome", linkedMapOf("requestId" to requestId, "stage" to stage))
     }
 
     /** Dart reports one HTTP answer from the plugin; status 0 = no answer. */
