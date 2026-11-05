@@ -250,6 +250,15 @@ class ProactiveChannel {
     }
   }
 
+  /// Opens the native focus-supervisor screen (5s pull-back, task, pause/end).
+  Future<bool> openFocusControl() async {
+    try {
+      return await _methods.invokeMethod<bool>('focusControl') ?? false;
+    } on Exception {
+      return false;
+    }
+  }
+
   /// The plugin's live sessions and the configured target (`GET /dsh-go-companion/v1/status`).
   ///
   /// Carried over the same authenticated connection D1 uses. The answer is parsed here only to

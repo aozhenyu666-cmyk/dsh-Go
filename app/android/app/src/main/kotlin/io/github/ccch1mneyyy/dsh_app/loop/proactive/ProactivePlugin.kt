@@ -106,6 +106,18 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
             "userActivity" -> { ProactiveRuntime.onUserActivity(); result.success(true) }
             "tick" -> { ProactiveRuntime.tick("app"); result.success(true) }
             "tickNow" -> { ProactiveRuntime.tick("app_manual", force = true); result.success(true) }
+            // 专注监督 is a native screen reached from the same phone-control settings page.
+            "focusControl" -> {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            context,
+                            io.github.ccch1mneyyy.dsh_app.loop.focus.FocusControlActivity::class.java,
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+                result.success(true)
+            }
             // The plugin's own /status and /config, carried over the authenticated connection by
             // Dart. The answer is returned raw: this page only displays sessions, it never decides
             // that one may be used (the plugin refuses missing, archived and busy agents itself).

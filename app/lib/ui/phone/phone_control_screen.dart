@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../l10n/l10n.dart';
+import '../../proactive/proactive_state.dart';
 import '../../runtime/local_footprint.dart';
 import '../../runtime/runtime_bridge.dart';
 import '../../runtime/runtime_state.dart';
@@ -374,6 +375,15 @@ class _PhoneControlScreenState extends ConsumerState<PhoneControlScreen> {
                 subtitle: l10n.proactiveSubtitle,
                 subtitleMaxLines: 2,
                 onTap: () => _push(const ProactivePage()),
+              ),
+              // 专注监督: the native 5-second pull-back. It is a separate screen because it
+              // must work while the engine is dead; the row is here so it is discoverable.
+              ListPageRow(
+                icon: AppIcons.time,
+                title: '专注监督',
+                subtitle: '离开任务应用 5 秒就全屏拉回；不需要引擎，也不答题',
+                subtitleMaxLines: 2,
+                onTap: () => unawaited(ProactiveChannel().openFocusControl()),
               ),
               // 娱乐拦截: its own page, its own ledger. Beside 主动搭话 because both are surfaces the
               // kernel puts on screen, and because the person needs to see that they are separate.
