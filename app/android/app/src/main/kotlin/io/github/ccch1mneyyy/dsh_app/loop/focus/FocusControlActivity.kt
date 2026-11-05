@@ -4,11 +4,13 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -25,6 +27,7 @@ import java.util.Locale
  * 入口：快捷设置磁贴「专注监督」、进行中的通知。不依赖 DSH 引擎。
  */
 class FocusControlActivity : Activity() {
+    private lateinit var p: FocusPalette
     private lateinit var status: TextView
     private lateinit var taskInput: EditText
     private lateinit var minutesInput: EditText
@@ -39,6 +42,10 @@ class FocusControlActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        p = FocusTheme.of(this)
+        window.statusBarColor = p.bgTop
+        window.navigationBarColor = p.bgBottom
+        applySystemBars()
         FocusRuntime.ensure(this)
         render()
     }
@@ -48,24 +55,32 @@ class FocusControlActivity : Activity() {
         refresh()
     }
 
+    private fun applySystemBars() {
+        @Suppress("DEPRECATION")
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        if (!p.night) flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        if (Build.VERSION.SDK_INT >= 26 && !p.night) flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = flags
+    }
+
     private fun render() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.rgb(11, 18, 32), Color.rgb(9, 14, 24)),
+                intArrayOf(p.bgTop, p.bgBottom),
             )
-            setPadding(dp(20), dp(28), dp(20), dp(36))
+            setPadding(dp(20), dp(24), dp(20), dp(36))
         }
 
-        root.addView(text("专注监督", 28f, Color.WHITE))
-        root.addView(text("离开任务应用 5 秒就全屏拉回 · 不依赖 DSH 引擎", 13f, MUTED).apply {
+        root.addView(text("专注监督", 28f, p.text))
+        root.addView(text("离开任务应用 5 秒就全屏拉回 · 不依赖 DSH 引擎", 13f, p.sub).apply {
             setPadding(0, dp(6), 0, dp(18))
         })
 
-        // 状态卡
         val statusCard = card()
-        status = text("", 15f, SOFT)
+        status = text("", 15f, p.text)
         statusCard.addView(status)
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -77,21 +92,20 @@ class FocusControlActivity : Activity() {
         statusCard.addView(row)
         root.addView(statusCard)
 
-        // 任务
         val taskCard = card()
         taskCard.addView(section("这一段只做一件事"))
         taskInput = EditText(this).apply {
             hint = "例：第 3 题图形推理，做到选出答案"
-            setTextColor(Color.WHITE)
-            setHintTextColor(FAINT)
+            setTextColor(p.text)
+            setHintTextColor(p.faint)
             textSize = 16f
             setSingleLine(false)
             maxLines = 3
-            background = rounded(Color.rgb(11, 18, 32), dp(12), Color.rgb(34, 48, 74))
+            background = rounded(p.input, dp(12), p.stroke)
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         taskCard.addView(taskInput)
-        appLine = text("", 13f, SOFT).apply { setPadding(0, dp(10), 0, 0) }
+        appLine = text("", 13f, p.sub).apply { setPadding(0, dp(10), 0, 0) }
         taskCard.addView(appLine)
         taskCard.addView(button("把当前前台应用设为任务应用") {
             val front = LoopRuntime.lastForeground
@@ -103,24 +117,23 @@ class FocusControlActivity : Activity() {
                 refresh()
             }
         })
-        taskCard.addView(text("电话、输入法、系统 UI、DSH 自己永远放行。", 12f, FAINT).apply {
+        taskCard.addView(text("电话、输入法、系统 UI、DSH 自己永远放行。", 12f, p.faint).apply {
             setPadding(0, dp(10), 0, 0)
         })
         root.addView(taskCard)
 
-        // 结束时间
         val timeCard = card()
         timeCard.addView(section("结束后自动停止"))
         minutesInput = EditText(this).apply {
             setText("0")
-            setTextColor(Color.WHITE)
+            setTextColor(p.text)
             textSize = 16f
             inputType = InputType.TYPE_CLASS_NUMBER
-            background = rounded(Color.rgb(11, 18, 32), dp(12), Color.rgb(34, 48, 74))
+            background = rounded(p.input, dp(12), p.stroke)
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         timeCard.addView(minutesInput)
-        timeCard.addView(text("分钟，0 = 不设结束时间", 12f, FAINT).apply { setPadding(0, dp(6), 0, 0) })
+        timeCard.addView(text("分钟，0 = 不设结束时间", 12f, p.faint).apply { setPadding(0, dp(6), 0, 0) })
         root.addView(timeCard)
 
         root.addView(button("开始监督", primary = true) {
@@ -149,10 +162,9 @@ class FocusControlActivity : Activity() {
         })
         root.addView(actions)
 
-        // 后台
         val backgroundCard = card()
         backgroundCard.addView(section("后台存活"))
-        batteryLine = text("", 13f, SOFT).apply { setPadding(0, dp(8), 0, dp(6)) }
+        batteryLine = text("", 13f, p.sub).apply { setPadding(0, dp(8), 0, dp(6)) }
         backgroundCard.addView(batteryLine)
         backgroundCard.addView(button("允许后台运行（忽略电池优化）") {
             FocusRuntime.requestBatteryExemption(this)
@@ -163,21 +175,20 @@ class FocusControlActivity : Activity() {
         })
         root.addView(backgroundCard)
 
-        // vivo 指引
         val guideCard = card()
         guideCard.addView(section("vivo / iQOO"))
-        guide = text(VIVO_GUIDE, 12f, MUTED).apply { setLineSpacing(0f, 1.4f) }
+        guide = text(VIVO_GUIDE, 12f, p.sub).apply { setLineSpacing(0f, 1.4f) }
         guideCard.addView(guide)
         root.addView(guideCard)
 
         root.addView(text(
             "离开任务应用时：全屏拉回 → 回到任务 / 休息 5 分钟 / 结束监督。不答题、不等 15 分钟。",
             12f,
-            FAINT,
+            p.faint,
         ).apply { setPadding(0, dp(18), 0, 0) })
 
         setContentView(ScrollView(this).apply {
-            setBackgroundColor(Color.rgb(9, 14, 24))
+            setBackgroundColor(p.bgTop)
             isFillViewport = true
             addView(root)
         })
@@ -218,7 +229,7 @@ class FocusControlActivity : Activity() {
         val cell = TextView(this).apply {
             text = metricText(label, "0")
             textSize = 14f
-            setTextColor(SOFT)
+            setTextColor(p.sub)
             gravity = Gravity.CENTER
             setLineSpacing(0f, 1.25f)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -231,15 +242,16 @@ class FocusControlActivity : Activity() {
 
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = rounded(Color.rgb(19, 28, 46), dp(18), Color.rgb(34, 48, 74))
+        background = rounded(p.card, dp(18), p.stroke)
         setPadding(dp(16), dp(16), dp(16), dp(16))
+        elevation = dp(2).toFloat()
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
         ).apply { topMargin = dp(14) }
     }
 
-    private fun section(title: String): TextView = text(title, 15f, Color.WHITE).apply {
+    private fun section(title: String): TextView = text(title, 15f, p.text).apply {
         setPadding(0, 0, 0, dp(10))
     }
 
@@ -261,18 +273,19 @@ class FocusControlActivity : Activity() {
         text = label
         textSize = 15f
         isAllCaps = false
-        setTextColor(if (secondary) SOFT else Color.WHITE)
+        setTextColor(if (primary) p.onAccent else p.text)
         background = rounded(
             when {
-                primary -> Color.rgb(37, 99, 235)
-                secondary -> Color.rgb(19, 28, 46)
-                else -> Color.rgb(30, 41, 59)
+                primary -> p.accent
+                secondary -> p.card
+                else -> p.accentSoft
             },
             dp(14),
-            if (secondary) Color.rgb(34, 48, 74) else Color.TRANSPARENT,
+            if (secondary) p.stroke else Color.TRANSPARENT,
         )
         stateListAnimator = null
         backgroundTintList = null
+        elevation = dp(if (primary) 2 else 0).toFloat()
         val lp = if (weight > 0f) {
             LinearLayout.LayoutParams(0, dp(48), weight).apply {
                 topMargin = dp(10)
@@ -299,9 +312,6 @@ class FocusControlActivity : Activity() {
     }
 
     companion object {
-        private val MUTED = Color.rgb(148, 163, 184)
-        private val SOFT = Color.rgb(203, 213, 225)
-        private val FAINT = Color.rgb(100, 116, 139)
         private const val VIVO_GUIDE =
             "i 管家 → 应用管理 → 权限管理 → 自启动、后台高耗电、关联启动全部打开；\n" +
                 "设置 → 电池 → 后台耗电管理 → DSH Go → 允许后台高耗电。\n" +

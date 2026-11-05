@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -23,13 +24,15 @@ class FocusPageActivity : Activity() {
     private var pkg = ""
     private var label = ""
     private var secondsOff = 0L
+    private lateinit var p: FocusPalette
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        p = FocusTheme.of(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility =
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        window.statusBarColor = p.bgTop
+        window.navigationBarColor = p.bgBottom
+        applySystemBars()
         read(intent)
         render()
     }
@@ -46,6 +49,15 @@ class FocusPageActivity : Activity() {
         super.onDestroy()
     }
 
+    private fun applySystemBars() {
+        @Suppress("DEPRECATION")
+        var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        if (!p.night) flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        if (Build.VERSION.SDK_INT >= 26 && !p.night) flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = flags
+    }
+
     private fun read(intent: Intent?) {
         pkg = intent?.getStringExtra(EXTRA_PACKAGE).orEmpty()
         label = intent?.getStringExtra(EXTRA_LABEL).orEmpty().ifEmpty { FocusRuntime.labelOf(pkg) }
@@ -53,23 +65,24 @@ class FocusPageActivity : Activity() {
     }
 
     private fun render() {
+        val state = FocusRuntime.state()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.rgb(11, 18, 32), Color.rgb(16, 27, 51)),
+                intArrayOf(p.bgTop, p.bgBottom),
             )
-            setPadding(dp(24), dp(48), dp(24), dp(32))
+            setPadding(dp(24), dp(40), dp(24), dp(28))
         }
 
         root.addView(
             TextView(this).apply {
                 text = "!"
                 textSize = 26f
-                setTextColor(Color.WHITE)
+                setTextColor(p.onAccent)
                 gravity = Gravity.CENTER
-                background = circle(Color.rgb(37, 99, 235))
+                background = circle(p.accent)
                 layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
             },
         )
@@ -78,16 +91,16 @@ class FocusPageActivity : Activity() {
             TextView(this).apply {
                 text = "你离开了正在做的事"
                 textSize = 15f
-                setTextColor(MUTED)
+                setTextColor(p.sub)
                 gravity = Gravity.CENTER
-                setPadding(0, dp(20), 0, dp(6))
+                setPadding(0, dp(20), 0, dp(8))
             },
         )
         root.addView(
             TextView(this).apply {
-                text = "回到「" + FocusRuntime.state().task.ifBlank { "手头这件事" } + "」"
+                text = "回到「" + state.task.ifBlank { "手头这件事" } + "」"
                 textSize = 27f
-                setTextColor(Color.WHITE)
+                setTextColor(p.text)
                 gravity = Gravity.CENTER
                 setLineSpacing(0f, 1.15f)
             },
@@ -96,7 +109,7 @@ class FocusPageActivity : Activity() {
             TextView(this).apply {
                 text = "刚才在「" + label + "」停留了 " + secondsOff.coerceAtLeast(1) + " 秒"
                 textSize = 14f
-                setTextColor(SOFT)
+                setTextColor(p.faint)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(14), 0, 0)
             },
@@ -104,8 +117,9 @@ class FocusPageActivity : Activity() {
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.rgb(19, 28, 46), dp(18), Color.rgb(34, 48, 74))
+            background = rounded(p.card, dp(18), p.stroke)
             setPadding(dp(18), dp(16), dp(18), dp(16))
+            elevation = dp(2).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -115,7 +129,7 @@ class FocusPageActivity : Activity() {
             TextView(this).apply {
                 text = "不用从头想。先回到刚才那一步，再决定要不要休息。"
                 textSize = 14f
-                setTextColor(SOFT)
+                setTextColor(p.sub)
                 setLineSpacing(0f, 1.35f)
             },
         )
@@ -145,7 +159,7 @@ class FocusPageActivity : Activity() {
             TextView(this).apply {
                 text = "监督在后台运行；即使 DSH 引擎被系统清掉，这一页仍然会拦。"
                 textSize = 12f
-                setTextColor(FAINT)
+                setTextColor(p.faint)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(24), 0, 0)
             },
@@ -159,18 +173,19 @@ class FocusPageActivity : Activity() {
             text = label
             textSize = 17f
             isAllCaps = false
-            setTextColor(if (secondary) SOFT else Color.WHITE)
+            setTextColor(if (primary) p.onAccent else p.text)
             background = rounded(
                 when {
-                    primary -> Color.rgb(37, 99, 235)
-                    secondary -> Color.rgb(19, 28, 46)
-                    else -> Color.rgb(30, 41, 59)
+                    primary -> p.accent
+                    secondary -> p.card
+                    else -> p.accentSoft
                 },
                 dp(16),
-                if (secondary) Color.rgb(34, 48, 74) else Color.TRANSPARENT,
+                if (secondary) p.stroke else Color.TRANSPARENT,
             )
             stateListAnimator = null
             backgroundTintList = null
+            elevation = dp(if (primary) 3 else 1).toFloat()
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(54),
@@ -198,10 +213,6 @@ class FocusPageActivity : Activity() {
         private const val EXTRA_PACKAGE = "focus.package"
         private const val EXTRA_LABEL = "focus.label"
         private const val EXTRA_SECONDS = "focus.seconds"
-
-        private val MUTED = Color.rgb(148, 163, 184)
-        private val SOFT = Color.rgb(203, 213, 225)
-        private val FAINT = Color.rgb(100, 116, 139)
 
         fun start(context: Context, pkg: String, label: String, seconds: Long): Boolean = runCatching {
             context.startActivity(
