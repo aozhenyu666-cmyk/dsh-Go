@@ -100,6 +100,7 @@ class SurfaceSlot {
 object VisibleSurface {
     const val OWNER_PROACTIVE = "proactive"
     const val OWNER_INTERCEPT = "intercept"
+    const val OWNER_FOCUS = "focus"
 
     private val slot = SurfaceSlot()
 

@@ -18,6 +18,7 @@ import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
 import io.github.ccch1mneyyy.dsh_app.loop.core.EventRequest
 import io.github.ccch1mneyyy.dsh_app.loop.core.ProactiveEvent
 import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
+import io.github.ccch1mneyyy.dsh_app.loop.focus.FocusRuntime
 import io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.Box
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.ProtectedPages
@@ -104,6 +105,9 @@ object LoopRuntime {
         runCatching { io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptRuntime.ensure(s) }
             .onFailure { diagnostics.fault(LoopDiagnostics.KIND_ATTACH, it, "intercept") }
         runCatching { ProactiveRuntime.ensure(s); ProactiveRuntime.refreshGate("a11y_connected") }
+        // 原生专注监督：不依赖引擎，只依赖这次前台读数。
+        runCatching { FocusRuntime.ensure(s); FocusRuntime.onA11yBack() }
+            .onFailure { diagnostics.fault(LoopDiagnostics.KIND_ATTACH, it, "focus") }
         service = WeakReference(s)
         runCatching { InteractionHub.ensureChannel(s) }
         // The person may already be in the test app; a still-open visit makes this a no-op.
@@ -117,13 +121,15 @@ object LoopRuntime {
         lastForeground = null
         // Pages can no longer start from the background: the kernel falls back to notifications.
         main.post { runCatching { ProactiveRuntime.refreshGate("a11y_gone") } }
+        main.post { runCatching { FocusRuntime.onA11yGone() } }
     }
 
     fun onEvent(s: AccessibilityService, event: AccessibilityEvent?) {
         proactive(event)
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
-        if (engine == null) return
+        // 专注监督只靠前台读数：没有 DSH 引擎时也要继续观察。
+        if (engine == null && !runCatching { FocusRuntime.isActive() }.getOrDefault(false)) return
         // Observation runs for either feature (review r3, C): protected-page detection must not
         // depend on the trigger-test switch.
         if (!switches().observeForeground) return
@@ -191,6 +197,8 @@ object LoopRuntime {
         triggerEnabled(), ProactiveRuntime.proactiveEnabled(),
         // 娱乐拦截 is its own feature with its own book; it only needs the foreground reading.
         runCatching { io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptRuntime.enabled() }.getOrDefault(false),
+        // 原生专注监督也一样：它只要前台读数，不需要引擎或模型。
+        runCatching { FocusRuntime.isActive() }.getOrDefault(false),
     )
 
     /** The kernel closed an event: write its verdict onto the round-1 twin (no-op for other sources). */
@@ -240,6 +248,9 @@ object LoopRuntime {
             if (ProtectedForeground.isProtected(pkg) != ProtectedForeground.isProtected(previousForeground)) {
                 runCatching { ProactiveRuntime.refreshGate("protected_page") }
             }
+            // 原生专注监督先判：它和拦截/主动各自记账，不经过 coordinator。
+            if (sw.focus) runCatching { FocusRuntime.onForeground(pkg) }
+                .onFailure { Log.w(TAG, "focus", it) }
             // 娱乐 APP 拦截 (round 4): decided from this same verified reading, with its own ledger
             // and its own page. It never goes through the coordinator, so one feature's silence can
             // never pause the other.

@@ -505,34 +505,15 @@ export function apply(ctx) {
           return { toast: '' }
         }
 
-        d.strip('memory-strip', (scope, emit) => {
-          let last = ''
-          const push = () => {
-            const s = db()
-            if (!s) {
-              emit({ text: '记忆不可用', icon: 'book', tone: 'warn' })
-              return
-            }
-            const c = stats(s.doc, { scope: scopeOfPanel(scope) }, Date.now())
-            const data = c.topics
-              ? { text: '记忆 · ' + String(c.facts) + ' 条 · ' + String(c.topics) + ' 个话题', icon: 'book' }
-              : { text: '记忆 · ' + String(c.facts) + ' 条', icon: 'book' }
-            const sig = JSON.stringify(data)
-            if (sig === last) return
-            last = sig
-            emit(data)
-          }
-          push()
-          const timer = setInterval(push, 60_000)
-          return () => clearInterval(timer)
-        })
+        // 只留一个输入框按钮，不再抢状态条：多个插件的状态条每 6 秒轮播，看起来像在闪。
+        d.on('memory-open', () => ({ open: 'panel:memory' }))
 
         d.panel('memory', {
           view: memoryView,
           data: (scope, emit) => {
+            // 只在面板订阅时推一次；写入/动作后由 refresh 触发。定时全量重绘会让整页闪。
             emit(snapshot(scope))
-            const timer = setInterval(() => emit(snapshot(scope)), 20_000)
-            return () => clearInterval(timer)
+            return () => {}
           },
           actions: {
             search: (scope, event) => {

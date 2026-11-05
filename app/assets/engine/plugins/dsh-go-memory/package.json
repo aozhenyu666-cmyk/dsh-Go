@@ -27,8 +27,8 @@
     "title": { "zh": "本地记忆", "en": "Local memory" },
     "icon": "book",
     "contributes": {
-      "composer.strip": [
-        { "id": "memory-strip", "icon": "book", "panel": "memory" }
+      "composer.actions": [
+        { "id": "memory-open", "label": { "zh": "记忆", "en": "Memory" }, "icon": "book" }
       ],
       "panels": [
         {

@@ -11,6 +11,8 @@
     <!-- Proactive scheduler (loop/proactive/WakeAlarm.kt): re-plan the single alarm after reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 原生专注监督: the pull-back page vibrates when a deviation is detected. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Composer voice input (voice/VoicePlugin.kt), asked for on the first tap of the mic. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- TODO(targetSdk >= 30): package visibility hides recognition services from
@@ -309,6 +311,36 @@
             android:launchMode="singleInstance"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
             android:theme="@android:style/Theme.DeviceDefault.Dialog.NoActionBar" />
+
+        <!-- 原生专注监督：离开任务应用后的全屏拉回页。自己的 task，退出后回到原来的应用。 -->
+        <activity
+            android:name=".loop.focus.FocusPageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="io.github.ccch1mneyyy.dsh_app.focus"
+            android:launchMode="singleInstance"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|locale|layoutDirection"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+        <!-- 专注监督主界面：任务、任务应用、开始/暂停/结束、偏离统计。 -->
+        <activity
+            android:name=".loop.focus.FocusControlActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+        <receiver
+            android:name=".loop.focus.FocusActionReceiver"
+            android:exported="false" />
+        <service
+            android:name=".loop.focus.FocusTileService"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="专注监督"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="false" />
+        </service>
 
         <!-- Proactive scheduler wake-ups: its own alarm (explicit intent), boot and app update. -->
         <receiver

@@ -18,8 +18,14 @@ package io.github.ccch1mneyyy.dsh_app.loop.core
  * so that "observe the foreground" has one owner — it never routes through the coordinator, and no
  * counter is shared.
  */
-data class Switches(val triggerTest: Boolean, val proactive: Boolean, val intercept: Boolean = false) {
-    val observeForeground: Boolean get() = triggerTest || proactive || intercept
+data class Switches(
+    val triggerTest: Boolean,
+    val proactive: Boolean,
+    val intercept: Boolean = false,
+    /** 原生专注监督：只要它在跑，就必须读前台（即使三个旧开关都关着）。 */
+    val focus: Boolean = false,
+) {
+    val observeForeground: Boolean get() = triggerTest || proactive || intercept || focus
     val arbitrate: Boolean get() = triggerTest || proactive
 
     /** Whether events from [source] may be accepted / kept. */
