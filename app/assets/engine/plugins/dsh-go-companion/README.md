@@ -51,6 +51,26 @@
 
 旧 `dsh-go-proactive` 设置过 `sessionId` 时，第一次加载会自动迁过来。
 
+## P1.2：话题花园 / 跟进 / 连续性
+
+话题不再只是“从记忆里捞一条”，而是 `$DSH_HOME/companion/topics.json` 里一份独立的清单：
+
+- **生命周期**：`candidate → active → paused → 重新唤起 → done`；记忆库仍是事实/未完成话题的真源，只读。
+- **来源**：`memory.topic`（未完成）、`memory.episode`（最近共同经历）、
+  `relationship.commitment`（到期承诺）、`conversation`（正常聊天里发现）、`agent`（模型主动记下）。
+- **生成类型**：`continue`（延续）、`share`（分享/吐槽）、`explore`（一起想）；
+  连续两次追问后会优先换分享/探索，避免变成问卷。
+- **去重**：标题 bigram 相似度 ≥ 0.7 合并；同一记忆话题 id 复用。
+- **评分**：类型权重 + 兴趣 + 新鲜度 − 尝试次数 − 同类型疲劳；冷却、下次可问时间都参与过滤。
+- **不强行开口**：`nextTopic()` 返回 null 就 `409 no-topic`，不发空泛问候。
+- **跟进**：`substantive` 继续；`brief` 2h 后换轻的；`avoid` 12h；`refuse` 结束；
+  `none` 最多两次（4h / 一周），之后开新周期。
+- **连续性**：生成后保存 `lastSummary`，下次 prompt 带“上次聊到…”；
+  用户换话题时旧话题保留为 `paused`，不丢。
+
+正常聊天里，模型可以调用 `companion_topic` 工具（`add/list/done/pause`）把
+“以后还想聊的事”放进花园；主动回合内工具仍被硬拦。
+
 ## 部署
 
 作为内置插件放在 APK assets，由 `BuiltinPluginGuest` 每次启动铺到
@@ -60,7 +80,7 @@
 ## 验证
 
 ```bash
-cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs   # 21 项
+cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs   # 41 项
 ```
 
 真机：设置 → 手机操控 → 主动搭话 → 开启（会自动选一个空闲会话）→「现在试一次」；

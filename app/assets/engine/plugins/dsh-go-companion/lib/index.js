@@ -17,11 +17,29 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Desk, SOURCE_KIND } from './core.js'
-import { BACKGROUND_LIMIT, backgroundFacts, chooseTopic, loadCandidates, openMemoryDb } from './topics.js'
+import { BACKGROUND_LIMIT, backgroundFacts, loadCandidates, openMemoryDb } from './topics.js'
 import { buildPrompt } from './prompt.js'
 import { appendLedger, readLedger, summarize } from './ledger.js'
 import { plan as decide } from './plan.js'
 import { classifyReply } from './classify.js'
+import {
+  MAX_ATTEMPTS,
+  addTopic,
+  applyNoReply,
+  applyReply,
+  closeTopic,
+  discoverFromMessage,
+  gardenStats,
+  loadGarden,
+  markGenerated,
+  markUsed,
+  nextTopic,
+  publicTopic,
+  saveGarden,
+  seedFromCommitments,
+  seedFromMemory,
+} from './garden.js'
+import { lastReplyClass, readCommitments, readMood } from './context.js'
 
 export const name = 'dsh-go-companion'
 const PREFIX = '/dsh-go-companion/v1'
@@ -79,6 +97,10 @@ function writeConfig(cfg) {
 
 function memoryPath() {
   return join(home(), 'fish-memory', 'fish-memory.sqlite')
+}
+
+function gardenPath() {
+  return join(home(), 'companion', 'topics.json')
 }
 
 function startOfDay(now) {
@@ -175,7 +197,16 @@ function messageText(data) {
 
 export function apply(ctx) {
   let config = readConfig()
+  let garden = loadGarden(gardenPath())
   console.error('[companion] loaded; session=' + String(config.sessionId || 'none') + ' memory=' + memoryPath())
+
+  function persistGarden() {
+    try {
+      saveGarden(gardenPath(), garden)
+    } catch (error) {
+      console.error('[companion] 保存话题花园失败：' + String((error && error.message) || error))
+    }
+  }
 
   /** sessionId -> {requestId, topicId, at}: a generated message the person has not answered yet. */
   const pendingReply = new Map()
@@ -207,18 +238,36 @@ export function apply(ctx) {
     try {
       const now = Date.now()
       const candidates = loadCandidates(db, { sessionId, now })
-      const recent = summarize(readLedger(home(), 400), startOfDay(now))
-      const topic = chooseTopic(candidates, {
+      const entries = readLedger(home(), 400)
+      const recent = summarize(entries, startOfDay(now))
+      const commitments = readCommitments(home(), now, 3)
+
+      // 记忆是话题的种子来源，花园自己管生命周期；每次合成前同步一次，只增不删。
+      seedFromMemory(garden, candidates, now)
+      seedFromCommitments(garden, commitments, now)
+
+      const topic = nextTopic(garden, {
         now,
         lastTopicId: recent.lastTopicId,
         lastAt: recent.lastAt,
         cooldownMs: config.cooldownMs,
+        maxAttempts: MAX_ATTEMPTS,
       })
-      if (!topic) return { error: 'no-topic' }
+      if (!topic) {
+        persistGarden()
+        return { error: 'no-topic' }
+      }
+      markUsed(garden, topic.id, now)
+      persistGarden()
+
+      const mood = readMood(home())
       const prompt = buildPrompt({
         topic,
         facts: backgroundFacts(candidates, BACKGROUND_LIMIT),
         episodes: (candidates.episodes || []).map((e) => e.text),
+        commitments,
+        mood: mood ? mood.mood : undefined,
+        replyClass: lastReplyClass(entries),
         owner: config.owner,
         self: config.self,
       })
@@ -254,6 +303,10 @@ export function apply(ctx) {
       // 生成成功后等一次人的回应；2 小时内没有就记 none（有限跟进/冷却的依据）。
       if (r.state === 'generated') {
         setPending(r.sessionId, { requestId: r.requestId, topicId: r.topicId, at: Date.now() })
+        if (r.topicId) {
+          markGenerated(garden, r.topicId, r.text, Date.now())
+          persistGarden()
+        }
       }
     },
   })
@@ -266,16 +319,17 @@ export function apply(ctx) {
     }
     try {
       if (event?.type === 'user/message') {
+        const text = messageText(event.data)
         const pending = takePending(session?.id)
         if (pending) {
-          const text = messageText(event.data)
           const replyClass = classifyReply(text)
+          const now = Date.now()
           record({
             requestId: pending.requestId,
             sessionId: session?.id,
             topicId: pending.topicId,
             state: 'replied',
-            at: Date.now(),
+            at: now,
             replyClass,
           })
           if (replyClass === 'substantive') {
@@ -284,10 +338,18 @@ export function apply(ctx) {
               sessionId: session?.id,
               topicId: pending.topicId,
               state: 'substantive',
-              at: Date.now(),
+              at: now,
               replyClass,
             })
           }
+          // 话题花园跟着人的反应走：认真答就继续，敷衍就换轻的，拒绝就停。
+          if (pending.topicId) {
+            applyReply(garden, pending.topicId, replyClass, now)
+            persistGarden()
+          }
+        } else if (text && !text.includes('DSH Go 手机端发起的一次主动交流')) {
+          // 正常聊天里冒出的新话题：每天最多 3 条，宁缺毋滥。
+          if (discoverFromMessage(garden, text, Date.now())) persistGarden()
         }
       }
     } catch {
@@ -314,12 +376,91 @@ export function apply(ctx) {
       // ignore
     }
   })
+
+  // 正常聊天时，模型可以把“以后还想聊的事”放进话题花园；主动回合里工具会被硬拦。
+  const tools = ctx.get?.('tools') ?? ctx.tools
+  if (tools && typeof tools.register === 'function') {
+    try {
+      const off = tools.register({
+        name: 'companion_topic',
+        description:
+          'Record a topic worth returning to in the companion topic garden (not long-term facts). ' +
+          'Use add when the person mentions something they want to do/watch/play/discuss later, ' +
+          'or when you have an interesting share/idea worth bringing up later. ' +
+          'list shows the garden; done/pause closes a topic. Keep one topic per entry.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['add', 'list', 'done', 'pause'] },
+            title: { type: 'string', description: 'One line: what to talk about later.' },
+            detail: { type: 'string', description: 'Optional context worth keeping.' },
+            kind: { type: 'string', enum: ['continue', 'share', 'explore'], description: 'continue/unfinished, share, or an open question to think about.' },
+            interest: { type: 'integer', description: '0..2, how much the person seems to care.' },
+            id: { type: 'string', description: 'Topic id from list (for done/pause).' },
+          },
+          additionalProperties: false,
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: true,
+            properties: { ok: { type: 'boolean' }, text: { type: 'string' } },
+          },
+          render: (_args, value) => [{ type: 'text', text: String((value && value.text) || '') }],
+        },
+        execute: (args = {}) => {
+          const now = Date.now()
+          const action = String(args.action || 'list')
+          if (action === 'add') {
+            const topic = addTopic(garden, {
+              title: args.title,
+              detail: args.detail,
+              kind: args.kind,
+              interest: args.interest,
+              source: 'agent',
+            }, now)
+            if (!topic) return { ok: false, text: '标题不能为空。' }
+            persistGarden()
+            return { ok: true, text: '记进话题花园了：' + topic.title, topic: publicTopic(topic) }
+          }
+          if (action === 'list') {
+            const rows = garden.topics.filter((t) => t.status !== 'done').slice(0, 10).map(publicTopic)
+            return {
+              ok: true,
+              text: rows.length ? rows.map((t) => `${t.id} · ${t.kind} · ${t.status} · ${t.title}`).join('\n') : '花园里还没有话题。',
+              topics: rows,
+            }
+          }
+          let target = String(args.id || '')
+          if (!target && args.title) {
+            const needle = String(args.title).trim()
+            const hit = garden.topics.find((t) => t.status !== 'done' && t.title.includes(needle))
+            if (hit) target = hit.id
+          }
+          if (!target) return { ok: false, text: '没找到要关闭的话题（用 list 拿 id）。' }
+          const closed = closeTopic(garden, target, action === 'done' ? 'done' : 'pause', now)
+          if (!closed) return { ok: false, text: '没找到这个话题。' }
+          persistGarden()
+          return { ok: true, text: action === 'done' ? '话题结束了。' : '话题先搁着。', topic: publicTopic(closed) }
+        },
+      })
+      if (typeof off === 'function') ctx.effect?.(() => off)
+      console.error('[companion] registered tool companion_topic')
+    } catch (error) {
+      console.error('[companion] companion_topic 注册失败：' + String((error && error.message) || error))
+    }
+  }
+
   const sweeper = setInterval(() => {
     desk.sweep()
     const now = Date.now()
     for (const [sid, pending] of [...pendingReply]) {
       if (now - pending.at < REPLY_WINDOW_MS) continue
       record({ requestId: pending.requestId, sessionId: sid, topicId: pending.topicId, state: 'none', at: now })
+      if (pending.topicId) {
+        applyNoReply(garden, pending.topicId, now)
+        persistGarden()
+      }
       for (const x of sessionIds(sid)) pendingReply.delete(x)
     }
   }, 5_000)
@@ -411,12 +552,16 @@ export function apply(ctx) {
       }
     }
     const recent = summarize(readLedger(home(), 400), startOfDay(now))
-    const topic = chooseTopic(candidates, {
+    seedFromMemory(garden, candidates, now)
+    seedFromCommitments(garden, readCommitments(home(), now, 3), now)
+    const topic = nextTopic(garden, {
       now,
       lastTopicId: recent.lastTopicId,
       lastAt: recent.lastAt,
       cooldownMs: config.cooldownMs,
+      maxAttempts: MAX_ATTEMPTS,
     })
+    persistGarden()
     const out = decide({
       config,
       now,
@@ -452,7 +597,7 @@ export function apply(ctx) {
     const today = summarize(entries, startOfDay(now))
     return {
       v: 1,
-      version: '0.1.0',
+      version: '0.2.0',
       config: publicConfig(),
       sessionId: config.sessionId ?? null,
       agents: live,
@@ -460,6 +605,11 @@ export function apply(ctx) {
       today: today.counts,
       lastTopicId: today.lastTopicId || null,
       memory: { path: memoryPath(), exists: existsSync(memoryPath()) },
+      garden: gardenStats(garden, now),
+      gardenTopics: garden.topics
+        .filter((t) => t.status !== 'done')
+        .slice(0, 8)
+        .map(publicTopic),
       recent: readLedger(home(), 20),
     }
   }

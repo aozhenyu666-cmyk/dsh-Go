@@ -107,6 +107,8 @@ object BuiltinPluginGuest {
                 "lib/index.js",
                 "lib/core.js",
                 "lib/topics.js",
+                "lib/garden.js",
+                "lib/context.js",
                 "lib/prompt.js",
                 "lib/ledger.js",
                 "lib/plan.js",
