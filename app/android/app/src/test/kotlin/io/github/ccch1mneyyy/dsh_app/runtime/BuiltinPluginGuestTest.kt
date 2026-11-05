@@ -34,8 +34,8 @@ class BuiltinPluginGuestTest {
         val yaml = BuiltinPluginGuest.PATCH_YAML
         assertTrue(yaml.contains("- id: dsh-go-relationship\n"))
         assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-go-relationship/lib/index.js\n"))
-        assertTrue(yaml.contains("- id: dsh-speak-up\n"))
-        assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-speak-up/lib/host.js\n"))
+        // Two schedulers racing for the same voice: the old speak-up timer is not deployed.
+        assertTrue(!yaml.contains("- id: dsh-speak-up\n"))
         assertTrue(yaml.contains("- id: dsh-feiyu-mood\n"))
         assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-feiyu-mood/lib/index.js\n"))
         assertTrue(yaml.contains("- id: dsh-fish-strict\n"))
@@ -46,6 +46,6 @@ class BuiltinPluginGuestTest {
         assertTrue(yaml.contains("      name: /opt/dsh-app/plugins/dsh-go-companion/lib/index.js\n"))
         // package.json is what makes the copied .js files ESM on the guest.
         assertTrue(BuiltinPluginGuest.PLUGINS.all { it.files.contains("package.json") })
-        assertEquals(6, BuiltinPluginGuest.PLUGINS.size)
+        assertEquals(5, BuiltinPluginGuest.PLUGINS.size)
     }
 }

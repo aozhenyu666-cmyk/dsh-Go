@@ -60,19 +60,8 @@ object BuiltinPluginGuest {
                 "lib/core/time.js",
             ),
         ),
-        // Phone is the only proactive scheduler (SurfCore Purpose is disabled on the PC).
-        // Host half only: the web settings UI is not bundled on Android.
-        Plugin(
-            id = "dsh-speak-up",
-            entry = "lib/host.js",
-            files = listOf(
-                "package.json",
-                "cordis.patch.yml",
-                "LICENSE",
-                "lib/host.js",
-                "lib/selfupdate.mjs",
-            ),
-        ),
+        // Phone is the only proactive scheduler (dsh-go-companion). The old dsh-speak-up
+        // timer is deliberately not deployed: two schedulers would race for the same voice.
         // Emotion state for phone conversations; host half only.
         Plugin(
             id = "dsh-feiyu-mood",
@@ -121,6 +110,7 @@ object BuiltinPluginGuest {
                 "lib/prompt.js",
                 "lib/ledger.js",
                 "lib/plan.js",
+                "lib/classify.js",
             ),
         ),
     )

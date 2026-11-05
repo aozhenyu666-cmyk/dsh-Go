@@ -21,6 +21,7 @@ import { BACKGROUND_LIMIT, backgroundFacts, chooseTopic, loadCandidates, openMem
 import { buildPrompt } from './prompt.js'
 import { appendLedger, readLedger, summarize } from './ledger.js'
 import { plan as decide } from './plan.js'
+import { classifyReply } from './classify.js'
 
 export const name = 'dsh-go-companion'
 const PREFIX = '/dsh-go-companion/v1'
@@ -162,9 +163,40 @@ function userMessage(text) {
   return { id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: SOURCE_KIND } }
 }
 
+function messageText(data) {
+  const content = data?.content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('')
+    .trim()
+}
+
 export function apply(ctx) {
   let config = readConfig()
   console.error('[companion] loaded; session=' + String(config.sessionId || 'none') + ' memory=' + memoryPath())
+
+  /** sessionId -> {requestId, topicId, at}: a generated message the person has not answered yet. */
+  const pendingReply = new Map()
+  const REPLY_WINDOW_MS = 2 * 3_600_000
+
+  function setPending(sessionId, value) {
+    if (!sessionId) return
+    for (const id of sessionIds(sessionId)) pendingReply.set(id, value)
+  }
+
+  function takePending(sessionId) {
+    if (!sessionId) return undefined
+    for (const id of sessionIds(sessionId)) {
+      const v = pendingReply.get(id)
+      if (v) {
+        for (const x of sessionIds(sessionId)) pendingReply.delete(x)
+        return v
+      }
+    }
+    return undefined
+  }
 
   function record(entry) {
     appendLedger(home(), { v: 1, ...entry })
@@ -206,7 +238,7 @@ export function apply(ctx) {
     makeMessage: userMessage,
     isArchived: (id) => isArchived(ctx, id),
     defaultSession: () => config.sessionId,
-    onChange: (r) =>
+    onChange: (r) => {
       record({
         requestId: r.requestId,
         eventId: r.eventId,
@@ -218,7 +250,12 @@ export function apply(ctx) {
         text: r.text ?? undefined,
         failure: r.failure ?? undefined,
         cold: r.cold === true,
-      }),
+      })
+      // 生成成功后等一次人的回应；2 小时内没有就记 none（有限跟进/冷却的依据）。
+      if (r.state === 'generated') {
+        setPending(r.sessionId, { requestId: r.requestId, topicId: r.topicId, at: Date.now() })
+      }
+    },
   })
 
   ctx.on('session/event', (session, event) => {
@@ -226,6 +263,35 @@ export function apply(ctx) {
       desk.onSessionEvent(session?.id, event)
     } catch {
       // never disturb the session
+    }
+    try {
+      if (event?.type === 'user/message') {
+        const pending = takePending(session?.id)
+        if (pending) {
+          const text = messageText(event.data)
+          const replyClass = classifyReply(text)
+          record({
+            requestId: pending.requestId,
+            sessionId: session?.id,
+            topicId: pending.topicId,
+            state: 'replied',
+            at: Date.now(),
+            replyClass,
+          })
+          if (replyClass === 'substantive') {
+            record({
+              requestId: pending.requestId,
+              sessionId: session?.id,
+              topicId: pending.topicId,
+              state: 'substantive',
+              at: Date.now(),
+              replyClass,
+            })
+          }
+        }
+      }
+    } catch {
+      // classification must never break a turn
     }
   })
   ctx.on(
@@ -248,7 +314,15 @@ export function apply(ctx) {
       // ignore
     }
   })
-  const sweeper = setInterval(() => desk.sweep(), 5_000)
+  const sweeper = setInterval(() => {
+    desk.sweep()
+    const now = Date.now()
+    for (const [sid, pending] of [...pendingReply]) {
+      if (now - pending.at < REPLY_WINDOW_MS) continue
+      record({ requestId: pending.requestId, sessionId: sid, topicId: pending.topicId, state: 'none', at: now })
+      for (const x of sessionIds(sid)) pendingReply.delete(x)
+    }
+  }, 5_000)
   sweeper.unref?.()
   ctx.effect?.(() => () => clearInterval(sweeper))
 

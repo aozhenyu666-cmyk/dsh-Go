@@ -59,7 +59,18 @@ export function readLedger(home, limit = 100) {
 
 /** 当天统计 + 最近一条话题（用于 24h 不重复）。 */
 export function summarize(entries, dayStart) {
-  const counts = { planned: 0, accepted: 0, generated: 0, failed: 0, replied: 0, substantive: 0 }
+  const counts = {
+    planned: 0,
+    accepted: 0,
+    generated: 0,
+    failed: 0,
+    replied: 0,
+    substantive: 0,
+    none: 0,
+    delivered: 0,
+    displayed: 0,
+    dismissed: 0,
+  }
   let lastTopicId = ''
   let lastAt = 0
   for (const e of entries) {
