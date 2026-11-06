@@ -65,7 +65,8 @@
 - **不强行开口**：`nextTopic()` 返回 null 就 `409 no-topic`，不发空泛问候。
 - **跟进**：`substantive` 继续；`brief` 2h 后换轻的；`avoid` 12h；`refuse` 结束；
   `none` 最多两次（4h / 一周），之后开新周期。
-- **连续性**：生成后保存 `lastSummary`，下次 prompt 带“上次聊到…”；
+- **连续性**：生成后只保存 `lastSentSummary`（我说过什么），用户实质回应后才升级为
+  `lastSummary`（我们聊过什么）；下次 prompt 不会把单方面发过的话说成聊过。
   用户换话题时旧话题保留为 `paused`，不丢。
 
 正常聊天里，模型可以调用 `companion_topic` 工具（`add/list/done/pause`）把
