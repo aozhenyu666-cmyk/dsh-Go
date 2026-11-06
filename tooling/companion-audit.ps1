@@ -13,6 +13,7 @@ $adb = 'D:\code\android-sdk\platform-tools\adb.exe'
 if (-not (Test-Path $adb)) { $adb = 'adb' }
 $pkg = 'io.github.ccch1mneyyy.dsh_app'
 $dsh = 'files/runtime/rootfs/root/.dsh'
+$opt = 'files/runtime/rootfs/opt'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $Out) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -34,7 +35,9 @@ function A([string]$command) {
 }
 
 function ReadGuest([string]$path) {
-    A "run-as $pkg sh -c 'cat $path 2>/dev/null'"
+    # No `sh -c '...'`: `adb shell` re-parses the string and eats the quotes, which
+    # leaves `sh -c cat <path>` -- cat then reads stdin and every read comes back empty.
+    (& $adb -s $Serial shell "run-as $pkg cat $path" 2>$null | Out-String)
 }
 
 function Section([string]$title, [string]$body) {
@@ -54,8 +57,9 @@ $notif = A "cmd appops get $pkg POST_NOTIFICATION"
 $battery = (A 'dumpsys deviceidle whitelist') -split "`n" | Where-Object { $_ -match [regex]::Escape($pkg) }
 $services = A "dumpsys activity services $pkg"
 $node = (A "ps -A") -split "`n" | Where-Object { $_ -match '\snode\s*$' }
-$logs = A "run-as $pkg sh -c 'grep -a -E ""\[companion\]|\[memory\]|\[relationship\]|\[strict\]|speak-up"" files/runtime/logs/dsh.log | tail -40'"
-$plugins = ReadGuest '/opt/dsh-app/plugins/plugins.patch.yml'
+$logAll = (& $adb -s $Serial shell "run-as $pkg cat files/runtime/logs/dsh.log" 2>$null | Out-String)
+$logs = ($logAll -split "`n" | Where-Object { $_ -match '\[companion\]|\[memory\]|\[relationship\]|\[strict\]|speak-up' } | Select-Object -Last 40) -join "`n"
+$plugins = ReadGuest "$opt/dsh-app/plugins/plugins.patch.yml"
 $cfg = ReadGuest "$dsh/companion/config.json"
 $ledger = ReadGuest "$dsh/companion/ledger.jsonl"
 $gardenRaw = ReadGuest "$dsh/companion/topics.json"
@@ -129,13 +133,16 @@ if ($garden -and $garden.topics) {
 # Read-only SQLite counts: copy to %TEMP%, count, delete.
 $memCounts = 'not read'
 $tmpDb = Join-Path $env:TEMP ('companion-audit-' + [guid]::NewGuid().ToString('N') + '.sqlite')
+# PowerShell 5.1 mangles embedded double quotes when passing -e to a native exe,
+# so the script goes through a file instead of `node -e "..."`.
+$tmpJs = Join-Path $env:TEMP ('companion-audit-' + [guid]::NewGuid().ToString('N') + '.cjs')
 try {
     $copy = '"' + $adb + '" -s ' + $Serial + ' exec-out run-as ' + $pkg + ' cat ' + $dsh + '/fish-memory/fish-memory.sqlite > "' + $tmpDb + '"'
     & cmd.exe /c $copy | Out-Null
     if (Test-Path $tmpDb) {
         $nodeCode = @'
 const { DatabaseSync } = require("node:sqlite");
-const d = new DatabaseSync(process.argv[1], { readOnly: true });
+const d = new DatabaseSync(process.argv[2], { readOnly: true });
 const c = (sql) => { try { return d.prepare(sql).get().c } catch { return -1 } };
 console.log(JSON.stringify({
   facts: c("select count(*) c from facts"),
@@ -145,18 +152,21 @@ console.log(JSON.stringify({
 }));
 d.close();
 '@
-        $memCounts = (& node -e $nodeCode $tmpDb 2>&1 | Out-String).Trim()
+        [IO.File]::WriteAllText($tmpJs, $nodeCode, [Text.UTF8Encoding]::new($false))
+        $memCounts = (& node $tmpJs $tmpDb 2>&1 | Out-String).Trim()
     }
 } catch {
     $memCounts = 'copy/read failed: ' + $_.Exception.Message
 } finally {
     if (Test-Path $tmpDb) { Remove-Item $tmpDb -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $tmpJs) { Remove-Item $tmpJs -Force -ErrorAction SilentlyContinue }
 }
 
 # Findings: the first place to look.
 $findings = New-Object System.Collections.Generic.List[string]
 if (-not $node) { $findings.Add('engine: no node process (engine not running)') }
-if ($logs -notmatch '\[companion\] loaded') { $findings.Add('plugin: no "[companion] loaded" in the engine log') }
+# Full log, not the 40-line tail: [strict] schema noise can push the line out of the window.
+if ($logAll -notmatch '\[companion\] loaded') { $findings.Add('plugin: no "[companion] loaded" in the engine log') }
 if ($plugins -match 'dsh-speak-up') { $findings.Add('scheduler: plugins.patch.yml still deploys dsh-speak-up') }
 if ($cfg -notmatch '"sessionId"') { $findings.Add('target: companion config has no sessionId') }
 if (-not $garden) { $findings.Add('garden: topics.json missing/unreadable') }
