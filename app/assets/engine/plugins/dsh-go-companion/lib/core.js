@@ -167,8 +167,11 @@ export class Desk {
       return this.refuse(409, 'agent-resolve-failed', String(e?.message ?? e))
     }
     if (agent === undefined) return this.refuse(409, 'no-agent')
-    if (agent.status !== undefined && agent.status !== 'idle') return this.refuse(409, 'agent-busy')
-    if (agent.inbox?.hasPending) return this.refuse(409, 'agent-busy')
+    // 主动发球：他和大肥鱼正在说话就不插嘴。直接聊（allowBusy）：排进下一轮，等它说完这句再接。
+    if (!this.deps.allowBusy) {
+      if (agent.status !== undefined && agent.status !== 'idle') return this.refuse(409, 'agent-busy')
+      if (agent.inbox?.hasPending) return this.refuse(409, 'agent-busy')
+    }
 
     let built
     try {

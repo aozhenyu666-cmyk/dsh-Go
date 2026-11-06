@@ -413,7 +413,7 @@ function makeTalkingAgent() {
   return agent
 }
 
-test('/say：他在浮层里打的字原样进会话（就是他本人说的，不带插件来源），大肥鱼的回复从 /result 拿回来', async () => {
+test('/say：他在浮层里打的字原样进会话（来源标成他本人），大肥鱼的回复从 /result 拿回来', async () => {
   await withHome(async (home) => {
     seed(home)
     const agent = makeTalkingAgent()
@@ -422,7 +422,7 @@ test('/say：他在浮层里打的字原样进会话（就是他本人说的，�
     assert.equal(res.status, 202, JSON.stringify(res.body))
     assert.equal(agent.sent.length, 1)
     assert.equal(agent.sent[0].content[0].text, '我打这局是因为作业写完了', '原话，不加任何指令')
-    assert.equal(agent.sent[0].source, undefined, '不带插件来源：这是他说的话')
+    assert.equal(agent.sent[0].source?.kind, 'user', '来源标成他本人：引擎要求每条消息都有 source')
 
     const emit = async (type, data) => {
       for (const fn of host.listeners.get('session/event') || []) await fn({ id: 'session-abc' }, { type, data })

@@ -78,7 +78,9 @@ export function plan(input) {
   if (minGap > 0 && Number(input.lastAt) > 0 && now - Number(input.lastAt) < minGap) {
     return { speak: false, reason: 'cooldown', topic: null, nextCheckAt: Number(input.lastAt) + minGap }
   }
-  if (!input.topic) {
+  // 没有话题也能开口（free）：知道他在干什么、或者按人设起个话头就够了。
+  // 以前这里一律闭嘴——新装的 App 记忆是空的，大肥鱼就永远不说话。
+  if (!input.topic && !input.free) {
     return {
       speak: false,
       reason: 'no-topic',

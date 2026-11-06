@@ -325,6 +325,19 @@ export function apply(ctx) {
 
   // ---------------------------------------------------------------- 大脑
   // 大脑和脾气各存一个小文件；读坏了就从空的开始，绝不让一轮卡住。
+  /** sessionId -> 他最后一次亲口说话的时间：正在聊就不用主动发球。 */
+  const lastHumanAt = new Map()
+  /** 他说完这么久之内算"正在聊"。 */
+  const IN_CONVERSATION_MS = 3 * 60_000
+
+  /** 他正在跟大肥鱼说话（刚说过，或者大肥鱼正在回他）。 */
+  function inConversation(sessionId, now) {
+    for (const id of sessionIds(sessionId)) {
+      if (now - (lastHumanAt.get(id) || 0) < IN_CONVERSATION_MS) return true
+    }
+    return liveAgent(ctx, sessionId)?.status === 'running'
+  }
+
   /** 讲通了理由之后松多久。 */
   const GRACE_MS = 20 * 60_000
   const loadBrain = () => cleanBrain(readState(stateFile('brain.json'), null))
@@ -445,11 +458,8 @@ export function apply(ctx) {
         cooldownMs: config.cooldownMs,
         maxAttempts: MAX_ATTEMPTS,
       })
-      if (!topic) {
-        persistGarden()
-        return { error: 'no-topic' }
-      }
-      markUsed(garden, topic.id, now)
+      // 没有话题照样开口：用手边的情况、人设起话头。话题只是素材，不是开口的前提。
+      if (topic) markUsed(garden, topic.id, now)
       persistGarden()
 
       const mood = readMood(home())
@@ -545,10 +555,16 @@ export function apply(ctx) {
   const chat = new Desk({
     resolveAgent: (id) => resolveAgent(ctx, id, config),
     compose: async (req) => ({ text: req.payload.text, prompt: req.payload.text }),
-    makeMessage: (text) => ({ id: randomUUID(), role: 'user', content: [{ type: 'text', text }] }),
+    // 来源必须带：引擎的会话控制器默认每条消息都有 source，没有就抛异常、这一轮根本不开（真机测出来的）。
+    // 他本人打的字，就照 App 里打字的格式标成 user；rpcId 加前缀，不会和 App 的提交撞上。
+    makeMessage: (text) => ({
+      id: randomUUID(), role: 'user', content: [{ type: 'text', text }],
+      source: { kind: 'user', rpcId: 'dsh-go-companion-say-' + randomUUID() },
+    }),
     isArchived: (id) => isArchived(ctx, id),
     defaultSession: () => config.sessionId,
     limits: { ...DEFAULT_LIMITS, maxPayloadValue: 2_000 },
+    allowBusy: true,
     onChange: (r) => {
       const state = { accepted: 'said', generated: 'heard', failed: 'chat-failed' }[r.state]
       if (state) record({ requestId: r.requestId, sessionId: r.sessionId, state, at: Date.now(), failure: r.failure ?? undefined })
@@ -626,6 +642,7 @@ export function apply(ctx) {
         // 只有来源为空或明确标成 user 的才算人。
         const kind = event.data?.source?.kind
         if (kind && kind !== 'user') return
+        lastHumanAt.set(String(session?.id || ''), Date.now())
         // 他说"安静一小时""今天别找我"就照做：这是一句话就说清的事，不必占一次模型调用。
         const muteUntilAt = mutedUntil(text, Date.now(), { tz: config.timeZone })
         if (muteUntilAt) {
@@ -1011,9 +1028,14 @@ export function apply(ctx) {
       silence,
       mutedUntil: Number(config.muteUntil) || 0,
       nextTopicAt: nextTopicAt(garden, now),
+      free: true,
     })
+    // 他正在跟大肥鱼聊：不发主动球（发了也只会撞上"正忙"）。力度照常给手机——在游戏里边玩边聊也得锁。
+    if (out.speak && inConversation(sessionId, now)) {
+      Object.assign(out, { speak: false, reason: 'in-conversation', nextCheckAt: now + IN_CONVERSATION_MS })
+    }
     // 一早第一球：今天还没开过口、屏幕亮着——不等骰子和间隔，先开球定今天的锚。
-    if (!out.speak && (out.reason === 'dice' || out.reason === 'cooldown') && recent.counts.generated === 0 && phone?.screenOn) {
+    if (!out.speak && (out.reason === 'dice' || out.reason === 'cooldown') && recent.counts.generated === 0 && phone?.screenOn && !inConversation(sessionId, now)) {
       Object.assign(out, { speak: true, reason: 'morning', nextCheckAt: now })
     }
     // 力度到了"锁 / 赶"：不管这一球说不说，手机都要执行（说到做到）。
