@@ -27,6 +27,11 @@ test('拒绝：明确不让继续', () => {
   assert.equal(classifyReply('烦不烦，别管我'), 'refuse')
 })
 
+test('拒绝只认“冲着这次聊天说的”，说别的事不算拒绝', () => {
+  assert.equal(classifyReply('今天停止刷视频了，准备做第三题'), 'substantive')
+  assert.equal(classifyReply('做够了就去背单词'), 'brief')
+})
+
 test('空消息按简短处理，不崩溃', () => {
   assert.equal(classifyReply(''), 'brief')
   assert.equal(classifyReply(null), 'brief')

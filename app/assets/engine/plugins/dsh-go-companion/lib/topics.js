@@ -31,7 +31,7 @@ const TOPICS_SQL =
   "WHERE status = 'open' AND scope IN (?, 'global') ORDER BY priority DESC, opened_at ASC LIMIT 30"
 
 const FACTS_SQL =
-  'SELECT text, importance, pinned FROM facts ' +
+  'SELECT id, text, importance, pinned FROM facts ' +
   "WHERE status = 'active' AND (pinned = 1 OR importance = 2) AND scope IN (?, 'global') " +
   'ORDER BY pinned DESC, importance DESC, updated_at DESC LIMIT 8'
 

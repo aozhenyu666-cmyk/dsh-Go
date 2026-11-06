@@ -28,6 +28,20 @@ test('种子：记忆里的话题和经历进入花园，重复的合并', () =>
   assert.equal(g.topics.length, 2)
 })
 
+test('种子：只有钉住事实时也能选出话题，不因缺话题永远沉默', () => {
+  const g = emptyGarden()
+  const facts = [{ id: 'f1', text: '我养的猫叫毛毛', importance: 1, pinned: 1 }]
+  seedFromMemory(g, { topics: [], episodes: [], facts }, NOW)
+  assert.equal(g.topics.length, 1)
+  assert.equal(g.topics[0].id, 'fact:f1')
+  assert.equal(g.topics[0].kind, 'share')
+  assert.equal(nextTopic(g, { now: NOW }).id, 'fact:f1')
+
+  // 重复播种合并同一条，不产生重复话题
+  seedFromMemory(g, { topics: [], episodes: [], facts }, NOW + 1000)
+  assert.equal(g.topics.length, 1)
+})
+
 test('生命周期：选中 → 实质回答继续；简短/回避/拒绝', () => {
   const g = emptyGarden()
   seedFromMemory(g, { topics: [{ id: 't1', title: '面试结果', priority: 2 }], episodes: [] }, NOW)

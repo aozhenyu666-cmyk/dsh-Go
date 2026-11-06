@@ -170,6 +170,16 @@ export function seedFromMemory(garden, candidates, now) {
       lastTouchAt: Number(t.last_touch_at) || 0,
     }, now)
   }
+  // 钉住/重要事实同样是话题来源：只有事实、还没聊出话题的人，主动开口不该永远沉默。
+  for (const f of candidates.facts || []) {
+    addOrMerge(garden, {
+      id: 'fact:' + String(f.id),
+      kind: 'share',
+      title: String(f.text || ''),
+      source: 'memory.fact',
+      interest: Number(f.importance) >= 2 ? 2 : 1,
+    }, now)
+  }
   for (const e of candidates.episodes || []) {
     addOrMerge(garden, {
       id: 'event:' + String(e.at),

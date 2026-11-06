@@ -146,6 +146,77 @@ test('路由：request → status → 回执账本', async () => {
   }
 })
 
+test('路由：自己注入的提示不算人的回复', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'companion-routes-'))
+  const sent = []
+  const agent = {
+    id: 'session-abc',
+    status: 'idle',
+    inbox: { hasPending: false },
+    followup(msg) {
+      sent.push(msg)
+    },
+  }
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    seed(home)
+    const { handler, listeners } = makeHost({ home, agent })
+    const req = await call(handler, 'POST', '/dsh-go-companion/v1/request', {
+      v: 1,
+      requestId: 'req-00000003',
+      eventId: 'evt-00000003',
+      kind: 'random_chat',
+      payload: {},
+      deadlineMs: 30000,
+    })
+    assert.equal(req.body.state, 'accepted')
+
+    const sid = 'session-abc'
+    const fire = (event) => {
+      for (const fn of listeners.get('session/event') || []) fn({ id: sid }, event)
+    }
+    fire({ type: 'turn/start', data: { turn: 9 } })
+    fire({ type: 'user/message', data: { id: sent[0].id } })
+    fire({ type: 'assistant/message', data: { turn: 9, message: { content: [{ type: 'text', text: '面试结果出了吗？' }] } } })
+    fire({ type: 'turn/end', data: { turn: 9, reason: { kind: 'completed' } } })
+    const done = await call(handler, 'GET', '/dsh-go-companion/v1/result?requestId=req-00000003&waitMs=0')
+    assert.equal(done.body.state, 'generated')
+
+    // 下一轮自己注入的提示里带着“别问错”，会命中 REFUSE。
+    fire({
+      type: 'user/message',
+      data: {
+        content: [{ type: 'text', text: '（这不是主人说的话，是 DSH Go 手机端发起的一次主动交流。背景（只是让你别问错，不要逐条复述）：）' }],
+        source: { kind: 'dsh-go-companion' },
+      },
+    })
+
+    // 别的插件注入的消息同样不是人打的字：speak-up 也标了自己的来源。
+    fire({
+      type: 'user/message',
+      data: {
+        content: [{ type: 'text', text: '我刚看到窗外的云有点奇怪，别问了' }],
+        source: { kind: 'speak-up' },
+      },
+    })
+
+    const untouched = await call(handler, 'GET', '/dsh-go-companion/v1/status')
+    assert.equal(untouched.body.today.replied, 0)
+    assert.equal(untouched.body.today.substantive, 0)
+
+    // 真正的回复仍然能被认出来。
+    fire({ type: 'user/message', data: { content: [{ type: 'text', text: '因为周五才出，我还在等' }] } })
+    const after = await call(handler, 'GET', '/dsh-go-companion/v1/status')
+    assert.equal(after.body.today.replied, 1)
+    assert.equal(after.body.today.substantive, 1)
+  } finally {
+    if (oldHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = oldHome
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('路由：没有会话时明确拒绝', async () => {
   const home = mkdtempSync(join(tmpdir(), 'companion-routes-'))
   const oldHome = process.env.DSH_HOME

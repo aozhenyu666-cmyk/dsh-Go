@@ -43,6 +43,9 @@ import {
 import { lastReplyClass, readCommitments, readMood } from './context.js'
 
 export const name = 'dsh-go-companion'
+// Without this, `ctx.tools` below throws "cannot get property tools without inject"
+// and the whole entry fails to activate (routes, sweeper and companion_topic never load).
+export const inject = ['tools']
 const PREFIX = '/dsh-go-companion/v1'
 const MAX_BODY = 16 * 1024
 
@@ -321,6 +324,11 @@ export function apply(ctx) {
     try {
       if (event?.type === 'user/message') {
         const text = messageText(event.data)
+        // 插件注入的消息都走 user/message（自己、speak-up、思维驾驶员……），
+        // 也都不是人打的字。当成回复会凭空记一条 replied，还会把话题判成 done；
+        // 只有来源为空或明确标成 user 的才算人。
+        const kind = event.data?.source?.kind
+        if (kind && kind !== 'user') return
         const pending = takePending(session?.id)
         if (pending) {
           const replyClass = classifyReply(text)
@@ -348,7 +356,7 @@ export function apply(ctx) {
             applyReply(garden, pending.topicId, replyClass, now)
             persistGarden()
           }
-        } else if (text && !text.includes('DSH Go 手机端发起的一次主动交流')) {
+        } else if (text) {
           // 正常聊天里冒出的新话题：每天最多 3 条，宁缺毋滥。
           if (discoverFromMessage(garden, text, Date.now())) persistGarden()
         }
