@@ -121,3 +121,14 @@ cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs   #
   `personaEffective` 是实际进 prompt 的那张。
 - **部署清单守卫**：`test/manifest.test.mjs` 检查 `lib/` 下每个文件都写进了 `BuiltinPluginGuest.kt`。
 
+
+## P6：大脑（水位 / 脾气 / 思维题 / 学习 / 力度）
+
+设计见 `docs/dafeiyu/大肥鱼-水道-主动引导体系.md`。
+
+- `tide.js` 水位 0–100（清醒/在滑/在沉/陷住了）决定节奏：间隔按水位缩短并带随机，在沉/陷住不掷骰子。
+- `temper.js` 脾气：哄/逗/冷/怼/训，底色随模式（温和 0.25 / 严格 0.7），水位往硬里推，随机游走，偶尔翻脸。存 `companion/temper.json`。
+- `brain.js` 大脑：Thompson 抽样挑脸，近端结果 = 发球后 10 分钟内离开娱乐 App 或认真回球；思维题弱项加权；判断从证据重算，翻了就记 `revision`。存 `companion/brain.json`。
+- `drills.js` 九种思维题，有合格线；上一题没回/答糊弄，下一球先说他、同类题重问。判球按合格线判。
+- `force.js` 力度 0–4（说/追/屏/锁/赶），不掷骰子；`/plan` 回 `force` 和 `tide`，手机执行锁/回桌面。配置 `control: false` 最多到浮层。
+- 一早第一球不等骰子；"严格点 / 温柔点 / 切到严格模式"一句话切换。

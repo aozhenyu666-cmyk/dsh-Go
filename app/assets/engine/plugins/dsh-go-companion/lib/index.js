@@ -21,7 +21,7 @@ import { BACKGROUND_LIMIT, backgroundFacts, loadCandidates, openMemoryDb } from 
 import { buildPrompt } from './prompt.js'
 import { appendLedger, readLedger, summarize } from './ledger.js'
 import { plan as decide } from './plan.js'
-import { DEFAULT_TZ, startOfDay as zoneStartOfDay, zoneOr } from './tz.js'
+import { DEFAULT_TZ, minuteOfDay as zoneMinuteOfDay, startOfDay as zoneStartOfDay, zoneOr } from './tz.js'
 import { classifyReply } from './classify.js'
 import { gardenClass, judgeReply } from './judge.js'
 import { isStock } from './stock.js'
@@ -48,7 +48,12 @@ import {
   seedFromMemory,
 } from './garden.js'
 import { lastReplyClass, readCommitments, readCorePersona, readMood } from './context.js'
-import { cleanPhone, worthObserving } from './phone.js'
+import { cleanPhone, funToday, worthObserving } from './phone.js'
+import { tide as tideOf, tideGap, tideHourly, vagueStreak } from './tide.js'
+import { FACES, stepTemper, temperLine } from './temper.js'
+import { drillLines, drillOf, pickDrill, scoldLines } from './drills.js'
+import { brainLines, chooseFace, cleanBrain, drillScorer, observe, onReply, onServe, onSilent, revise } from './brain.js'
+import { decideForce, forceLines } from './force.js'
 
 export const name = 'dsh-go-companion'
 // Without this, `ctx.tools` below throws "cannot get property tools without inject"
@@ -77,6 +82,8 @@ const DEFAULTS = Object.freeze({
   mode: 'partner',
   // 教练模式自己的频率（乒乓式高频）：最小间隔 8 分钟、每小时 6、每天 40。
   ...COACH_LIMITS,
+  // 控机权限：水位到了就锁娱乐 App / 退回桌面（手机执行）。关掉就最多到浮层。
+  control: true,
 })
 
 function home() {
@@ -121,6 +128,29 @@ function memoryPath() {
 
 function gardenPath() {
   return join(home(), 'companion', 'topics.json')
+}
+
+function stateFile(name) {
+  return join(home(), 'companion', name)
+}
+
+function readState(file, fallback) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return fallback
+  }
+}
+
+function writeJson(file, value) {
+  try {
+    mkdirSync(join(file, '..'), { recursive: true, mode: 0o700 })
+    const tmp = file + '.' + String(process.pid) + '.tmp'
+    writeFileSync(tmp, JSON.stringify(value) + '\n', { encoding: 'utf8', mode: 0o600 })
+    renameSync(tmp, file)
+  } catch (error) {
+    console.error('[companion] 写 ' + file + ' 失败：' + String((error && error.message) || error))
+  }
 }
 
 // 引擎跑在 TZ=GMT，凡是「今天」「零点」都必须按手机时区算，所以这里显式要 tz。
@@ -282,6 +312,46 @@ export function apply(ctx) {
     appendLedger(home(), { v: 1, ...entry })
   }
 
+  // ---------------------------------------------------------------- 大脑
+  // 大脑和脾气各存一个小文件；读坏了就从空的开始，绝不让一轮卡住。
+  const loadBrain = () => cleanBrain(readState(stateFile('brain.json'), null))
+  const saveBrain = (b) => writeJson(stateFile('brain.json'), b)
+  /** requestId -> 发球时的现状（generated 时交给大脑开始计"有没有拉回来"）。 */
+  const servedContext = new Map()
+
+  function hourOf(phone, now) {
+    if (phone?.local) return Number(phone.local.slice(0, 2))
+    return Math.floor(zoneMinuteOfDay(now, zoneOr(config.timeZone)) / 60)
+  }
+
+  /** 这一刻他陷得多深：手机现状 + 账本（连着没接、连着糊弄）。顺带让大脑看一眼上一球有没有把他拉回来。 */
+  function sense(phone, entries, sessionId, now) {
+    const brain = loadBrain()
+    const pulled = observe(brain, { phone, now })
+    if (pulled) {
+      revise(brain, now)
+      record({ state: 'pulled', at: now, pulled: pulled.pulled, face: pulled.face, band: pulled.band })
+    }
+    const silence = silenceState(entries, { sessionId, now })
+    const vague = vagueStreak(entries)
+    const water = tideOf({ phone, noTake: silence.noTake, vague, hour: hourOf(phone, now) })
+    return { brain, silence, vague, water }
+  }
+
+  /** 上一道思维题怎么样了：没回 / 答糊弄了，这一球就要说他。 */
+  function lastDrillOutcome(entries, now) {
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const e = entries[i]
+      if (e?.state !== 'generated') continue
+      if (!e.drill) return null
+      const reply = entries.find((x) => x?.requestId === e.requestId && x.state === 'replied')
+      if (reply) return { drill: e.drill, requestId: e.requestId, verdict: reply.verdict, answer: reply.answer }
+      if (now - Number(e.at) >= 5 * 60_000) return { drill: e.drill, requestId: e.requestId, silent: true }
+      return null
+    }
+    return null
+  }
+
   /**
    * 最近几拍，给判球当上下文（任务书：发球原文 + 回球 + 最近 3 拍）。
    * 只取最近一个回合里的：跨回合的内容对判断没帮助，还会带偏。
@@ -383,7 +453,35 @@ export function apply(ctx) {
         weights: serveWeights(entries),
       })
       // 正开着娱乐 App 一阵子了：这一球就打观察（"你在 B站 20 分钟了"），上一球已经是观察就不连着打。
-      const serveType = !lighter && worthObserving(phone) && lastServeType(entries) !== 'observe' ? 'observe' : picked
+      let serveType = !lighter && worthObserving(phone) && lastServeType(entries) !== 'observe' ? 'observe' : picked
+
+      // 大脑：水位 → 脾气 → 脸色（Thompson 挑招）→ 力度 → 要不要出思维题。
+      const { brain, water } = sense(phone, entries, sessionId, now)
+      const temper = stepTemper(readState(stateFile('temper.json'), null), {
+        mode, tide: water.level, noTake: silence.noTake, mood: mood ? mood.mood : undefined, now,
+      })
+      writeJson(stateFile('temper.json'), { edge: temper.edge, at: temper.at })
+      const faceId = chooseFace(brain, { band: water.band, face: temper.face, surprise: temper.surprise })
+      const face = { ...temper, ...(FACES.find((f) => f.face === faceId) || {}), face: faceId }
+      const force = decideForce({
+        phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
+      })
+      // 上一题没回 / 答糊弄了：这一球必须是说他 + 同一类题重问。
+      const owed = lastDrillOutcome(entries, now)
+      const scold = owed ? scoldLines(drillOf(owed.drill), owed) : []
+      if (owed?.silent) onSilent(brain, { requestId: owed.requestId })
+      // 在娱乐 App 里越陷越可能出题；要锁的那一球一定出题（答过线才放行）。
+      // 阶梯在"换更轻的球"时不随机出题（欠着的题除外）；温和模式又不知道他在干嘛时，也不凭空出题。
+      const drillChance = force.level >= 3 || scold.length ? 1
+        : lighter ? 0
+        : phone?.fun ? 0.45 + water.level / 200
+        : mode === 'coach' ? 0.3 : 0
+      const drill = Math.random() < drillChance
+        ? (scold.length ? drillOf(owed.drill) : pickDrill(entries, drillScorer(brain)))
+        : null
+      if (drill) serveType = 'drill'
+      const firstToday = recent.counts.generated === 0
+      saveBrain(brain)
       // 回合与拍数都从账本重建：进程重启不会丢，也不多存一份状态。
       const rally = nextShot(entries, { sessionId, now })
       const prompt = buildPrompt({
@@ -400,10 +498,21 @@ export function apply(ctx) {
         persona: mergePersona(readCorePersona(home()), config.persona),
         mode,
         phone,
+        temper: face,
+        drill,
+        scold,
+        beliefs: brainLines(brain),
+        force: forceLines(force, phone),
+        morning: firstToday,
         owner: config.owner,
         self: config.self,
       })
-      return { text: prompt, prompt, topic, serveType, rallyId: rally.rallyId, shot: rally.shot, silence }
+      servedContext.set(String(req?.requestId || ''), { phone, band: water.band, face: faceId, drill: drill?.id })
+      const extra = {
+        tide: water.level, band: water.band, face: faceId, surprise: temper.surprise || undefined,
+        drill: drill?.id, force: force.level || undefined,
+      }
+      return { text: prompt, prompt, topic, serveType, rallyId: rally.rallyId, shot: rally.shot, silence, extra }
     } finally {
       try {
         db?.close?.()
@@ -430,6 +539,7 @@ export function apply(ctx) {
         rallyId: r.rallyId ?? undefined,
         shot: r.shot ?? undefined,
         silence: r.silence ?? undefined,
+        ...(r.extra && (r.state === 'accepted' || r.state === 'generated') ? r.extra : {}),
         state: r.state,
         at: Date.now(),
         text: r.text ?? undefined,
@@ -441,6 +551,14 @@ export function apply(ctx) {
       })
       // 生成成功后等一次人的回应；2 小时内没有就记 none（有限跟进/冷却的依据）。
       if (r.state === 'generated') {
+        // 大脑从这一刻开始计：10 分钟内他有没有离开那个娱乐 App。
+        const served = servedContext.get(String(r.requestId))
+        servedContext.delete(String(r.requestId))
+        if (served) {
+          const b = loadBrain()
+          onServe(b, { requestId: r.requestId, phone: served.phone, band: served.band, face: served.face, drill: served.drill, at: Date.now() })
+          saveBrain(b)
+        }
         // 发球原文、回合、拍数都留给判球用：回球回来时要能把它和这一球对上。
         setPending(r.sessionId, {
           requestId: r.requestId,
@@ -448,6 +566,7 @@ export function apply(ctx) {
           rallyId: r.rallyId,
           shot: r.shot,
           serveType: r.serveType,
+          drill: r.extra?.drill,
           serve: r.text || '',
           at: Date.now(),
         })
@@ -507,6 +626,7 @@ export function apply(ctx) {
             serve: pending.serve,
             reply: text,
             recent: recentShots(),
+            criteria: drillOf(pending.drill)?.pass,
             mode: effectiveMode(config, Date.now()),
           })
           const replyClass = gardenClass(judged.verdict)
@@ -540,6 +660,13 @@ export function apply(ctx) {
               replyClass,
               verdict: judged.verdict,
             })
+          }
+          // 大脑记账：思维题过没过线、这张脸有没有把他拉回来；证据变了就改判断。
+          {
+            const b = loadBrain()
+            onReply(b, { requestId: pending.requestId, verdict: judged.verdict })
+            revise(b, now)
+            saveBrain(b)
           }
           // 话题花园跟着人的反应走：认真答就继续，敷衍就换轻的，拒绝就停。
           if (pending.topicId) {
@@ -656,6 +783,12 @@ export function apply(ctx) {
     for (const [sid, pending] of [...pendingReply]) {
       if (now - pending.at < REPLY_WINDOW_MS) continue
       record({ requestId: pending.requestId, sessionId: sid, topicId: pending.topicId, state: 'none', at: now })
+      if (pending.drill) {
+        const b = loadBrain()
+        onSilent(b, { requestId: pending.requestId })
+        revise(b, now)
+        saveBrain(b)
+      }
       if (pending.topicId) {
         applyNoReply(garden, pending.topicId, now)
         persistGarden()
@@ -746,6 +879,10 @@ export function apply(ctx) {
       persona: cleanPersona(config.persona),
       // 实际进 prompt 的那张：关系库人物卡 + 上面的覆盖。
       personaEffective: mergePersona(readCorePersona(home()), config.persona),
+      control: config.control !== false,
+      // 大脑现在对他的判断（会随证据改）和脾气的底色。
+      beliefs: Object.values(loadBrain().beliefs || {}).map((b) => b.text),
+      temper: readState(stateFile('temper.json'), null),
       mode: modeOr(config.mode),
       modeUntil: Number(config.modeUntil) || 0,
     }
@@ -770,6 +907,16 @@ export function apply(ctx) {
     const ledger = readLedger(home(), 400)
     const recent = summarize(ledger, startOfDay(now, tz))
     const silence = silenceState(ledger, { sessionId, now })
+    // 手机每次问 /plan 都带上现状：水位决定节奏和力度，大脑顺带判上一球有没有把他拉回来。
+    const phone = cleanPhone(body?.phone)
+    const mind = sense(phone, ledger, sessionId, now)
+    saveBrain(mind.brain)
+    const water = mind.water
+    const mode = effectiveMode(config, now)
+    const limits = modeLimits(config, mode)
+    const force = decideForce({
+      phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
+    })
     seedFromMemory(garden, candidates, now)
     seedFromCommitments(garden, readCommitments(home(), now, 3), now)
     const topic = nextTopic(garden, {
@@ -781,8 +928,16 @@ export function apply(ctx) {
     })
     persistGarden()
     const out = decide({
-      // 教练模式更勤，伙伴更松：间隔和上限都按模式取。
-      config: { ...config, ...modeLimits(config, effectiveMode(config, now)) },
+      // 教练模式更勤，伙伴更松；再按水位收紧：陷得越深越勤，间隔带随机，不让他摸出规律。
+      // 在沉 / 陷住了就不掷骰子：该开口就开口。
+      config: {
+        ...config,
+        ...limits,
+        minGapMs: tideGap(limits.minGapMs, water.band),
+        hourlyMax: tideHourly(limits.hourlyMax, water.band),
+        diceThreshold: water.band === 'sink' || water.band === 'trap' ? 100
+          : water.band === 'slide' ? Math.max(80, Number(config.diceThreshold) || 0) : config.diceThreshold,
+      },
       now,
       tz,
       topic,
@@ -794,7 +949,17 @@ export function apply(ctx) {
       mutedUntil: Number(config.muteUntil) || 0,
       nextTopicAt: nextTopicAt(garden, now),
     })
-    return { v: 1, ...out, silence, sessionId }
+    // 一早第一球：今天还没开过口、屏幕亮着——不等骰子和间隔，先开球定今天的锚。
+    if (!out.speak && (out.reason === 'dice' || out.reason === 'cooldown') && recent.counts.generated === 0 && phone?.screenOn) {
+      Object.assign(out, { speak: true, reason: 'morning', nextCheckAt: now })
+    }
+    // 力度到了"锁 / 赶"：不管这一球说不说，手机都要执行（说到做到）。
+    if (force.level >= 3) out.nextCheckAt = Math.min(Number(out.nextCheckAt) || now, now + 60_000)
+    return {
+      v: 1, ...out, silence, sessionId,
+      tide: { level: water.level, band: water.band, why: water.why },
+      force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined },
+    }
   }
 
   function outcomeRoute(body) {
@@ -873,6 +1038,7 @@ function mergeConfig(current, body) {
     if (Number.isFinite(Number(body.minGapMs))) next.minGapMs = Math.max(60_000, Math.min(24 * 3_600_000, Number(body.minGapMs)))
     if (Number.isFinite(Number(body.diceThreshold))) next.diceThreshold = Math.max(0, Math.min(100, Number(body.diceThreshold)))
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession
+    if (typeof body.control === 'boolean') next.control = body.control
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
     if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)

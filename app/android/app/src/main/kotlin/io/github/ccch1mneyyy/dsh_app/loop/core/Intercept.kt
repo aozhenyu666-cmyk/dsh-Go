@@ -460,6 +460,46 @@ class InterceptGuard(
         d
     }
 
+    /**
+     * 大肥鱼说"锁"（companion /plan 的 force ≥ 3）: block [packageName] now, whatever the person's
+     * own interception settings say. Not a pump that fires once at the door: while the companion
+     * keeps saying lock, every check that finds the app in front locks it again.
+     *
+     * Bypassed: the feature switch, pause, cooldown, daily cap, authorized windows, the target list
+     * (a game the person never listed still counts once the companion says so).
+     * Kept: the whitelist (the person's own "never"), a release that was earned and is still
+     * running (答过线才放行 must mean something), one interception at a time, and the facts that
+     * make a page impossible or harmful (screen off, locked, DSH operating the phone).
+     */
+    fun force(packageName: String, label: String?, env: InterceptEnv, now: Long): InterceptDecision = synchronized(lock) {
+        rollDay(env.dayKey)
+        val s = state
+        if (packageName.isBlank()) return@synchronized InterceptDecision.Ignore
+        val allow = { reason: String -> InterceptDecision.Allow(packageName, reason) }
+        if (packageName in config.whitelist) return@synchronized allow(InterceptRules.REASON_WHITELIST)
+        if (s.openEventId != null) {
+            return@synchronized allow(
+                if (s.openPackage == packageName) InterceptRules.REASON_ALREADY_OPEN else InterceptRules.REASON_ANOTHER_OPEN,
+            )
+        }
+        if ((s.releases[packageName] ?: 0L) > now) return@synchronized allow(InterceptRules.REASON_RELEASED)
+        if (!env.screenOn) return@synchronized allow(InterceptRules.REASON_SCREEN_OFF)
+        if (!env.unlocked) return@synchronized allow(InterceptRules.REASON_LOCKED)
+        if (env.dshBusy) return@synchronized allow(InterceptRules.REASON_DSH_BUSY)
+        val target = config.targetFor(packageName)
+            ?: InterceptTarget(packageName, label?.trim()?.takeIf { it.isNotEmpty() }?.take(48) ?: packageName)
+        val eventId = ids()
+        state = s.copy(
+            openEventId = eventId, openPackage = packageName, openSinceWall = now,
+            lastTriggerAt = now, lastTriggerPackage = packageName, lastReason = REASON_COMPANION,
+            countToday = s.countToday + 1,
+            drill = InterceptDrill.of(eventId),
+        )
+        ledger.onTriggered(eventId, now)
+        persist()
+        InterceptDecision.Block(eventId, target, REASON_COMPANION, state.drill!!)
+    }
+
     /** The blocking page is provably on screen (the adapter's visibility proof, not "resumed"). */
     fun onPageShown(eventId: String, now: Long): Boolean = synchronized(lock) {
         if (state.openEventId != eventId) return@synchronized false
@@ -598,5 +638,7 @@ class InterceptGuard(
 
         /** How long a 暂停 lasts by default when the page asks for one. */
         const val DEFAULT_PAUSE_MS = 30 * 60_000L
+        /** The block came from the companion's force level, not from the person's own rules. */
+        const val REASON_COMPANION = "companion"
     }
 }

@@ -121,6 +121,11 @@ object BuiltinPluginGuest {
                 "lib/silence.js",
                 "lib/persona.js",
                 "lib/phone.js",
+                "lib/tide.js",
+                "lib/temper.js",
+                "lib/drills.js",
+                "lib/brain.js",
+                "lib/force.js",
             ),
         ),
     )

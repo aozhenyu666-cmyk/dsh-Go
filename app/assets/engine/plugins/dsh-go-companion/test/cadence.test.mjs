@@ -197,7 +197,8 @@ test('/request 带上手机现状：这一球打观察，prompt 里有"B站 23 �
     const prompt = agent.sent[0].content[0].text
     assert.match(prompt, /哔哩哔哩，已经开了 23 分钟/)
     const accepted = ledgerOf(home).find((e) => e.requestId === 'req-phone-1' && e.state === 'accepted')
-    assert.equal(accepted.serveType, 'observe')
+    // 在娱乐 App 里：要么打观察，要么直接出思维题（越陷越可能出题）。
+    assert.ok(['observe', 'drill'].includes(accepted.serveType), accepted.serveType)
   })
 })
 

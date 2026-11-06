@@ -162,6 +162,7 @@ test('说“进入教练模式”就切过去，账本记一笔，下一球按�
       .find((e) => e.requestId === 'req-p3-2' && e.state === 'accepted')
     // 这次请求没带手机现状：观察球没东西可观察，从教练偏好里去掉它再取前三。
     const coachNoPhone = modeServeOrder('coach').filter((t) => t !== 'observe').slice(0, 3)
-    assert.ok(coachNoPhone.includes(accepted.serveType), '教练模式挑出了 ' + accepted.serveType)
+    // 教练模式也可能直接出一道思维题。
+    assert.ok([...coachNoPhone, 'drill'].includes(accepted.serveType), '教练模式挑出了 ' + accepted.serveType)
   })
 })

@@ -6,6 +6,8 @@
 import { SERVE_LABEL } from './serve.js'
 import { modeOr, personaLines } from './persona.js'
 import { phoneLines } from './phone.js'
+import { temperLine } from './temper.js'
+import { drillLines } from './drills.js'
 
 const KIND_RULES = {
   continue:
@@ -85,9 +87,22 @@ export function buildPrompt(input) {
         '也可以直接把这次没回应当话头，比如“我叫了你两次，你在忙什么”。',
     )
   }
-  if (serveType) {
+  // 一早第一球：开球定今天的锚，之后拿它对账。
+  if (input.morning) {
+    lines.push('这是今天的第一球。问他今天最重要的一件事是什么、几点之前做完——要他说具体，之后你会拿这个对账。')
+  }
+  // 力度到了锁 / 赶：这一球是宣布，不是商量（锁在手机上执行）。
+  for (const line of Array.isArray(input.force) ? input.force : []) lines.push(line)
+  // 上一题没回 / 答糊弄了：先说他。
+  for (const line of Array.isArray(input.scold) ? input.scold : []) lines.push(line)
+  if (input.drill) {
+    for (const line of drillLines(input.drill)) lines.push(line)
+  } else if (serveType) {
     lines.push('这一球的类型：' + SERVE_RULES[serveType])
   }
+  // 脸色：脾气 + 大脑挑的那张。阴晴不定是故意的。
+  const face = temperLine(input.temper)
+  if (face) lines.push(face)
   // 人格卡和模式：他是谁、这一阵子怎么说话。空的部分 personaLines 不会硬凑。
   for (const line of personaLines(input.persona, modeOr(input.mode))) lines.push(line)
   // 手边的情况：现在开着什么、开了多久、今天刷了多久。手机没带就不写，绝不编。
@@ -114,6 +129,8 @@ export function buildPrompt(input) {
       lines.push('- ' + String(c.statement || '').slice(0, 160) + due)
     }
   }
+  // 大脑对他的判断（会随证据改）。
+  for (const line of Array.isArray(input.beliefs) ? input.beliefs : []) lines.push(line)
   if (Number.isFinite(mood)) {
     lines.push('现在的心情值 ' + Math.round(mood) + '/100：只影响语气，不要在句子里报这个数字。')
   }

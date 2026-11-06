@@ -132,6 +132,8 @@ export class Desk {
       shot: r.shot ?? null,
       // 漠视阶梯走到哪一级（none/wait/lighter/channel/stop）：事后排查和 P4 换渠道都要看。
       silence: r.silence ?? null,
+      // 大脑这一球的决定（水位、脸色、思维题、力度）：只给账本和排查看，手机不用解析。
+      extra: r.extra ?? null,
       cold: r.cold === true,
     }
   }
@@ -202,6 +204,7 @@ export class Desk {
       rallyId: built.rallyId ?? null,
       shot: built.shot ?? null,
       silence: built.silence?.stage ?? null,
+      extra: built.extra ?? null,
       cold,
       prompt: built.prompt,
     }

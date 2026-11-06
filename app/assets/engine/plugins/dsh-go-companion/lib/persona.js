@@ -87,8 +87,9 @@ export function modeGap(minGapMs, mode) {
   return Math.round(gap * k)
 }
 
-const TO_COACH = /(进|切|换|开)(入|到|成|回)?教练(模式)?/
-const TO_PARTNER = /(进|切|换|开)(入|到|成|回)?(伙伴|朋友|日常)(模式)?/
+// 严格 = 教练，温和 = 伙伴。"严格点""凶一点"/"温柔点"这种短句也认。
+const TO_COACH = /(进|切|换|开)(入|到|成|回)?(教练|严格)(模式)?|^(严格|凶)(一)?点/
+const TO_PARTNER = /(进|切|换|开)(入|到|成|回)?(伙伴|朋友|日常|温和)(模式)?|^(温和|温柔)(一)?点/
 
 /**
  * 他说"进入教练模式 2 小时"就切过去。返回 {mode, hours}，没说返回 null。

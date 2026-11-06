@@ -248,6 +248,9 @@ object LoopRuntime {
             if (ProtectedForeground.isProtected(pkg) != ProtectedForeground.isProtected(previousForeground)) {
                 runCatching { ProactiveRuntime.refreshGate("protected_page") }
             }
+            // Every switch of front app is a decision point for the companion (sliding into a game,
+            // coming back out); it also re-applies a lock the companion already asked for.
+            if (pkg != previousForeground) runCatching { ProactiveRuntime.onForeground(pkg) }
             // 原生专注监督先判：它和拦截/主动各自记账，不经过 coordinator。
             if (sw.focus) runCatching { FocusRuntime.onForeground(pkg) }
                 .onFailure { Log.w(TAG, "focus", it) }

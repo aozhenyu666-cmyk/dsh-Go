@@ -101,6 +101,8 @@ object ProactiveRuntime {
 
     /** How long a one-off plugin route may take before the page is told it timed out. */
     private const val ROUTE_TIMEOUT_MS = 12_000L
+    /** How long a 锁 / 赶 holds without a fresh /plan saying so again. */
+    private const val FORCE_HOLD_MS = 3 * 60_000L
 
     fun ensure(context: Context): Coordinator {
         coordinator?.let { return it }
@@ -264,10 +266,10 @@ object ProactiveRuntime {
      * Ask the companion when the next topic is eligible and move the single scheduler alarm there.
      * This is the only bridge between garden.nextEligibleAt and AlarmManager; no second timer.
      */
-    private fun consultPlanSoon() {
+    private fun consultPlanSoon(minGapMs: Long = 60_000L) {
         if (agentPort == null) return
         val now = System.currentTimeMillis()
-        if (now - lastPlanConsult < 60_000) return
+        if (now - lastPlanConsult < minGapMs) return
         lastPlanConsult = now
         // The engine runs on TZ=GMT; quiet hours and the daily reset are the phone's wall clock,
         // so the phone's own zone goes with the request. The plugin falls back to Asia/Shanghai.
@@ -275,12 +277,52 @@ object ProactiveRuntime {
             planResult,
             "POST",
             "/plan",
-            linkedMapOf("roll" to 100, "timeZone" to TimeZone.getDefault().id),
+            linkedMapOf<String, Any?>("roll" to 100, "timeZone" to TimeZone.getDefault().id)
+                .also { body -> phoneContext()?.let { body["phone"] = it } },
         )
+    }
+
+    /** The companion's last 锁 / 赶, kept for a short while so re-entering the app meets it at once. */
+    private data class Force(val level: Int, val app: String, val until: Long)
+    private var force: Force? = null
+    private var lastFront: String? = null
+
+    /**
+     * LoopRuntime read a new front app. Every switch is a decision point (that is when the person
+     * slides into a game or comes back out): ask the companion now instead of waiting for the alarm,
+     * and if it already said lock for this app, lock again before the next minute.
+     */
+    fun onForeground(packageName: String?) {
+        if (packageName.isNullOrBlank() || packageName == lastFront) return
+        lastFront = packageName
+        if (coordinator == null) return
+        // App switches come in bursts; 15 s is enough to not hammer the plugin and still feel immediate.
+        consultPlanSoon(minGapMs = 15_000L)
+        val f = force ?: return
+        if (f.app == packageName && System.currentTimeMillis() < f.until) enforce(f)
+    }
+
+    /** 说到做到: 赶 = back to the launcher first; then 锁 the app behind a drill. */
+    private fun enforce(f: Force) {
+        if (!proactiveEnabled()) return
+        val front = NowFeed.snapshot(SystemClock.elapsedRealtime()).app
+        if (front != f.app) return
+        if (f.level >= 4) {
+            runCatching { PhoneA11yService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
+                .onFailure { Log.w(TAG, "home", it) }
+        }
+        val shown = runCatching { InterceptRuntime.forceBlock(app, f.app, null) }.getOrDefault(false)
+        Log.i(TAG, "companion force=${f.level} ${f.app} shown=$shown")
     }
 
     private fun applyPlan(raw: Any?) {
         val map = raw as? Map<*, *> ?: return
+        // 力度：插件说"锁 / 赶"就执行（插件只决定，手机执行）；低于 3 就撤掉记着的那一次。
+        val f = map["force"] as? Map<*, *>
+        val level = (f?.get("level") as? Number)?.toInt() ?: 0
+        val target = f?.get("app") as? String
+        force = if (level >= 3 && !target.isNullOrBlank()) Force(level, target, System.currentTimeMillis() + FORCE_HOLD_MS) else null
+        force?.let { enforce(it) }
         val at = (map["nextCheckAt"] as? Number)?.toLong() ?: return
         if (at <= 0) return
         scheduler?.setNextDueAt(at, clocks())

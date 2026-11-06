@@ -64,9 +64,14 @@ export function judgeSystem(mode) {
 }
 
 /** 把发球原文、这条回球、最近几拍拼成判断题。只带这些，不带无关背景。 */
-export function judgeUser({ serve, reply, recent }) {
+export function judgeUser({ serve, reply, recent, criteria }) {
   const lines = []
   if (serve) lines.push('你上一球打出去的是：' + String(serve).slice(0, 500))
+  // 思维题有合格线：没过线就不是接住了，哪怕字很多。
+  if (criteria) {
+    lines.push('上一球是一道思维题，合格的回答必须是：' + String(criteria).slice(0, 200) +
+      '。没达到就判 brief 或 stock（凭感觉、似是而非、只有感受词都算），why 里写清差在哪。')
+  }
   const shots = Array.isArray(recent) ? recent.slice(-3) : []
   if (shots.length) {
     lines.push('再往前几拍（旧→新）：')
@@ -129,12 +134,12 @@ export function ruleVerdict(raw) {
  * shortcut: 只有一次调用、一次超时，不重试。判球失败最坏就是退回规则，
  * 不值得为它多花一次模型调用和一个重试窗口；要更准再考虑带记忆的二次判断。
  */
-export async function judgeReply({ stream, provider, model, sessionId, serve, reply, recent, mode, timeoutMs = JUDGE_TIMEOUT_MS }) {
+export async function judgeReply({ stream, provider, model, sessionId, serve, reply, recent, mode, criteria, timeoutMs = JUDGE_TIMEOUT_MS }) {
   if (typeof stream !== 'function' || !provider || !model) return { ...ruleVerdict(reply), judged: false }
   const messages = [
     {
       role: 'user',
-      content: [{ type: 'text', text: judgeUser({ serve, reply, recent }) }],
+      content: [{ type: 'text', text: judgeUser({ serve, reply, recent, criteria }) }],
     },
   ]
   let timer

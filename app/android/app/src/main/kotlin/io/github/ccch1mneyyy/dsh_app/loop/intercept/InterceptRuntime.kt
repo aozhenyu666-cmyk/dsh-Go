@@ -105,6 +105,24 @@ object InterceptRuntime {
         }
     }
 
+    /**
+     * 大肥鱼说"锁"（companion force ≥ 3）: lock [packageName] through the same page and the same
+     * book, whatever this feature's own switch and caps say (see [InterceptGuard.force]). False when
+     * nothing was shown; the companion asks again within a minute, so a busy screen only delays it.
+     */
+    fun forceBlock(context: Context, packageName: String, label: String?): Boolean {
+        val g = ensure(context)
+        if (!VisibleSurface.isFree() && !VisibleSurface.isHeldBy(VisibleSurface.OWNER_INTERCEPT)) return false
+        val now = System.currentTimeMillis()
+        val d = g.force(packageName, label, env(now), now)
+        if (d !is InterceptDecision.Block) {
+            Log.d(TAG, "companion lock skipped for " + packageName + ": " + ((d as? InterceptDecision.Allow)?.reason ?: "ignore"))
+            return false
+        }
+        show(d, now)
+        return true
+    }
+
     private fun show(block: InterceptDecision.Block, now: Long) {
         // Race guard: onForeground already refused to decide while another feature held the screen,
         // so reaching here with the slot taken means the proactive page claimed it in between. The

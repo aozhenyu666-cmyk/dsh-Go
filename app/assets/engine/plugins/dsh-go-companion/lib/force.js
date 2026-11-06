@@ -1,0 +1,51 @@
+// dsh-go-companion · 力度（说到做到）
+//
+// 脾气可以阴晴难测，力度不行：打游戏打一天、它还充耳不闻，那就白做了。
+// 所以力度是确定的规则，不掷骰子，只看事实：
+//   0 说   正常发球
+//   1 追   更勤、更硬（水位已经在管，这一级只是标出来）
+//   2 屏   必须上浮层页，不许只发一条能划掉的通知
+//   3 锁   把这个娱乐 App 锁住，答过一道题才放行
+//   4 赶   直接退回桌面，再锁住
+// 严格模式门槛低，温和模式门槛高——但温和也会锁，只是更晚。插件只决定力度，执行在手机（见 /plan 的 force）。
+
+export const LEVELS = ['talk', 'press', 'screen', 'lock', 'home']
+
+/** 两种模式的门槛：连续待多少分钟 / 今天一共多少分钟。 */
+export const THRESHOLDS = {
+  coach: { screen: 10, lock: 30, home: 60, lockToday: 120, homeToday: 180 },
+  partner: { screen: 20, lock: 60, home: 120, lockToday: 180, homeToday: 300 },
+}
+
+/**
+ * @param {{phone?: object|null, tide?: {level:number, band:string}, mode?: string, noTake?: number, control?: boolean, funToday?: number}} input
+ * @returns {{level: number, name: string, why: string}}
+ */
+export function decideForce({ phone, tide, mode, noTake = 0, control = true, funToday = 0 } = {}) {
+  const t = THRESHOLDS[mode] || THRESHOLDS.partner
+  const pick = (level, why) => {
+    const capped = control === false ? Math.min(level, 2) : level
+    return { level: capped, name: LEVELS[capped], why: capped < level ? why + '（没给控机权限，只能到浮层）' : why }
+  }
+  if (!phone?.fun || !phone.screenOn) return pick(0, '')
+  const dwell = Number(phone.minutes) || 0
+  const total = Number(funToday) || 0
+  if (dwell >= t.home || total >= t.homeToday) return pick(4, phone.label + ' 连续 ' + dwell + ' 分钟 / 今天 ' + total + ' 分钟')
+  // 陷住了还连着两球不接：不再等，直接锁。
+  if (dwell >= t.lock || total >= t.lockToday || (tide?.band === 'trap' && noTake >= 2)) {
+    return pick(3, phone.label + ' 连续 ' + dwell + ' 分钟' + (noTake >= 2 ? '，连着 ' + noTake + ' 球没接' : ''))
+  }
+  if (dwell >= t.screen || tide?.band === 'sink' || tide?.band === 'trap') return pick(2, '水位' + (tide?.band || ''))
+  if (tide?.band === 'slide') return pick(1, '在滑')
+  return pick(0, '')
+}
+
+/** 拼进 prompt：锁 / 赶之前那一球是宣布，不是商量。 */
+export function forceLines(f, phone) {
+  if (!f || f.level < 3) return []
+  const app = phone?.label || '这个 App'
+  if (f.level === 4) {
+    return ['你已经决定把他从' + app + '里赶出去（手机马上会退回桌面并锁住它）。这一球是通知，不是商量：说清楚为什么，再丢一道题，答过线才放行。']
+  }
+  return ['你已经决定把' + app + '锁住（手机马上会锁）。这一球是通知，不是商量：一句话说清楚为什么，然后丢一道题——答过线才放行。']
+}
