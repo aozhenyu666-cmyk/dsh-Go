@@ -25,6 +25,16 @@ const REPLY_HINTS = {
   none: '上次没回，这次只轻轻提一下，不要重复上次的句子。',
 }
 
+// 发球类型（见 serve.js）：每种的素材和形状不一样，写给模型的只有这一句。
+const SERVE_RULES = {
+  observe: '观察：从你手上知道的具体情况说起（时间、在用什么、用了多久、是不是在充电），给出你的推断，再让他来反驳。',
+  memory: '记忆回调：拿过去真发生过的事做引子，带上你的判断，别只问"后来怎么样了"。',
+  provoke: '观点挑衅：挑一个他最近说过的结论，明确说你不同意，并给出你的理由。',
+  challenge: '小挑战：给一件 30 秒内能做完的具体小事，说清楚做完是什么样。',
+  chat: '闲聊：按你自己的人设起个话头，但要接得上他的生活，不要空泛。',
+  review: '复盘：拿今天或昨天的回合记录说话，指出一个具体的模式。',
+}
+
 export function buildPrompt(input) {
   const owner = String(input.owner || '主人').slice(0, 40)
   const self = String(input.self || '大肥鱼').slice(0, 40)
@@ -34,6 +44,7 @@ export function buildPrompt(input) {
   const commitments = Array.isArray(input.commitments) ? input.commitments.slice(0, 3) : []
   const replyClass = String(input.replyClass || '')
   const mood = Number(input.mood)
+  const serveType = SERVE_RULES[String(input.serveType || '')] ? String(input.serveType) : ''
 
   const lines = []
   lines.push(
@@ -42,6 +53,26 @@ export function buildPrompt(input) {
       '请主动对' + owner + '说一两句自然、简短的话，像微信，不要汇报。' +
       '不要提到“事件”“系统”“主动”“提醒”这些字眼；不要调用任何工具，尤其不要操作手机。）',
   )
+  // 3.1 先亮观点：这一球必须带着你自己的判断，让他来反驳，而不是抛一个空问题。
+  lines.push(
+    '这一句必须先亮出你自己的判断（我猜……／我觉得你……／我不同意……），再抛给他；' +
+      '他可以直接反驳你。不要只问“你在干嘛”“下一步是什么”这种空问题。',
+  )
+  // 3.3 套话守卫的口子开在写之前：这类模板谁都能说，等于没开口。
+  lines.push(
+    '发之前自己过一遍：像“你在做什么”“下一步是什么”“依据是什么”“加油”“你可以的”这种谁都能说的模板，' +
+      '就换一种说法重写一遍再说出口，别把填空当发球。',
+  )
+  if (input.stockHit) {
+    // 上一球被判成套话：照着原句打回，换说法，不要换个模板继续填空。
+    lines.push(
+      '上一球你说的是“' + String(input.stockHit).slice(0, 120) + '”，这句等于没说，' +
+        owner + '没接。这次必须换个写法：先给你的判断，再给一个他能反驳的具体点。',
+    )
+  }
+  if (serveType) {
+    lines.push('这一球的类型：' + SERVE_RULES[serveType])
+  }
   if (topic) {
     lines.push('当前话题：' + String(topic.title || topic.text || '').slice(0, 400))
     if (topic.detail) lines.push('话题补充：' + String(topic.detail).slice(0, 300))

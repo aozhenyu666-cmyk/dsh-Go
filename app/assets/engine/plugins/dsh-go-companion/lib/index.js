@@ -23,6 +23,10 @@ import { appendLedger, readLedger, summarize } from './ledger.js'
 import { plan as decide } from './plan.js'
 import { DEFAULT_TZ, startOfDay as zoneStartOfDay, zoneOr } from './tz.js'
 import { classifyReply } from './classify.js'
+import { gardenClass, judgeReply } from './judge.js'
+import { isStock } from './stock.js'
+import { nextShot, rallyStats } from './rally.js'
+import { pickServeType } from './serve.js'
 import {
   MAX_ATTEMPTS,
   addTopic,
@@ -191,6 +195,23 @@ function userMessage(text) {
   return { id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: SOURCE_KIND } }
 }
 
+/**
+ * 判球用哪个模型：跟当前会话自己的选择走（它自己的人格和历史也都在那个会话里）。
+ * 拿不到就返回 undefined —— 判球会退回本地规则，不会因为没模型就卡住。
+ */
+function judgeTargetOf(ctx, sessionId) {
+  try {
+    const agent = liveAgent(ctx, sessionId)
+    const cfg = agent?.config
+    if (cfg && cfg.provider && cfg.model) return { provider: cfg.provider, model: cfg.model }
+    const o = agent?.options
+    if (o && o.provider && o.model) return { provider: o.provider, model: o.model }
+  } catch {
+    // fall through
+  }
+  return undefined
+}
+
 function messageText(data) {
   const content = data?.content
   if (!Array.isArray(content)) return ''
@@ -204,6 +225,18 @@ function messageText(data) {
 export function apply(ctx) {
   let config = readConfig()
   let garden = loadGarden(gardenPath())
+  // 判球要模型。llm 不在就一直是 undefined，判球自动退回本地规则——不能因为缺服务就不加载插件。
+  let llmStream
+  if (typeof ctx.inject === 'function') {
+    try {
+      ctx.inject(['llm'], (c) => {
+        llmStream = c?.llm?.stream ? c.llm.stream.bind(c.llm) : undefined
+      })
+    } catch {
+      // 没有 llm 服务也没关系
+    }
+  }
+  const streamOf = () => llmStream
   console.error('[companion] loaded; session=' + String(config.sessionId || 'none') + ' memory=' + memoryPath())
 
   function persistGarden() {
@@ -239,6 +272,39 @@ export function apply(ctx) {
     appendLedger(home(), { v: 1, ...entry })
   }
 
+  /**
+   * 最近几拍，给判球当上下文（任务书：发球原文 + 回球 + 最近 3 拍）。
+   * 只取最近一个回合里的：跨回合的内容对判断没帮助，还会带偏。
+   */
+  function recentShots() {
+    const entries = readLedger(home(), 40)
+    let rallyId = ''
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      if (entries[i]?.rallyId) {
+        rallyId = String(entries[i].rallyId)
+        break
+      }
+    }
+    if (!rallyId) return []
+    const out = []
+    for (const e of entries) {
+      if (e?.rallyId !== rallyId) continue
+      if (e.state === 'generated' && e.text) out.push({ from: 'me', text: String(e.text) })
+      else if (e.state === 'replied' && e.verdict) out.push({ from: 'user', text: String(e.answer || e.verdict) })
+    }
+    return out.slice(-3)
+  }
+
+  // 上一球如果被判成套话（3.3），把原句取出来，下一球照着打回。
+  function lastStockBall(entries) {
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const e = entries[i]
+      if (e?.state !== 'generated' || !e.text) continue
+      return e.stock === true ? String(e.text) : null
+    }
+    return null
+  }
+
   async function compose(_req, sessionId) {
     const db = openMemoryDb(memoryPath())
     try {
@@ -267,6 +333,10 @@ export function apply(ctx) {
       persistGarden()
 
       const mood = readMood(home())
+      // 这一球用哪种类型：最近三次用过的不再挑（serve.js）。掷骰纯本地，不花模型。
+      const serveType = pickServeType(entries, Math.floor(Math.random() * 100))
+      // 回合与拍数都从账本重建：进程重启不会丢，也不多存一份状态。
+      const rally = nextShot(entries, { sessionId, now })
       const prompt = buildPrompt({
         topic,
         facts: backgroundFacts(candidates, BACKGROUND_LIMIT),
@@ -274,10 +344,12 @@ export function apply(ctx) {
         commitments,
         mood: mood ? mood.mood : undefined,
         replyClass: lastReplyClass(entries),
+        serveType,
+        stockHit: lastStockBall(entries),
         owner: config.owner,
         self: config.self,
       })
-      return { text: prompt, prompt, topic }
+      return { text: prompt, prompt, topic, serveType, rallyId: rally.rallyId, shot: rally.shot }
     } finally {
       try {
         db?.close?.()
@@ -300,15 +372,30 @@ export function apply(ctx) {
         sessionId: r.sessionId,
         topicId: r.topicId,
         topicKind: r.topicKind,
+        serveType: r.serveType ?? undefined,
+        rallyId: r.rallyId ?? undefined,
+        shot: r.shot ?? undefined,
         state: r.state,
         at: Date.now(),
         text: r.text ?? undefined,
+        // 套话只在生成时判：谁都能说的模板不算开口。判出来就记进账本，
+        // 下一球把它打回去，P5 的评测也靠这个数。
+        stock: isStock(r.text) || undefined,
         failure: r.failure ?? undefined,
         cold: r.cold === true,
       })
       // 生成成功后等一次人的回应；2 小时内没有就记 none（有限跟进/冷却的依据）。
       if (r.state === 'generated') {
-        setPending(r.sessionId, { requestId: r.requestId, topicId: r.topicId, at: Date.now() })
+        // 发球原文、回合、拍数都留给判球用：回球回来时要能把它和这一球对上。
+        setPending(r.sessionId, {
+          requestId: r.requestId,
+          topicId: r.topicId,
+          rallyId: r.rallyId,
+          shot: r.shot,
+          serveType: r.serveType,
+          serve: r.text || '',
+          at: Date.now(),
+        })
         if (r.topicId) {
           markGenerated(garden, r.topicId, r.text, Date.now())
           persistGarden()
@@ -317,7 +404,7 @@ export function apply(ctx) {
     },
   })
 
-  ctx.on('session/event', (session, event) => {
+  ctx.on('session/event', async (session, event) => {
     try {
       desk.onSessionEvent(session?.id, event)
     } catch {
@@ -333,24 +420,47 @@ export function apply(ctx) {
         if (kind && kind !== 'user') return
         const pending = takePending(session?.id)
         if (pending) {
-          const replyClass = classifyReply(text)
+          // 这一球由大肥鱼自己判（6 秒超时或连不上就退回规则），不再按字数。
+          const target = judgeTargetOf(ctx, session?.id)
+          const judged = await judgeReply({
+            stream: streamOf(),
+            provider: target?.provider,
+            model: target?.model,
+            sessionId: session?.id,
+            serve: pending.serve,
+            reply: text,
+            recent: recentShots(),
+          })
+          const replyClass = gardenClass(judged.verdict)
           const now = Date.now()
+          const shot = (Number(pending.shot) || 0) + 1
           record({
             requestId: pending.requestId,
             sessionId: session?.id,
             topicId: pending.topicId,
+            rallyId: pending.rallyId || undefined,
+            shot: pending.rallyId ? shot : undefined,
             state: 'replied',
             at: now,
             replyClass,
+            verdict: judged.verdict,
+            why: judged.why || undefined,
+            next: judged.next,
+            judged: judged.judged === true,
+            // 判下一球时要看得到上一球回了什么；只留一小段，账本本来就在手机上、权限 0600。
+            answer: String(text || '').slice(0, 200) || undefined,
           })
           if (replyClass === 'substantive') {
             record({
               requestId: pending.requestId,
               sessionId: session?.id,
               topicId: pending.topicId,
+              rallyId: pending.rallyId || undefined,
+              shot: pending.rallyId ? shot : undefined,
               state: 'substantive',
               at: now,
               replyClass,
+              verdict: judged.verdict,
             })
           }
           // 话题花园跟着人的反应走：认真答就继续，敷衍就换轻的，拒绝就停。
@@ -621,6 +731,8 @@ export function apply(ctx) {
       agents: live,
       counters: desk.counters,
       today: today.counts,
+      // 好坏只看回合：有效回合 = 至少两拍且有一拍接住了（见 rally.js）。
+      rallies: rallyStats(entries, startOfDay(now, config.timeZone)),
       lastTopicId: today.lastTopicId || null,
       memory: { path: memoryPath(), exists: existsSync(memoryPath()) },
       garden: gardenStats(garden, now),

@@ -114,6 +114,10 @@ object BuiltinPluginGuest {
                 "lib/plan.js",
                 "lib/tz.js",
                 "lib/classify.js",
+                "lib/rally.js",
+                "lib/serve.js",
+                "lib/stock.js",
+                "lib/judge.js",
             ),
         ),
     )

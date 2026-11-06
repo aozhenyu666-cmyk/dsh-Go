@@ -124,13 +124,14 @@ test('路由：request → status → 回执账本', async () => {
 
     // Simulate the agent turn and the person's substantive reply.
     const sid = 'session-abc'
-    for (const fn of listeners.get('session/event') || []) {
-      fn({ id: sid }, { type: 'turn/start', data: { turn: 7 } })
-      fn({ id: sid }, { type: 'user/message', data: { id: sent[0].id } })
-      fn({ id: sid }, { type: 'assistant/message', data: { turn: 7, message: { content: [{ type: 'text', text: '面试结果出了吗？' }] } } })
-      fn({ id: sid }, { type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } })
-      fn({ id: sid }, { type: 'user/message', data: { id: 'user-reply', content: [{ type: 'text', text: '因为周五才出，我还在等' }] } })
+    const fire = async (event) => {
+      for (const fn of listeners.get('session/event') || []) await fn({ id: sid }, event)
     }
+    await fire({ type: 'turn/start', data: { turn: 7 } })
+    await fire({ type: 'user/message', data: { id: sent[0].id } })
+    await fire({ type: 'assistant/message', data: { turn: 7, message: { content: [{ type: 'text', text: '面试结果出了吗？' }] } } })
+    await fire({ type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } })
+    await fire({ type: 'user/message', data: { id: 'user-reply', content: [{ type: 'text', text: '因为周五才出，我还在等' }] } })
     const after = await call(handler, 'GET', '/dsh-go-companion/v1/result?requestId=req-00000001&waitMs=0')
     assert.equal(after.body.state, 'generated')
     assert.equal(after.body.text, '面试结果出了吗？')
@@ -173,18 +174,19 @@ test('路由：自己注入的提示不算人的回复', async () => {
     assert.equal(req.body.state, 'accepted')
 
     const sid = 'session-abc'
-    const fire = (event) => {
-      for (const fn of listeners.get('session/event') || []) fn({ id: sid }, event)
+    // 判球是 async 的（要等模型，或 6 秒超时后退回规则），所以发事件要等它跑完。
+    const fire = async (event) => {
+      for (const fn of listeners.get('session/event') || []) await fn({ id: sid }, event)
     }
-    fire({ type: 'turn/start', data: { turn: 9 } })
-    fire({ type: 'user/message', data: { id: sent[0].id } })
-    fire({ type: 'assistant/message', data: { turn: 9, message: { content: [{ type: 'text', text: '面试结果出了吗？' }] } } })
-    fire({ type: 'turn/end', data: { turn: 9, reason: { kind: 'completed' } } })
+    await fire({ type: 'turn/start', data: { turn: 9 } })
+    await fire({ type: 'user/message', data: { id: sent[0].id } })
+    await fire({ type: 'assistant/message', data: { turn: 9, message: { content: [{ type: 'text', text: '面试结果出了吗？' }] } } })
+    await fire({ type: 'turn/end', data: { turn: 9, reason: { kind: 'completed' } } })
     const done = await call(handler, 'GET', '/dsh-go-companion/v1/result?requestId=req-00000003&waitMs=0')
     assert.equal(done.body.state, 'generated')
 
     // 下一轮自己注入的提示里带着“别问错”，会命中 REFUSE。
-    fire({
+    await fire({
       type: 'user/message',
       data: {
         content: [{ type: 'text', text: '（这不是主人说的话，是 DSH Go 手机端发起的一次主动交流。背景（只是让你别问错，不要逐条复述）：）' }],
@@ -193,7 +195,7 @@ test('路由：自己注入的提示不算人的回复', async () => {
     })
 
     // 别的插件注入的消息同样不是人打的字：speak-up 也标了自己的来源。
-    fire({
+    await fire({
       type: 'user/message',
       data: {
         content: [{ type: 'text', text: '我刚看到窗外的云有点奇怪，别问了' }],
@@ -206,7 +208,7 @@ test('路由：自己注入的提示不算人的回复', async () => {
     assert.equal(untouched.body.today.substantive, 0)
 
     // 真正的回复仍然能被认出来。
-    fire({ type: 'user/message', data: { content: [{ type: 'text', text: '因为周五才出，我还在等' }] } })
+    await fire({ type: 'user/message', data: { content: [{ type: 'text', text: '因为周五才出，我还在等' }] } })
     const after = await call(handler, 'GET', '/dsh-go-companion/v1/status')
     assert.equal(after.body.today.replied, 1)
     assert.equal(after.body.today.substantive, 1)

@@ -125,6 +125,9 @@ export class Desk {
       deadline: r.deadline,
       topicId: r.topicId ?? null,
       topicKind: r.topicKind ?? null,
+      serveType: r.serveType ?? null,
+      rallyId: r.rallyId ?? null,
+      shot: r.shot ?? null,
       cold: r.cold === true,
     }
   }
@@ -191,6 +194,9 @@ export class Desk {
       deadline: now + req.deadlineMs,
       topicId: built.topic?.id ?? null,
       topicKind: built.topic?.kind ?? null,
+      serveType: built.serveType ?? null,
+      rallyId: built.rallyId ?? null,
+      shot: built.shot ?? null,
       cold,
       prompt: built.prompt,
     }
