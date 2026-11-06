@@ -21,6 +21,7 @@ import { BACKGROUND_LIMIT, backgroundFacts, loadCandidates, openMemoryDb } from 
 import { buildPrompt } from './prompt.js'
 import { appendLedger, readLedger, summarize } from './ledger.js'
 import { plan as decide } from './plan.js'
+import { DEFAULT_TZ, startOfDay as zoneStartOfDay, zoneOr } from './tz.js'
 import { classifyReply } from './classify.js'
 import {
   MAX_ATTEMPTS,
@@ -61,6 +62,7 @@ const DEFAULTS = Object.freeze({
   allowColdSession: true,
   owner: '主人',
   self: '大肥鱼',
+  timeZone: DEFAULT_TZ,
 })
 
 function home() {
@@ -107,10 +109,10 @@ function gardenPath() {
   return join(home(), 'companion', 'topics.json')
 }
 
-function startOfDay(now) {
-  const d = new Date(now)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
+// 引擎跑在 TZ=GMT，凡是「今天」「零点」都必须按手机时区算，所以这里显式要 tz。
+// /plan 允许每次请求带上 timeZone（APP 那边知道手机时区），其余入口用配置里的。
+function startOfDay(now, tz) {
+  return zoneStartOfDay(now, zoneOr(tz))
 }
 
 function send(res, status, body) {
@@ -243,7 +245,7 @@ export function apply(ctx) {
       const now = Date.now()
       const candidates = loadCandidates(db, { sessionId, now })
       const entries = readLedger(home(), 400)
-      const recent = summarize(entries, startOfDay(now))
+      const recent = summarize(entries, startOfDay(now, config.timeZone))
       const commitments = readCommitments(home(), now, 3)
 
       // 记忆是话题的种子来源，花园自己管生命周期；每次合成前同步一次，只增不删。
@@ -545,11 +547,13 @@ export function apply(ctx) {
       allowColdSession: config.allowColdSession,
       owner: config.owner,
       self: config.self,
+      timeZone: config.timeZone,
     }
   }
 
   function planRoute(body) {
     const now = Date.now()
+    const tz = zoneOr(body?.timeZone || config.timeZone)
     const sessionId = typeof body?.sessionId === 'string' && body.sessionId ? body.sessionId : config.sessionId
     if (!sessionId) return { v: 1, speak: false, reason: 'no-session', topic: null, nextCheckAt: now + 6 * 3_600_000 }
     const db = openMemoryDb(memoryPath())
@@ -563,7 +567,7 @@ export function apply(ctx) {
         // ignore
       }
     }
-    const recent = summarize(readLedger(home(), 400), startOfDay(now))
+    const recent = summarize(readLedger(home(), 400), startOfDay(now, tz))
     seedFromMemory(garden, candidates, now)
     seedFromCommitments(garden, readCommitments(home(), now, 3), now)
     const topic = nextTopic(garden, {
@@ -577,6 +581,7 @@ export function apply(ctx) {
     const out = decide({
       config,
       now,
+      tz,
       topic,
       sentToday: recent.counts.generated,
       lastAt: recent.lastAt,
@@ -607,7 +612,7 @@ export function apply(ctx) {
     const live = (agents?.roots?.() ?? agents?.list?.() ?? []).map((a) => ({ id: a.id, status: a.status }))
     const now = Date.now()
     const entries = readLedger(home(), 400)
-    const today = summarize(entries, startOfDay(now))
+    const today = summarize(entries, startOfDay(now, config.timeZone))
     return {
       v: 1,
       version: '0.2.0',
@@ -651,6 +656,7 @@ function mergeConfig(current, body) {
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
+    if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)
   }
   return next
 }

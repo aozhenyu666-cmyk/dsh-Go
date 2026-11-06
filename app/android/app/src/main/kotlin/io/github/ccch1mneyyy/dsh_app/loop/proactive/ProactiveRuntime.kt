@@ -267,7 +267,14 @@ object ProactiveRuntime {
         val now = System.currentTimeMillis()
         if (now - lastPlanConsult < 60_000) return
         lastPlanConsult = now
-        fetchPluginRoute(planResult, "POST", "/plan", linkedMapOf("roll" to 100))
+        // The engine runs on TZ=GMT; quiet hours and the daily reset are the phone's wall clock,
+        // so the phone's own zone goes with the request. The plugin falls back to Asia/Shanghai.
+        fetchPluginRoute(
+            planResult,
+            "POST",
+            "/plan",
+            linkedMapOf("roll" to 100, "timeZone" to TimeZone.getDefault().id),
+        )
     }
 
     private fun applyPlan(raw: Any?) {

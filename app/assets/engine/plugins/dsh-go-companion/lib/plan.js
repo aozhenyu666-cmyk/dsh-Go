@@ -4,35 +4,29 @@
 // 未命中不消耗模型，这是“高频但不烧钱”的关键。
 
 import { randomInt } from 'node:crypto'
+import { DEFAULT_TZ, atLocalHour, minuteOfDay as zoneMinuteOfDay, startOfDay } from './tz.js'
 
-export function minuteOfDay(now) {
-  const d = new Date(now)
-  return d.getHours() * 60 + d.getMinutes()
+export function minuteOfDay(now, tz = DEFAULT_TZ) {
+  return zoneMinuteOfDay(now, tz)
 }
 
-export function inQuiet(now, startHour, endHour) {
+export function inQuiet(now, startHour, endHour, tz = DEFAULT_TZ) {
   const start = Number.isFinite(Number(startHour)) ? Math.round(Number(startHour)) : 1
   const end = Number.isFinite(Number(endHour)) ? Math.round(Number(endHour)) : 8
   if (start === end) return false
-  const m = minuteOfDay(now)
+  const m = zoneMinuteOfDay(now, tz)
   const a = start * 60
   const b = end * 60
   return a < b ? m >= a && m < b : m >= a || m < b
 }
 
-function quietEndAt(now, startHour, endHour) {
+function quietEndAt(now, startHour, endHour, tz) {
   const end = Number.isFinite(Number(endHour)) ? Math.round(Number(endHour)) : 8
-  const d = new Date(now)
-  d.setHours(end, 0, 0, 0)
-  if (d.getTime() <= now) d.setDate(d.getDate() + 1)
-  return d.getTime()
+  return atLocalHour(now, end, tz)
 }
 
-function nextDayAt(now) {
-  const d = new Date(now)
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() + 1)
-  return d.getTime()
+function nextDayAt(now, tz) {
+  return startOfDay(now, tz) + 86_400_000
 }
 
 /**
@@ -42,17 +36,18 @@ function nextDayAt(now) {
 export function plan(input) {
   const c = input.config || {}
   const now = Number(input.now) || Date.now()
+  const tz = input.tz || DEFAULT_TZ
   const minGap = Math.max(0, Number(c.minGapMs) || 0)
   const fromTopic = Number(input.nextTopicAt) || 0
   if (c.enabled === false) {
     return { speak: false, reason: 'disabled', topic: null, nextCheckAt: now + 6 * 3_600_000 }
   }
-  if (inQuiet(now, c.quietStart, c.quietEnd)) {
-    return { speak: false, reason: 'quiet', topic: null, nextCheckAt: quietEndAt(now, c.quietStart, c.quietEnd) }
+  if (inQuiet(now, c.quietStart, c.quietEnd, tz)) {
+    return { speak: false, reason: 'quiet', topic: null, nextCheckAt: quietEndAt(now, c.quietStart, c.quietEnd, tz) }
   }
   const dailyMax = Math.max(0, Number(c.dailyMax) || 0)
   if (dailyMax > 0 && Number(input.sentToday) >= dailyMax) {
-    return { speak: false, reason: 'daily_max', topic: null, nextCheckAt: nextDayAt(now) }
+    return { speak: false, reason: 'daily_max', topic: null, nextCheckAt: nextDayAt(now, tz) }
   }
   if (minGap > 0 && Number(input.lastAt) > 0 && now - Number(input.lastAt) < minGap) {
     return { speak: false, reason: 'cooldown', topic: null, nextCheckAt: Number(input.lastAt) + minGap }

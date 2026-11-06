@@ -112,6 +112,7 @@ object BuiltinPluginGuest {
                 "lib/prompt.js",
                 "lib/ledger.js",
                 "lib/plan.js",
+                "lib/tz.js",
                 "lib/classify.js",
             ),
         ),

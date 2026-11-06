@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class BuiltinPluginGuestTest {
     private val launch = "echo $$ > /tmp/dsh-web.pid; exec /usr/local/bin/dsh web --patch /etc/dsh-app/dsh-web.patch.yml --host 127.0.0.1 --port 3080 --no-open"
@@ -47,5 +48,23 @@ class BuiltinPluginGuestTest {
         // package.json is what makes the copied .js files ESM on the guest.
         assertTrue(BuiltinPluginGuest.PLUGINS.all { it.files.contains("package.json") })
         assertEquals(5, BuiltinPluginGuest.PLUGINS.size)
+    }
+
+    /**
+     * A missing entry is invisible until the guest throws MODULE_NOT_FOUND at engine start,
+     * so every .js that actually ships has to be in the list.
+     */
+    @Test fun everyShippedScriptIsListed() {
+        val assets = generateSequence(File("").absoluteFile) { it.parentFile }
+            .map { File(it, "app/assets/engine/plugins") }
+            .firstOrNull { it.isDirectory }
+            ?: return
+        for (plugin in BuiltinPluginGuest.PLUGINS) {
+            val lib = File(File(assets, plugin.id), "lib")
+            val onDisk = lib.walkTopDown().filter { it.isFile && it.name.endsWith(".js") }
+                .map { it.relativeTo(File(assets, plugin.id)).invariantSeparatorsPath }
+                .toSet()
+            assertEquals("${plugin.id} ships every script", emptySet<String>(), onDisk - plugin.files.toSet())
+        }
     }
 }

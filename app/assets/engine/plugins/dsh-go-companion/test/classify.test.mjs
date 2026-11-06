@@ -32,6 +32,13 @@ test('拒绝只认“冲着这次聊天说的”，说别的事不算拒绝', ()
   assert.equal(classifyReply('做够了就去背单词'), 'brief')
 })
 
+test('带自己去向的“别管”不是拒绝', () => {
+  // 只有 13 字，长度上限拦不住，靠 SELF_ACTION 放过。
+  assert.equal(classifyReply('别管这道题了，我先做第三题'), 'substantive')
+  // 真拒绝不汇报下一步，仍然要判成拒绝。
+  assert.equal(classifyReply('别管我'), 'refuse')
+})
+
 test('空消息按简短处理，不崩溃', () => {
   assert.equal(classifyReply(''), 'brief')
   assert.equal(classifyReply(null), 'brief')
