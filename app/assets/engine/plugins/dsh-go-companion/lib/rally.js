@@ -81,7 +81,7 @@ export function shotCount(entries, rallyId) {
  * 算进上限的发球数：从 since 起，发了几球——但**回合里接着打的不算**。
  *
  * "接着打" = 同一回合里上一球已经被他接住了（有 replied）。他在回球，就是在打乒乓，
- * 这时候卡每小时/每天上限等于球打到一半自己走了。只有新开的球、和没人接时阶梯补的球才占额度。
+ * 这时候卡每小时/每天上限等于球打到一半自己走了。阶梯补的球也不算。只有新开的球占额度。
  */
 export function capCount(entries, since) {
   const from = Number(since) || 0
@@ -96,7 +96,10 @@ export function capCount(entries, since) {
     const continuing = prev !== undefined && replied.has(prev)
     if (e.rallyId && e.requestId) lastServe.set(e.rallyId, e.requestId)
     if (Number(e.at) < from) continue
-    if (!continuing) n += 1
+    // 阶梯补的球（轻球、换渠道）也不占额度：同一串没接的球只算开头那一个，阶梯自己最多三球就停。
+    // 不然这一小时早先发过球，"冷落 15 分钟换渠道"那一级就会被每小时上限吃掉——它恰恰是最该发的那一球。
+    const ladder = e.silence === 'lighter' || e.silence === 'channel'
+    if (!continuing && !ladder) n += 1
   }
   return n
 }

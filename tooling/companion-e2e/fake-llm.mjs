@@ -12,7 +12,12 @@ function answer(body) {
   const msgs = body.messages || []
   const sys = textOf(body.system) + msgs.filter((m) => m.role === 'system').map((m) => textOf(m.content)).join('\n')
   const u = lastUser(msgs)
-  if (/你在判断对方刚打回来的一球/.test(sys + u)) return { kind: 'judge', text: /作业|写完|因为/.test(u) ? '{"verdict":"pushback","why":"给了具体理由","next":"deeper"}' : '{"verdict":"brief","why":"太短","next":"angle"}' }
+  if (/你在判断对方刚打回来的一球/.test(sys + u)) {
+    const reply = (u.match(/对方这一球打回来的是：([\s\S]*?)\n判这一球/) || [])[1] || u
+    if (/作业|写完|因为/.test(reply)) return { kind: 'judge', text: '{"verdict":"pushback","why":"给了具体理由","next":"deeper"}' }
+    if (/\d/.test(reply)) return { kind: 'judge', text: '{"verdict":"engaged","why":"给了数字","next":"deeper"}' }
+    return { kind: 'judge', text: '{"verdict":"brief","why":"太短、凭感觉","next":"angle"}' }
+  }
   if (/这不是.*说的话，是 DSH Go 手机端发起的一次主动交流/.test(u)) return { kind: 'serve', text: '你在王者里泡了四十分钟了。我猜你在躲那份作业——说说看我猜错没有？' }
   if (/心情|mood|情绪/.test(sys) && /JSON/.test(sys)) return { kind: 'mood', text: '{"delta":0}' }
   return { kind: 'chat', text: '我听懂了：你是说「' + u.slice(0, 30) + '」。这个理由站得住，这局打完就收。' }
@@ -24,6 +29,10 @@ http.createServer((req, res) => {
     let body = {}
     try { body = JSON.parse(raw || '{}') } catch {}
     const a = req.url.includes('chat/completions') || req.url.includes('/messages') ? answer(body) : null
+    // 主动发球和判球的完整输入另记一份，验收时核对"这一球到底带了什么"。
+    if (a && (a.kind === 'serve' || a.kind === 'judge')) {
+      appendFileSync(LOG.replace(/llm\.log$/, 'prompts.jsonl'), JSON.stringify({ at: Date.now(), kind: a.kind, text: lastUser(body.messages || []), system: textOf(body.system).slice(0, 4000) }) + '\n')
+    }
     if (a && req.url.includes('/messages')) {
       appendFileSync(LOG, JSON.stringify({ at: new Date().toISOString(), url: req.url, kind: a.kind, lastUser: lastUser(body.messages || []).slice(0, 120), tools: (body.tools || []).length }) + '\n')
       const send = (ev, data) => res.write('event: ' + ev + '\ndata: ' + JSON.stringify({ type: ev, ...data }) + '\n\n')

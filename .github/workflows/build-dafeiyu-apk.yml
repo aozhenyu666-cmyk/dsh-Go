@@ -34,6 +34,8 @@ jobs:
         run: |
           cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs
           cd ../dsh-go-memory && node --test test/*.test.mjs
+      - name: End-to-end on the real DSH engine (warm, cold, 40 feature checks)
+        run: bash tooling/companion-e2e/run.sh
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.7'

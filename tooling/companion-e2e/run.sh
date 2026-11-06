@@ -12,7 +12,7 @@ if [ ! -x "$ENG/node_modules/.bin/dsh" ]; then
   sed -i 's#https://registry.npmmirror.com#https://registry.npmjs.org#g' "$ENG/package-lock.json"
   (cd "$ENG" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error --registry=https://registry.npmjs.org) || exit 2
 fi
-rm -rf "$WORK"; mkdir -p "$WORK/home"; : > "$WORK/llm.log"
+rm -rf "$WORK"; mkdir -p "$WORK/home"; : > "$WORK/llm.log"; : > "$WORK/prompts.jsonl"
 P="$ROOT/app/assets/engine/plugins"
 { echo "- insert:"; for id in dsh-feiyu-mood dsh-fish-strict dsh-go-memory dsh-go-relationship dsh-go-companion; do
   echo "    - id: $id"; echo "      name: $P/$id/lib/index.js"; done; } > "$WORK/patch.yml"
@@ -31,5 +31,6 @@ start() {
 }
 start; node "$HERE/e2e.mjs" warm; A=$?
 start; node "$HERE/e2e.mjs" cold; B=$?
+node "$HERE/accept.mjs"; C=$?
 echo "引擎日志：$WORK/dsh.log   模型请求：$WORK/llm.log   账本：$WORK/home/companion/ledger.jsonl"
-[ $A -eq 0 ] && [ $B -eq 0 ]
+[ $A -eq 0 ] && [ $B -eq 0 ] && [ $C -eq 0 ]

@@ -265,7 +265,7 @@ test('教练模式自己一套频率：8 分钟 / 每小时 6 / 每天 40；伙�
   assert.deepEqual(partner, { minGapMs: 45 * 60_000, hourlyMax: 3, dailyMax: 6 })
 })
 
-test('上限只数新开的球和阶梯补的球；他接住之后接着打的不算', () => {
+test('上限只数新开的球；他接住之后接着打的、阶梯补的都不算', () => {
   const t = 1_800_000_000_000
   const entries = [
     { state: 'generated', requestId: 'a', rallyId: 'R', at: t },
@@ -278,6 +278,13 @@ test('上限只数新开的球和阶梯补的球；他接住之后接着打的�
   // a 新开 → 算；b、c 是接住后接着打 → 不算；d 跟在没接的 c 后面 → 算。
   assert.equal(capCount(entries, 0), 2)
   assert.equal(capCount(entries, t + 4500), 1)
+  // 阶梯补的球（lighter / channel）不算：一串没接的球只算开头那个。
+  const ladder = [
+    { state: 'generated', requestId: 'x', rallyId: 'L', at: t },
+    { state: 'generated', requestId: 'y', rallyId: 'L', at: t + 5 * 60_000, silence: 'lighter' },
+    { state: 'generated', requestId: 'z', rallyId: 'L', at: t + 15 * 60_000, silence: 'channel' },
+  ]
+  assert.equal(capCount(ladder, 0), 1)
 })
 
 test('/plan 在教练模式下：一小时已经打了 4 球也照样能开口（伙伴模式会被每小时 3 次挡住）', async () => {
