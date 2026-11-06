@@ -1,6 +1,10 @@
 // D1: the Dart half of the proactive Agent transport — three ops, raw answers, no interpretation.
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:dsh_app/proactive/proactive_channel.dart';
+import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -33,6 +37,24 @@ class FakeTarget implements ProactiveForwardTarget {
 /// Stands in for whatever the HTTP layer throws when the socket dies.
 class SocketLikeException implements Exception {
   const SocketLikeException();
+}
+
+/// Records the request line the real connection would send; no socket is opened.
+class RecordingConnection extends DshConnection {
+  RecordingConnection() : super(Uri.parse('http://127.0.0.1:3080'));
+
+  final gets = <({String path, Map<String, String>? query})>[];
+
+  @override
+  Future<DshHttpResponse> get(
+    String path, {
+    Map<String, String>? query,
+    Map<String, String>? headers,
+    Duration? timeout,
+  }) async {
+    gets.add((path: path, query: query));
+    return DshHttpResponse(200, 'application/json', Uint8List.fromList(utf8.encode('{"state":"accepted"}')));
+  }
 }
 
 void main() {
@@ -143,6 +165,17 @@ void main() {
       for (final op in ['request', 'result', 'cancel', 'status', 'config']) {
         expect('${ProactiveAgentTransport.routePrefix}/$op', startsWith('/dsh-go-proactive/v1/'));
       }
+    });
+  });
+
+  group('connection target', () {
+    test('a poll keeps its query a query, so the host never sees %3F', () async {
+      final connection = RecordingConnection();
+      final target = DshConnectionTarget(connection, isLocal: true);
+      final (status, _) = await target.get('/dsh-go-companion/v1/result?requestId=r1&waitMs=20000');
+      expect(status, 200);
+      expect(connection.gets.single.path, '/dsh-go-companion/v1/result');
+      expect(connection.gets.single.query, {'requestId': 'r1', 'waitMs': '20000'});
     });
   });
 

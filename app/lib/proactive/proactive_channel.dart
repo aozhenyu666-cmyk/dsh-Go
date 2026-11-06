@@ -96,7 +96,12 @@ class DshConnectionTarget implements ProactiveForwardTarget {
 
   @override
   Future<(int, String)> get(String path) async {
-    final response = await connection.get(path);
+    // op.path carries its own query (`/result?requestId=…&waitMs=…`). Handing that
+    // whole string to connection.get() sends it as a *path*, and Uri.replace(path:)
+    // encodes the "?" to %3F — the host then answers 404 not-found and the kernel
+    // reads that as a lost agent. Split it so the query stays a query.
+    final uri = Uri.parse(path);
+    final response = await connection.get(uri.path, query: uri.queryParameters);
     return (response.statusCode, response.text);
   }}
 
