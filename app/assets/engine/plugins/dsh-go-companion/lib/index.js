@@ -16,7 +16,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from '
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { Desk, SOURCE_KIND } from './core.js'
+import { DEFAULT_LIMITS, Desk, SOURCE_KIND } from './core.js'
 import { BACKGROUND_LIMIT, backgroundFacts, loadCandidates, openMemoryDb } from './topics.js'
 import { buildPrompt } from './prompt.js'
 import { appendLedger, readLedger, summarize } from './ledger.js'
@@ -84,6 +84,8 @@ const DEFAULTS = Object.freeze({
   ...COACH_LIMITS,
   // 控机权限：水位到了就锁娱乐 App / 退回桌面（手机执行）。关掉就最多到浮层。
   control: true,
+  // 做题模式：默认关，主线是聊天。说"开始做题 / 做题模式"打开，"别出题了"关掉。
+  drills: false,
 })
 
 function home() {
@@ -231,6 +233,15 @@ async function resolveAgent(ctx, id, config) {
   return undefined
 }
 
+/** "开始做题""做题模式" → true；"别出题了""关掉做题" → false；别的 → null。 */
+export function drillToggle(text) {
+  const s = String(text == null ? '' : text).replace(/\s+/g, '')
+  if (!s || s.length > 20) return null
+  if (/(别|不要|不用|停止|关掉|关闭|停)(再)?(做题|出题)|(做题|出题)(模式)?(关掉|关了|先停)/.test(s)) return false
+  if (/(开始|开启|打开|来|进入)(做题|出题)|做题模式|出(几|一)?道题/.test(s)) return true
+  return null
+}
+
 function userMessage(text) {
   return { id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: SOURCE_KIND } }
 }
@@ -314,6 +325,8 @@ export function apply(ctx) {
 
   // ---------------------------------------------------------------- 大脑
   // 大脑和脾气各存一个小文件；读坏了就从空的开始，绝不让一轮卡住。
+  /** 讲通了理由之后松多久。 */
+  const GRACE_MS = 20 * 60_000
   const loadBrain = () => cleanBrain(readState(stateFile('brain.json'), null))
   const saveBrain = (b) => writeJson(stateFile('brain.json'), b)
   /** requestId -> 发球时的现状（generated 时交给大脑开始计"有没有拉回来"）。 */
@@ -465,14 +478,17 @@ export function apply(ctx) {
       const face = { ...temper, ...(FACES.find((f) => f.face === faceId) || {}), face: faceId }
       const force = decideForce({
         phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
+        grace: Number(brain.graceUntil) > now,
       })
       // 上一题没回 / 答糊弄了：这一球必须是说他 + 同一类题重问。
-      const owed = lastDrillOutcome(entries, now)
+      const drillsOn = config.drills === true
+      const owed = drillsOn ? lastDrillOutcome(entries, now) : null
       const scold = owed ? scoldLines(drillOf(owed.drill), owed) : []
       if (owed?.silent) onSilent(brain, { requestId: owed.requestId })
       // 在娱乐 App 里越陷越可能出题；要锁的那一球一定出题（答过线才放行）。
       // 阶梯在"换更轻的球"时不随机出题（欠着的题除外）；温和模式又不知道他在干嘛时，也不凭空出题。
-      const drillChance = force.level >= 3 || scold.length ? 1
+      const drillChance = !drillsOn ? 0
+        : force.level >= 3 || scold.length ? 1
         : lighter ? 0
         : phone?.fun ? 0.45 + water.level / 200
         : mode === 'coach' ? 0.3 : 0
@@ -502,7 +518,8 @@ export function apply(ctx) {
         drill,
         scold,
         beliefs: brainLines(brain),
-        force: forceLines(force, phone),
+        force: forceLines(force, phone, { drill: Boolean(drill) }),
+        grace: Number(brain.graceUntil) > now,
         morning: firstToday,
         owner: config.owner,
         self: config.self,
@@ -521,6 +538,22 @@ export function apply(ctx) {
       }
     }
   }
+
+  // ---------------------------------------------------------------- 直接聊（/say）
+  // 浮层里打的字原样作为他的话进大肥鱼的会话（不带插件来源，就是他本人说的），大肥鱼照常回，
+  // 工具也不拦——跟在 App 里聊一模一样。回复从 /result 取。判球、安静、换模式这些照常认这句话。
+  const chat = new Desk({
+    resolveAgent: (id) => resolveAgent(ctx, id, config),
+    compose: async (req) => ({ text: req.payload.text, prompt: req.payload.text }),
+    makeMessage: (text) => ({ id: randomUUID(), role: 'user', content: [{ type: 'text', text }] }),
+    isArchived: (id) => isArchived(ctx, id),
+    defaultSession: () => config.sessionId,
+    limits: { ...DEFAULT_LIMITS, maxPayloadValue: 2_000 },
+    onChange: (r) => {
+      const state = { accepted: 'said', generated: 'heard', failed: 'chat-failed' }[r.state]
+      if (state) record({ requestId: r.requestId, sessionId: r.sessionId, state, at: Date.now(), failure: r.failure ?? undefined })
+    },
+  })
 
   const desk = new Desk({
     resolveAgent: (id) => resolveAgent(ctx, id, config),
@@ -581,6 +614,7 @@ export function apply(ctx) {
   ctx.on('session/event', async (session, event) => {
     try {
       desk.onSessionEvent(session?.id, event)
+      chat.onSessionEvent(session?.id, event)
     } catch {
       // never disturb the session
     }
@@ -613,6 +647,17 @@ export function apply(ctx) {
             // 写不进去也不影响这一轮
           }
           record({ state: 'mode', at: Date.now(), mode: sw.mode, until: config.modeUntil || undefined })
+        }
+        // "开始做题 / 做题模式"打开做题，"别出题了"关掉。
+        const drillSwitch = drillToggle(text)
+        if (drillSwitch !== null) {
+          config = { ...config, drills: drillSwitch }
+          try {
+            writeConfig(config)
+          } catch {
+            // 写不进去也不影响这一轮
+          }
+          record({ state: 'drills', at: Date.now(), on: drillSwitch })
         }
         const pending = takePending(session?.id)
         if (pending) {
@@ -665,6 +710,11 @@ export function apply(ctx) {
           {
             const b = loadBrain()
             onReply(b, { requestId: pending.requestId, verdict: judged.verdict })
+            // 他讲了站得住的理由（真反驳）：先松一会儿，这段时间不锁。讲得通就该被听进去。
+            if (judged.verdict === 'pushback') {
+              b.graceUntil = now + GRACE_MS
+              record({ state: 'grace', at: now, until: b.graceUntil, why: judged.why || undefined })
+            }
             revise(b, now)
             saveBrain(b)
           }
@@ -697,7 +747,10 @@ export function apply(ctx) {
   )
   ctx.on('agent/disposed', (agent) => {
     try {
-      if (agent?.id) desk.onAgentGone(agent.id)
+      if (agent?.id) {
+        desk.onAgentGone(agent.id)
+        chat.onAgentGone(agent.id)
+      }
     } catch {
       // ignore
     }
@@ -814,7 +867,7 @@ export function apply(ctx) {
     const url = new URL(req.url, 'http://local')
     const path = url.pathname.slice(PREFIX.length)
     try {
-      if (req.method === 'POST' && (path === '/request' || path === '/cancel' || path === '/config' || path === '/plan' || path === '/outcome')) {
+      if (req.method === 'POST' && (path === '/request' || path === '/cancel' || path === '/config' || path === '/plan' || path === '/outcome' || path === '/say')) {
         const body = await readJson(req)
         if (body.error) {
           return send(res, body.error, {
@@ -837,6 +890,13 @@ export function apply(ctx) {
           return send(res, r.status, r.body)
         }
         if (path === '/plan') return send(res, 200, planRoute(body.value))
+        if (path === '/say') {
+          const said = String(body.value?.text ?? '').trim()
+          if (!said) return send(res, 400, { v: 1, error: { code: 'empty', message: 'text' } })
+          const id = typeof body.value?.requestId === 'string' && body.value.requestId ? body.value.requestId : 'say-' + randomUUID()
+          const r = await chat.request({ v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000 })
+          return send(res, r.status, r.body)
+        }
         if (path === '/outcome') return send(res, 200, outcomeRoute(body.value))
         config = mergeConfig(config, body.value)
         writeConfig(config)
@@ -844,7 +904,8 @@ export function apply(ctx) {
       }
       if (req.method === 'GET' && path === '/result') {
         const waitMs = Math.min(Math.max(Number(url.searchParams.get('waitMs') ?? 0) || 0, 0), 25_000)
-        const r = await desk.wait(String(url.searchParams.get('requestId') ?? ''), waitMs)
+        const id = String(url.searchParams.get('requestId') ?? '')
+        const r = await (chat.records.has(id) ? chat : desk).wait(id, waitMs)
         return send(res, r.status, r.body)
       }
       if (req.method === 'GET' && path === '/status') {
@@ -880,6 +941,7 @@ export function apply(ctx) {
       // 实际进 prompt 的那张：关系库人物卡 + 上面的覆盖。
       personaEffective: mergePersona(readCorePersona(home()), config.persona),
       control: config.control !== false,
+      drills: config.drills === true,
       // 大脑现在对他的判断（会随证据改）和脾气的底色。
       beliefs: Object.values(loadBrain().beliefs || {}).map((b) => b.text),
       temper: readState(stateFile('temper.json'), null),
@@ -916,6 +978,7 @@ export function apply(ctx) {
     const limits = modeLimits(config, mode)
     const force = decideForce({
       phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
+      grace: Number(mind.brain.graceUntil) > now,
     })
     seedFromMemory(garden, candidates, now)
     seedFromCommitments(garden, readCommitments(home(), now, 3), now)
@@ -1039,6 +1102,7 @@ function mergeConfig(current, body) {
     if (Number.isFinite(Number(body.diceThreshold))) next.diceThreshold = Math.max(0, Math.min(100, Number(body.diceThreshold)))
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession
     if (typeof body.control === 'boolean') next.control = body.control
+    if (typeof body.drills === 'boolean') next.drills = body.drills
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
     if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)

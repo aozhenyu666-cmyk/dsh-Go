@@ -21,9 +21,11 @@ export const THRESHOLDS = {
  * @param {{phone?: object|null, tide?: {level:number, band:string}, mode?: string, noTake?: number, control?: boolean, funToday?: number}} input
  * @returns {{level: number, name: string, why: string}}
  */
-export function decideForce({ phone, tide, mode, noTake = 0, control = true, funToday = 0 } = {}) {
+export function decideForce({ phone, tide, mode, noTake = 0, control = true, funToday = 0, grace = false } = {}) {
   const t = THRESHOLDS[mode] || THRESHOLDS.partner
   const pick = (level, why) => {
+    // 他刚讲通了理由：这段时间最多追着说，不锁。
+    if (grace && level > 1) return { level: 1, name: LEVELS[1], why: '他讲了站得住的理由，先松一会儿' }
     const capped = control === false ? Math.min(level, 2) : level
     return { level: capped, name: LEVELS[capped], why: capped < level ? why + '（没给控机权限，只能到浮层）' : why }
   }
@@ -40,12 +42,16 @@ export function decideForce({ phone, tide, mode, noTake = 0, control = true, fun
   return pick(0, '')
 }
 
-/** 拼进 prompt：锁 / 赶之前那一球是宣布，不是商量。 */
-export function forceLines(f, phone) {
+/**
+ * 拼进 prompt：锁 / 赶之前那一球是宣布。做题模式开着就丢一道题；没开就问他为什么还在这里——
+ * 他讲得通（真有理由），会松一会儿；讲不通就锁着。
+ */
+export function forceLines(f, phone, { drill = false } = {}) {
   if (!f || f.level < 3) return []
   const app = phone?.label || '这个 App'
-  if (f.level === 4) {
-    return ['你已经决定把他从' + app + '里赶出去（手机马上会退回桌面并锁住它）。这一球是通知，不是商量：说清楚为什么，再丢一道题，答过线才放行。']
-  }
-  return ['你已经决定把' + app + '锁住（手机马上会锁）。这一球是通知，不是商量：一句话说清楚为什么，然后丢一道题——答过线才放行。']
+  const then = drill
+    ? '再丢一道题，答过线才放行。'
+    : '然后直接问他：为什么现在还在这里？让他说清楚。理由站得住你可以松一会儿，站不住就锁着。'
+  if (f.level === 4) return ['你已经决定把他从' + app + '里赶出去（手机马上会退回桌面并锁住它）。这一球是通知，不是商量：说清楚为什么，' + then]
+  return ['你已经决定把' + app + '锁住（手机马上会锁）。这一球是通知，不是商量：一句话说清楚为什么，' + then]
 }

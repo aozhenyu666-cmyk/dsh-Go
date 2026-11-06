@@ -15,7 +15,8 @@ import { tide, tideGap, vagueStreak } from '../lib/tide.js'
 import { stepTemper, faceOf, FACES } from '../lib/temper.js'
 import { DRILLS, drillLines, pickDrill, scoldLines } from '../lib/drills.js'
 import { emptyBrain, chooseFace, drillScorer, observe, onReply, onServe, revise, brainLines, betaSample } from '../lib/brain.js'
-import { decideForce } from '../lib/force.js'
+import { decideForce, forceLines } from '../lib/force.js'
+import { drillToggle } from '../lib/index.js'
 import { judgeUser } from '../lib/judge.js'
 
 function makeHost({ agent }) {
@@ -332,9 +333,9 @@ test('/plan：一早还没开过口、屏幕亮着，不等骰子直接开球', 
   })
 })
 
-test('/request：上一道题答得糊弄，这一球先说他、同一类题再问一次；账本记下脸色和水位', async () => {
+test('/request（做题模式开着）：上一道题答得糊弄，这一球先说他、同一类题再问一次；账本记下脸色和水位', async () => {
   await withHome(async (home) => {
-    seed(home)
+    seed(home, { drills: true })
     const now = Date.now()
     writeFileSync(
       join(home, 'companion', 'ledger.jsonl'),
@@ -357,5 +358,94 @@ test('/request：上一道题答得糊弄，这一球先说他、同一类题再
     assert.equal(accepted.serveType, 'drill')
     assert.equal(accepted.drill, 'number')
     assert.ok(Number.isFinite(accepted.tide) && accepted.band && accepted.face, JSON.stringify(accepted))
+  })
+})
+
+// ---------------------------------------------------------------- 真聊天
+
+test('做题默认关：在游戏里也不出题，锁之前问他为什么，而不是丢题', async () => {
+  await withHome(async (home) => {
+    seed(home, { mode: 'coach' })
+    const agent = makeAgent()
+    const host = makeHost({ agent })
+    const res = await call(host.handler, 'POST', '/dsh-go-companion/v1/request', {
+      v: 1, requestId: 'req-chat-1', eventId: 'evt-chat-1', kind: 'random_chat', payload: {}, phone: deep(40), deadlineMs: 30000,
+    })
+    assert.equal(res.body?.state, 'accepted', JSON.stringify(res.body))
+    const prompt = agent.sent[0].content[0].text
+    assert.doesNotMatch(prompt, /思维题/)
+    assert.match(prompt, /为什么现在还在这里/)
+    assert.match(prompt, /先把理由弄懂/, '回话那一轮要先听懂他')
+    const accepted = ledgerOf(home).find((e) => e.requestId === 'req-chat-1' && e.state === 'accepted')
+    assert.notEqual(accepted.serveType, 'drill')
+  })
+})
+
+test('做题开关：一句话开、一句话关；普通聊天不误判', () => {
+  assert.equal(drillToggle('开始做题'), true)
+  assert.equal(drillToggle('做题模式'), true)
+  assert.equal(drillToggle('别出题了'), false)
+  assert.equal(drillToggle('关掉做题'), false)
+  assert.equal(drillToggle('我今天做题做到很晚，脑子都木了'), null)
+  assert.equal(drillToggle('在打游戏'), null)
+})
+
+test('讲通了理由（真反驳）：先松 20 分钟，不锁', () => {
+  const f = decideForce({ phone: deep(90), tide: tide({ phone: deep(90) }), mode: 'coach', grace: true })
+  assert.equal(f.name, 'press')
+  assert.match(forceLines({ level: 3 }, deep(40)).join(''), /为什么现在还在这里/)
+  assert.match(forceLines({ level: 3 }, deep(40), { drill: true }).join(''), /丢一道题/)
+})
+
+/** 带 followup 回调的假会话：能模拟"大肥鱼回了一句"。 */
+function makeTalkingAgent() {
+  const sent = []
+  const agent = {
+    id: 'session-abc',
+    status: 'idle',
+    inbox: { hasPending: false },
+    config: { provider: 'test', model: 'test-model' },
+    sent,
+    followup(msg) {
+      sent.push(msg)
+    },
+  }
+  return agent
+}
+
+test('/say：他在浮层里打的字原样进会话（就是他本人说的，不带插件来源），大肥鱼的回复从 /result 拿回来', async () => {
+  await withHome(async (home) => {
+    seed(home)
+    const agent = makeTalkingAgent()
+    const host = makeHost({ agent })
+    const res = await call(host.handler, 'POST', '/dsh-go-companion/v1/say', { v: 1, requestId: 'say-00000001', text: '我打这局是因为作业写完了' })
+    assert.equal(res.status, 202, JSON.stringify(res.body))
+    assert.equal(agent.sent.length, 1)
+    assert.equal(agent.sent[0].content[0].text, '我打这局是因为作业写完了', '原话，不加任何指令')
+    assert.equal(agent.sent[0].source, undefined, '不带插件来源：这是他说的话')
+
+    const emit = async (type, data) => {
+      for (const fn of host.listeners.get('session/event') || []) await fn({ id: 'session-abc' }, { type, data })
+    }
+    await emit('turn/start', { turn: 7 })
+    await emit('user/message', { id: agent.sent[0].id, content: agent.sent[0].content, turn: 7 })
+    await emit('assistant/message', { turn: 7, message: { content: [{ type: 'text', text: '作业写完了那行，这局打完就收。' }] } })
+    await emit('turn/end', { turn: 7, reason: { kind: 'completed' } })
+
+    const out = await call(host.handler, 'GET', '/dsh-go-companion/v1/result?requestId=say-00000001&waitMs=0')
+    assert.equal(out.body?.state, 'generated', JSON.stringify(out.body))
+    assert.match(out.body.text, /作业写完了那行/)
+    const states = ledgerOf(home).map((e) => e.state)
+    assert.ok(states.includes('said') && states.includes('heard'), states.join(','))
+    assert.ok(!states.includes('generated'), '聊天不算主动发球，不占额度、不进阶梯')
+  })
+})
+
+test('/say：空话不收', async () => {
+  await withHome(async (home) => {
+    seed(home)
+    const host = makeHost({ agent: makeTalkingAgent() })
+    const res = await call(host.handler, 'POST', '/dsh-go-companion/v1/say', { v: 1, text: '   ' })
+    assert.equal(res.status, 400)
   })
 })

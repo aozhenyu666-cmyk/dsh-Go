@@ -101,6 +101,10 @@ object ProactiveRuntime {
 
     /** How long a one-off plugin route may take before the page is told it timed out. */
     private const val ROUTE_TIMEOUT_MS = 12_000L
+    /** How long one line in the overlay may wait for 大肥鱼's answer. */
+    private const val SAY_DEADLINE_MS = 120_000L
+    /** Each long poll stays under the 12 s route timeout. */
+    private const val SAY_POLL_WAIT_MS = 8_000L
     /** How long a 锁 / 赶 holds without a fresh /plan saying so again. */
     private const val FORCE_HOLD_MS = 3 * 60_000L
 
@@ -251,6 +255,41 @@ object ProactiveRuntime {
     private fun reportOutcome(requestId: String, stage: String) {
         if (requestId.isBlank() || !reportedOutcomes.add(requestId + ":" + stage)) return
         fetchPluginRoute(ignoreResult, "POST", "/outcome", linkedMapOf("requestId" to requestId, "stage" to stage))
+    }
+
+    /**
+     * 浮层里直接聊: hand one line to the companion's /say (it goes into the session as the person's
+     * own words), then long-poll /result until 大肥鱼 has answered. [done] runs on the main thread
+     * with the reply, or with an error code (agent-busy, timeout, no_transport…).
+     */
+    fun say(text: String, done: (reply: String?, error: String?) -> Unit) {
+        val id = "say-" + UUID.randomUUID().toString().replace("-", "").take(16)
+        val deadline = System.currentTimeMillis() + SAY_DEADLINE_MS
+        fetchPluginRoute(routeCallback { m ->
+            val error = ((m["error"] as? Map<*, *>)?.get("code") as? String)
+            if (error != null) done(null, error) else pollSay(id, deadline, done)
+        }, "POST", "/say", linkedMapOf("v" to 1, "requestId" to id, "text" to text))
+    }
+
+    private fun pollSay(id: String, deadline: Long, done: (String?, String?) -> Unit) {
+        if (System.currentTimeMillis() > deadline) { done(null, "timeout"); return }
+        fetchPluginRoute(routeCallback { m ->
+            val error = ((m["error"] as? Map<*, *>)?.get("code") as? String)
+            when (m["state"]) {
+                "generated" -> done((m["text"] as? String)?.trim(), null)
+                "failed" -> done(null, ((m["failure"] as? Map<*, *>)?.get("code") as? String) ?: "failed")
+                "cancelled" -> done(null, "cancelled")
+                // Still thinking (accepted / claimed), or this poll's own transport timed out: ask again.
+                else -> if (error != null && error != "timeout" && error != "no_answer") done(null, error)
+                else main.postDelayed({ pollSay(id, deadline, done) }, 300)
+            }
+        }, "GET", "/result?requestId=$id&waitMs=$SAY_POLL_WAIT_MS", null)
+    }
+
+    private fun routeCallback(on: (Map<*, *>) -> Unit) = object : io.flutter.plugin.common.MethodChannel.Result {
+        override fun success(result: Any?) { main.post { on(result as? Map<*, *> ?: emptyMap<Any, Any>()) } }
+        override fun error(code: String, message: String?, details: Any?) { main.post { on(mapOf("error" to mapOf("code" to code))) } }
+        override fun notImplemented() { main.post { on(mapOf("error" to mapOf("code" to "not_implemented"))) } }
     }
 
     private var lastPlanConsult = 0L

@@ -34,6 +34,7 @@ export function cleanBrain(raw) {
   }
   if (raw.pending && typeof raw.pending === 'object') b.pending = raw.pending
   if (raw.revision && typeof raw.revision === 'object') b.revision = raw.revision
+  if (Number.isFinite(Number(raw.graceUntil))) b.graceUntil = Number(raw.graceUntil)
   return b
 }
 

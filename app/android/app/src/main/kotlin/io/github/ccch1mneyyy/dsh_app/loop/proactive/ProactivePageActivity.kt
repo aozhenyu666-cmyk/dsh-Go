@@ -9,8 +9,12 @@ import android.os.Looper
 import android.os.PowerManager
 import android.util.TypedValue
 import android.view.Gravity
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import io.github.ccch1mneyyy.dsh_app.R
 import io.github.ccch1mneyyy.dsh_app.i18n.AppStrings
@@ -49,6 +53,14 @@ class ProactivePageActivity : Activity() {
 
     /** The ack was sent; the page stays open so an answer is still possible. */
     private var acked = false
+
+    /** He typed back at least once: this page is a conversation now, not a notice. */
+    private var chatted = false
+    private var waiting = false
+    private var transcript: TextView? = null
+    private var scroller: ScrollView? = null
+    private var input: EditText? = null
+    private var sendButton: Button? = null
     private var attempts = 0
     private val proof = Runnable { proveVisible() }
 
@@ -66,6 +78,8 @@ class ProactivePageActivity : Activity() {
         reported = false
         shown = false
         acked = false
+        chatted = false
+        waiting = false
         setIntent(next)
         bind(next)
     }
@@ -124,6 +138,8 @@ class ProactivePageActivity : Activity() {
         super.onStop()
         val screenOn = getSystemService(PowerManager::class.java)?.isInteractive != false
         if (!reported && !isChangingConfigurations && screenOn && !isFinishing) report(SurfaceReport.Dismissed)
+        // A finished conversation must not linger in the background holding the visible-surface slot.
+        else if (chatted && !isChangingConfigurations && screenOn && !isFinishing) finish()
     }
 
     override fun onDestroy() {
@@ -156,6 +172,52 @@ class ProactivePageActivity : Activity() {
         ProactiveRuntime.onSurface(t, SurfaceReport.Acked)
     }
 
+    /**
+     * 直接跟大肥鱼聊: the line goes into his session as the person's own words (companion /say),
+     * the reply comes back here. The first line already counts as answering the event, so the kernel
+     * closes it as RESPONDED; the page itself stays open as a conversation until he leaves it.
+     */
+    private fun send() {
+        val box = input ?: return
+        val text = box.text?.toString()?.trim().orEmpty()
+        if (text.isEmpty() || waiting) return
+        box.setText("")
+        append("你：$text")
+        if (!chatted) {
+            chatted = true
+            val t = token
+            if (t != null && !reported) {
+                reported = true
+                main.removeCallbacks(proof)
+                ProactiveRuntime.onSurface(t, SurfaceReport.Answered("chat"))
+            }
+        }
+        setWaiting(true)
+        ProactiveRuntime.say(text) { reply, error ->
+            if (isFinishing || isDestroyed) return@say
+            setWaiting(false)
+            append(
+                when {
+                    !reply.isNullOrBlank() -> "大肥鱼：$reply"
+                    error == "agent-busy" || error == "desk-busy" -> "（大肥鱼还在说上一句，等一下再发）"
+                    else -> "（没发出去：${error ?: "unknown"}）"
+                },
+            )
+        }
+    }
+
+    private fun setWaiting(on: Boolean) {
+        waiting = on
+        sendButton?.isEnabled = !on
+        sendButton?.text = if (on) "…" else "发送"
+    }
+
+    private fun append(line: String) {
+        val view = transcript ?: return
+        view.append(if (view.text.isNullOrEmpty()) line else "\n\n$line")
+        scroller?.post { scroller?.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
     private fun unregister() { token?.let { if (live[it] === this) live.remove(it) } }
 
     private fun content(text: String): LinearLayout {
@@ -164,13 +226,43 @@ class ProactivePageActivity : Activity() {
         return LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(20), dp(24), dp(12))
-            addView(TextView(ctx).apply { this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); setPadding(0, 0, 0, dp(16)) })
+            // The ball and everything said after it, in one scrolling column.
+            val log = TextView(ctx).apply { this.text = text; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f) }
+            transcript = log
+            addView(ScrollView(ctx).apply {
+                scroller = this
+                addView(log)
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(12)
+            })
+            // 直接回他：打字就是在跟大肥鱼聊，不用切回 App。
+            addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val box = EditText(ctx).apply {
+                    hint = "跟大肥鱼说…"
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    maxLines = 4
+                    imeOptions = EditorInfo.IME_ACTION_SEND
+                    setOnEditorActionListener { _, action, _ -> if (action == EditorInfo.IME_ACTION_SEND) { send(); true } else false }
+                }
+                input = box
+                addView(box, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(Button(ctx).apply {
+                    sendButton = this
+                    this.text = "发送"
+                    setOnClickListener { send() }
+                })
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            })
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
                 addView(Button(ctx).apply {
                     this.text = AppStrings.get(ctx, R.string.proactive_later)
-                    setOnClickListener { report(SurfaceReport.Dismissed) }
+                    // After a conversation this just closes the window: the event is already answered.
+                    setOnClickListener { if (chatted) finish() else report(SurfaceReport.Dismissed) }
                 })
                 // 「我看到了」: confirms attention without answering. The kernel's reply window then
                 // decides whether silence becomes "ignored"; this page knows nothing about that.
