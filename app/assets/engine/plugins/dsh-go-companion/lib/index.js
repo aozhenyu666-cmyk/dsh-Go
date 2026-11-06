@@ -28,6 +28,7 @@ import { isStock } from './stock.js'
 import { nextShot, rallyStats } from './rally.js'
 import { pickServeType } from './serve.js'
 import { LIGHTER_TYPES, mutedUntil, serveWeights, silenceState } from './silence.js'
+import { cleanPersona, effectiveMode, modeGap, modeOr, modeServeOrder, modeSwitch } from './persona.js'
 import {
   MAX_ATTEMPTS,
   addTopic,
@@ -70,6 +71,9 @@ const DEFAULTS = Object.freeze({
   owner: '主人',
   self: '大肥鱼',
   timeZone: DEFAULT_TZ,
+  // 人格卡（口吻、口头禅、兴趣、关系、能说多狠、不碰的话题）和两种模式。
+  persona: {},
+  mode: 'partner',
 })
 
 function home() {
@@ -360,8 +364,10 @@ export function apply(ctx) {
       // 没接球时不砸同一类：走阶梯就只挑更轻的球，平时按权重挑（被漠视的降、接住的升）。
       const silence = silenceState(entries, { sessionId, now })
       const lighter = silence.stage === 'lighter' || silence.stage === 'channel'
+      // 模式决定从哪几种球里挑：伙伴偏闲聊/记忆，教练偏观察/挑衅。前三种里挑。
+      const mode = effectiveMode(config, now)
       const serveType = pickServeType(entries, Math.floor(Math.random() * 100), {
-        only: lighter ? LIGHTER_TYPES : undefined,
+        only: lighter ? LIGHTER_TYPES : modeServeOrder(mode).slice(0, 3),
         weights: serveWeights(entries),
       })
       // 回合与拍数都从账本重建：进程重启不会丢，也不多存一份状态。
@@ -376,6 +382,8 @@ export function apply(ctx) {
         serveType,
         stockHit: lastStockBall(entries),
         ignored: lighter ? lastIgnored(entries) : undefined,
+        persona: config.persona,
+        mode,
         owner: config.owner,
         self: config.self,
       })
@@ -460,6 +468,17 @@ export function apply(ctx) {
           }
           record({ state: 'muted', at: Date.now(), until: muteUntilAt, answer: String(text).slice(0, 100) })
         }
+        // 他说"进入教练模式 2 小时"就切过去；给没给时长都认。
+        const sw = modeSwitch(text)
+        if (sw) {
+          config = { ...config, mode: sw.mode, modeUntil: sw.hours ? Date.now() + sw.hours * 3_600_000 : 0 }
+          try {
+            writeConfig(config)
+          } catch {
+            // 写不进去也不影响这一轮
+          }
+          record({ state: 'mode', at: Date.now(), mode: sw.mode, until: config.modeUntil || undefined })
+        }
         const pending = takePending(session?.id)
         if (pending) {
           // 这一球由大肥鱼自己判（6 秒超时或连不上就退回规则），不再按字数。
@@ -472,6 +491,7 @@ export function apply(ctx) {
             serve: pending.serve,
             reply: text,
             recent: recentShots(),
+            mode: effectiveMode(config, Date.now()),
           })
           const replyClass = gardenClass(judged.verdict)
           const now = Date.now()
@@ -703,6 +723,10 @@ export function apply(ctx) {
       timeZone: config.timeZone,
       // 首页的一键安静：App 直接把要静音到的时间写进来。
       muteUntil: Number(config.muteUntil) || 0,
+      // 人格卡与模式：首页可以编辑，引擎只管用。
+      persona: cleanPersona(config.persona),
+      mode: modeOr(config.mode),
+      modeUntil: Number(config.modeUntil) || 0,
     }
   }
 
@@ -736,7 +760,8 @@ export function apply(ctx) {
     })
     persistGarden()
     const out = decide({
-      config,
+      // 教练模式更勤，伙伴更松：间隔按模式放大。
+      config: { ...config, minGapMs: modeGap(config.minGapMs, effectiveMode(config, now)) },
       now,
       tz,
       topic,
@@ -818,6 +843,9 @@ function mergeConfig(current, body) {
     if (Number.isFinite(Number(body.hourlyMax))) next.hourlyMax = Math.max(0, Math.min(12, Math.round(Number(body.hourlyMax))))
     // 一键安静：给 0 或过去的时间就是解除。
     if (Number.isFinite(Number(body.muteUntil))) next.muteUntil = Math.max(0, Number(body.muteUntil))
+    if (body.persona && typeof body.persona === 'object') next.persona = cleanPersona(body.persona)
+    if (typeof body.mode === 'string') next.mode = modeOr(body.mode)
+    if (Number.isFinite(Number(body.modeUntil))) next.modeUntil = Math.max(0, Number(body.modeUntil))
     if (Number.isFinite(Number(body.minGapMs))) next.minGapMs = Math.max(60_000, Math.min(24 * 3_600_000, Number(body.minGapMs)))
     if (Number.isFinite(Number(body.diceThreshold))) next.diceThreshold = Math.max(0, Math.min(100, Number(body.diceThreshold)))
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession

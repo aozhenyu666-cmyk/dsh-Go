@@ -4,6 +4,7 @@
 // 明确要求：不罗列背景、不提“事件/系统/主动”、不调用工具、不以提问凑数。
 
 import { SERVE_LABEL } from './serve.js'
+import { modeOr, personaLines } from './persona.js'
 
 const KIND_RULES = {
   continue:
@@ -86,6 +87,8 @@ export function buildPrompt(input) {
   if (serveType) {
     lines.push('这一球的类型：' + SERVE_RULES[serveType])
   }
+  // 人格卡和模式：他是谁、这一阵子怎么说话。空的部分 personaLines 不会硬凑。
+  for (const line of personaLines(input.persona, modeOr(input.mode))) lines.push(line)
   if (topic) {
     lines.push('当前话题：' + String(topic.title || topic.text || '').slice(0, 400))
     if (topic.detail) lines.push('话题补充：' + String(topic.detail).slice(0, 300))

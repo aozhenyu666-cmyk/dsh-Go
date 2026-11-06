@@ -46,8 +46,8 @@ export function gardenClass(verdict) {
   }
 }
 
-export function judgeSystem() {
-  return [
+export function judgeSystem(mode) {
+  const lines = [
     '你在判断对方刚打回来的一球值不值得你继续往深里打。只输出一行 JSON，不要任何解释文字。',
     '判词只能是这六个之一：',
     'engaged 接住了、有信息在推进；brief 很短没信息；evasive 把话题带走；',
@@ -55,7 +55,12 @@ export function judgeSystem() {
     '回击方式只能是这四个之一：deeper 往深一步；angle 换个角度；callout 点破并追一次；stop 停下。',
     '格式：{"verdict":"...","why":"一句话","next":"..."}',
     'pushback 是最好的球，往深里接，不要当成冒犯。判成 refuse 要克制：只有对方真的说不想聊才算。',
-  ].join('\n')
+  ]
+  // 教练模式判得严：敷衍和空话不许放过去。
+  if (String(mode) === 'coach') {
+    lines.push('现在是教练模式：短句、空话、把话题带走，一律不许当成接住了；该点破就点破。')
+  }
+  return lines.join('\n')
 }
 
 /** 把发球原文、这条回球、最近几拍拼成判断题。只带这些，不带无关背景。 */
@@ -124,7 +129,7 @@ export function ruleVerdict(raw) {
  * shortcut: 只有一次调用、一次超时，不重试。判球失败最坏就是退回规则，
  * 不值得为它多花一次模型调用和一个重试窗口；要更准再考虑带记忆的二次判断。
  */
-export async function judgeReply({ stream, provider, model, sessionId, serve, reply, recent, timeoutMs = JUDGE_TIMEOUT_MS }) {
+export async function judgeReply({ stream, provider, model, sessionId, serve, reply, recent, mode, timeoutMs = JUDGE_TIMEOUT_MS }) {
   if (typeof stream !== 'function' || !provider || !model) return { ...ruleVerdict(reply), judged: false }
   const messages = [
     {
@@ -141,7 +146,7 @@ export async function judgeReply({ stream, provider, model, sessionId, serve, re
     for await (const chunk of stream({
       provider,
       model,
-      system: judgeSystem(),
+      system: judgeSystem(mode),
       messages,
       ...(sessionId ? { sessionId } : {}),
       maxTokens: 200,

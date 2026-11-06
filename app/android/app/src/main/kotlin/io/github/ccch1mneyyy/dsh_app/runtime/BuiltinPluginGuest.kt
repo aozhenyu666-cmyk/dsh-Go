@@ -119,6 +119,7 @@ object BuiltinPluginGuest {
                 "lib/stock.js",
                 "lib/judge.js",
                 "lib/silence.js",
+                "lib/persona.js",
             ),
         ),
     )
