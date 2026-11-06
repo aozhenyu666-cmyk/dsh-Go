@@ -128,6 +128,8 @@ export class Desk {
       serveType: r.serveType ?? null,
       rallyId: r.rallyId ?? null,
       shot: r.shot ?? null,
+      // 漠视阶梯走到哪一级（none/wait/lighter/channel/stop）：事后排查和 P4 换渠道都要看。
+      silence: r.silence ?? null,
       cold: r.cold === true,
     }
   }
@@ -197,6 +199,7 @@ export class Desk {
       serveType: built.serveType ?? null,
       rallyId: built.rallyId ?? null,
       shot: built.shot ?? null,
+      silence: built.silence?.stage ?? null,
       cold,
       prompt: built.prompt,
     }

@@ -97,3 +97,77 @@ test('掷骰：低于命中线才开口', () => {
   assert.equal(ok.speak, true)
   assert.equal(ok.topic.id, 'topic:a')
 })
+
+// —— P2：漠视阶梯。时间全部注入，不等真实 5 分钟。——
+
+test('阶梯走到 5 分钟就开口，压过 minGap', () => {
+  const out = plan({
+    config: { enabled: true, minGapMs: 30 * 60_000, diceThreshold: 100 },
+    now: NOW,
+    topic,
+    sentToday: 1,
+    lastAt: NOW - 5 * 60_000,
+    roll: 99, // 掷骰没过也要发：这一球是换法子，不是新一轮
+    silence: { stage: 'lighter' },
+    tz: TZ,
+  })
+  assert.equal(out.speak, true, 'minGap 30 分钟不该挡住 5 分钟的阶梯')
+  assert.equal(out.reason, 'ladder-lighter')
+  assert.equal(out.stage, 'lighter')
+})
+
+test('阶梯走到 15 分钟是换渠道', () => {
+  const out = plan({
+    config: { enabled: true, minGapMs: 30 * 60_000 },
+    now: NOW,
+    topic,
+    silence: { stage: 'channel' },
+    tz: TZ,
+  })
+  assert.equal(out.reason, 'ladder-channel')
+})
+
+test('连续两次没接就停下，不再追', () => {
+  const out = plan({
+    config: { enabled: true },
+    now: NOW,
+    topic,
+    silence: { stage: 'stop' },
+    tz: TZ,
+  })
+  assert.equal(out.speak, false)
+  assert.equal(out.reason, 'no-take')
+})
+
+test('每小时上限：到点就不发，阶梯也不能突破', () => {
+  const out = plan({
+    config: { enabled: true, hourlyMax: 3 },
+    now: NOW,
+    topic,
+    sentLastHour: 3,
+    silence: { stage: 'lighter' },
+    tz: TZ,
+  })
+  assert.equal(out.speak, false)
+  assert.equal(out.reason, 'hourly_max')
+})
+
+test('说了安静就闭嘴，等到静音结束', () => {
+  const until = NOW + 3_600_000
+  const out = plan({ config: { enabled: true }, now: NOW, topic, mutedUntil: until, tz: TZ })
+  assert.equal(out.speak, false)
+  assert.equal(out.reason, 'muted')
+  assert.equal(out.nextCheckAt, until)
+})
+
+test('静音过去之后照常开口', () => {
+  const out = plan({
+    config: { enabled: true, diceThreshold: 100 },
+    now: NOW,
+    topic,
+    mutedUntil: NOW - 1000,
+    roll: 0,
+    tz: TZ,
+  })
+  assert.equal(out.speak, true)
+})

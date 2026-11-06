@@ -3,6 +3,8 @@
 // 每轮主动交流只带最小上下文：人格 + 当前话题 + 少量事实/经历 + 心情/承诺/上次回应。
 // 明确要求：不罗列背景、不提“事件/系统/主动”、不调用工具、不以提问凑数。
 
+import { SERVE_LABEL } from './serve.js'
+
 const KIND_RULES = {
   continue:
     '这是一件还没聊完的事。先问一句 TA 现在愿不愿意接着聊；愿意就只推进一小步，不愿意就自然收住，不要催。',
@@ -68,6 +70,17 @@ export function buildPrompt(input) {
     lines.push(
       '上一球你说的是“' + String(input.stockHit).slice(0, 120) + '”，这句等于没说，' +
         owner + '没接。这次必须换个写法：先给你的判断，再给一个他能反驳的具体点。',
+    )
+  }
+  // 5.2 阶梯：上一球被漠视了。不重发、不追责，换个更轻的球，或者干脆拿这件事当话头。
+  if (input.ignored) {
+    const g = input.ignored
+    const when = g.at ? new Date(Number(g.at)).toISOString().slice(11, 16) + ' UTC' : '刚才'
+    const kind = SERVE_LABEL[String(g.serveType || '')] || '那句'
+    lines.push(
+      '你上一球（' + kind + '，' + when + ' 发的）没有回音。别重复那句，也别追问为什么不回。' +
+        '换一个更轻、更具体的球：一件 30 秒能做完的小事，或者一句接得上他生活的闲聊。' +
+        '也可以直接把这次没回应当话头，比如“我叫了你两次，你在忙什么”。',
     )
   }
   if (serveType) {

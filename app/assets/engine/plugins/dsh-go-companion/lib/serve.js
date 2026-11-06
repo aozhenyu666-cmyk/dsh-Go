@@ -32,11 +32,21 @@ function recentTypes(entries, window) {
 /**
  * 挑这一球的类型。roll 越大越靠后（和 diceThreshold 同一个 0–100 口径）。
  * 六种都用过了（理论上不会，因为只排最近三次）就退回全部可选。
+ *
+ * `only` 限定范围（漠视之后只发更轻的球），`weights` 是每类的权重：
+ * 被漠视的降、接住的升（见 silence.js）。权重靠"多放几张签"实现，
+ * 不动掷骰本身的口径，同一个 roll 结果仍然稳定。
  */
-export function pickServeType(entries, roll, { avoidLast = SERVE_AVOID_LAST } = {}) {
+export function pickServeType(entries, roll, { avoidLast = SERVE_AVOID_LAST, only, weights } = {}) {
+  const pool = Array.isArray(only) && only.length ? SERVE_TYPES.filter((t) => only.includes(t)) : SERVE_TYPES
   const blocked = new Set(recentTypes(Array.isArray(entries) ? entries : [], avoidLast))
-  let candidates = SERVE_TYPES.filter((t) => !blocked.has(t))
-  if (!candidates.length) candidates = SERVE_TYPES.slice()
+  let candidates = pool.filter((t) => !blocked.has(t))
+  if (!candidates.length) candidates = pool.slice()
+  const tickets = []
+  for (const t of candidates) {
+    const n = weights && Number(weights[t]) > 1 ? Math.round(Number(weights[t])) : 1
+    for (let i = 0; i < n; i += 1) tickets.push(t)
+  }
   const r = Math.min(99.999, Math.max(0, Number(roll) || 0))
-  return candidates[Math.floor((r / 100) * candidates.length)]
+  return tickets[Math.floor((r / 100) * tickets.length)]
 }

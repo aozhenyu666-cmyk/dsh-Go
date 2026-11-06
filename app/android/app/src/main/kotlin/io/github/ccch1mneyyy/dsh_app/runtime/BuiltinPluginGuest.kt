@@ -118,6 +118,7 @@ object BuiltinPluginGuest {
                 "lib/serve.js",
                 "lib/stock.js",
                 "lib/judge.js",
+                "lib/silence.js",
             ),
         ),
     )

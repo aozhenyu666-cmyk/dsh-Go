@@ -27,6 +27,7 @@ import { gardenClass, judgeReply } from './judge.js'
 import { isStock } from './stock.js'
 import { nextShot, rallyStats } from './rally.js'
 import { pickServeType } from './serve.js'
+import { LIGHTER_TYPES, mutedUntil, serveWeights, silenceState } from './silence.js'
 import {
   MAX_ATTEMPTS,
   addTopic,
@@ -60,6 +61,8 @@ const DEFAULTS = Object.freeze({
   quietStart: 1,
   quietEnd: 8,
   dailyMax: 6,
+  // 每小时上限：阶梯换法子时 minGap 会被压过，靠它兜住"别连着砸"。
+  hourlyMax: 3,
   minGapMs: 30 * 60_000,
   diceThreshold: 60,
   cooldownMs: 24 * 60 * 60_000,
@@ -295,6 +298,27 @@ export function apply(ctx) {
     return out.slice(-3)
   }
 
+  /** 最近一小时发出去几条：阶梯能压过 minGap，靠这个兜住频率。 */
+  function sentLastHour(entries, now) {
+    const since = Number(now) - 3_600_000
+    let n = 0
+    for (const e of entries) if (e?.state === 'generated' && Number(e.at) >= since) n += 1
+    return n
+  }
+
+  /** 上一次被漠视的那一球：阶梯换法子时拿它当素材（"我叫了你两次，你在刷什么"）。 */
+  function lastIgnored(entries) {
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const e = entries[i]
+      if (e?.state !== 'generated' || !e.requestId) continue
+      let answered = false
+      for (const x of entries) if (x?.requestId === e.requestId && x.state === 'replied') answered = true
+      if (!answered) return { at: Number(e.at) || 0, serveType: String(e.serveType || ''), text: String(e.text || '') }
+      return null
+    }
+    return null
+  }
+
   // 上一球如果被判成套话（3.3），把原句取出来，下一球照着打回。
   function lastStockBall(entries) {
     for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -333,8 +357,13 @@ export function apply(ctx) {
       persistGarden()
 
       const mood = readMood(home())
-      // 这一球用哪种类型：最近三次用过的不再挑（serve.js）。掷骰纯本地，不花模型。
-      const serveType = pickServeType(entries, Math.floor(Math.random() * 100))
+      // 没接球时不砸同一类：走阶梯就只挑更轻的球，平时按权重挑（被漠视的降、接住的升）。
+      const silence = silenceState(entries, { sessionId, now })
+      const lighter = silence.stage === 'lighter' || silence.stage === 'channel'
+      const serveType = pickServeType(entries, Math.floor(Math.random() * 100), {
+        only: lighter ? LIGHTER_TYPES : undefined,
+        weights: serveWeights(entries),
+      })
       // 回合与拍数都从账本重建：进程重启不会丢，也不多存一份状态。
       const rally = nextShot(entries, { sessionId, now })
       const prompt = buildPrompt({
@@ -346,10 +375,11 @@ export function apply(ctx) {
         replyClass: lastReplyClass(entries),
         serveType,
         stockHit: lastStockBall(entries),
+        ignored: lighter ? lastIgnored(entries) : undefined,
         owner: config.owner,
         self: config.self,
       })
-      return { text: prompt, prompt, topic, serveType, rallyId: rally.rallyId, shot: rally.shot }
+      return { text: prompt, prompt, topic, serveType, rallyId: rally.rallyId, shot: rally.shot, silence }
     } finally {
       try {
         db?.close?.()
@@ -375,6 +405,7 @@ export function apply(ctx) {
         serveType: r.serveType ?? undefined,
         rallyId: r.rallyId ?? undefined,
         shot: r.shot ?? undefined,
+        silence: r.silence ?? undefined,
         state: r.state,
         at: Date.now(),
         text: r.text ?? undefined,
@@ -418,6 +449,17 @@ export function apply(ctx) {
         // 只有来源为空或明确标成 user 的才算人。
         const kind = event.data?.source?.kind
         if (kind && kind !== 'user') return
+        // 他说"安静一小时""今天别找我"就照做：这是一句话就说清的事，不必占一次模型调用。
+        const muteUntilAt = mutedUntil(text, Date.now(), { tz: config.timeZone })
+        if (muteUntilAt) {
+          config = { ...config, muteUntil: muteUntilAt }
+          try {
+            writeConfig(config)
+          } catch {
+            // 写不进去也不影响这一轮；下次他还说就再设一次
+          }
+          record({ state: 'muted', at: Date.now(), until: muteUntilAt, answer: String(text).slice(0, 100) })
+        }
         const pending = takePending(session?.id)
         if (pending) {
           // 这一球由大肥鱼自己判（6 秒超时或连不上就退回规则），不再按字数。
@@ -652,12 +694,15 @@ export function apply(ctx) {
       quietStart: config.quietStart,
       quietEnd: config.quietEnd,
       dailyMax: config.dailyMax,
+      hourlyMax: config.hourlyMax,
       minGapMs: config.minGapMs,
       diceThreshold: config.diceThreshold,
       allowColdSession: config.allowColdSession,
       owner: config.owner,
       self: config.self,
       timeZone: config.timeZone,
+      // 首页的一键安静：App 直接把要静音到的时间写进来。
+      muteUntil: Number(config.muteUntil) || 0,
     }
   }
 
@@ -677,7 +722,9 @@ export function apply(ctx) {
         // ignore
       }
     }
-    const recent = summarize(readLedger(home(), 400), startOfDay(now, tz))
+    const ledger = readLedger(home(), 400)
+    const recent = summarize(ledger, startOfDay(now, tz))
+    const silence = silenceState(ledger, { sessionId, now })
     seedFromMemory(garden, candidates, now)
     seedFromCommitments(garden, readCommitments(home(), now, 3), now)
     const topic = nextTopic(garden, {
@@ -694,11 +741,14 @@ export function apply(ctx) {
       tz,
       topic,
       sentToday: recent.counts.generated,
+      sentLastHour: sentLastHour(ledger, now),
       lastAt: recent.lastAt,
       roll: body?.roll,
+      silence,
+      mutedUntil: Number(config.muteUntil) || 0,
       nextTopicAt: nextTopicAt(garden, now),
     })
-    return { v: 1, ...out, sessionId }
+    return { v: 1, ...out, silence, sessionId }
   }
 
   function outcomeRoute(body) {
@@ -733,6 +783,8 @@ export function apply(ctx) {
       today: today.counts,
       // 好坏只看回合：有效回合 = 至少两拍且有一拍接住了（见 rally.js）。
       rallies: rallyStats(entries, startOfDay(now, config.timeZone)),
+      // 「现在」这一层要能说清：上一球被漠视到哪一级、静音到什么时候。
+      silence: silenceState(entries, { sessionId: config.sessionId, now }),
       lastTopicId: today.lastTopicId || null,
       memory: { path: memoryPath(), exists: existsSync(memoryPath()) },
       garden: gardenStats(garden, now),
@@ -763,6 +815,9 @@ function mergeConfig(current, body) {
       if (Number.isFinite(Number(body[key]))) next[key] = Math.max(0, Math.min(23, Math.round(Number(body[key]))))
     }
     if (Number.isFinite(Number(body.dailyMax))) next.dailyMax = Math.max(0, Math.min(48, Math.round(Number(body.dailyMax))))
+    if (Number.isFinite(Number(body.hourlyMax))) next.hourlyMax = Math.max(0, Math.min(12, Math.round(Number(body.hourlyMax))))
+    // 一键安静：给 0 或过去的时间就是解除。
+    if (Number.isFinite(Number(body.muteUntil))) next.muteUntil = Math.max(0, Number(body.muteUntil))
     if (Number.isFinite(Number(body.minGapMs))) next.minGapMs = Math.max(60_000, Math.min(24 * 3_600_000, Number(body.minGapMs)))
     if (Number.isFinite(Number(body.diceThreshold))) next.diceThreshold = Math.max(0, Math.min(100, Number(body.diceThreshold)))
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession
