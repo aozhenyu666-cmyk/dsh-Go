@@ -104,3 +104,20 @@ cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs   #
 - 不读屏幕内容、不截图、不联网到外部服务；只读本机 SQLite。
 - `generated` 只代表模型出了文字，不代表用户看到；送达/展示/回应由 `/outcome` 记录。
 - 主动回合内禁用一切工具（`tools/pre-execute` 硬拦）。
+
+## P5：节奏与素材（2026-11-06）
+
+- **手边的情况**：`POST /request` 可带 `phone`（前台 App、停留分钟、今日各 App 累计、亮屏、充电、当地时间；
+  来自 App 侧 `NowFeed`，不含屏幕文字）。`lib/phone.js` 清洗后写进 prompt。正开着娱乐 App ≥10 分钟或今天娱乐类 ≥60 分钟，
+  这一球优先打**观察**；**没带 `phone` 就不打观察球**（没东西可观察只能编）。
+- **阶梯真的排上闹钟**：`/plan` 在"发出去还没到下一级"时回 `reason: ladder-wait`，`nextCheckAt` = 第一球 + 5 / 15 分钟，
+  不再按 `minGap` 冷却。阶梯时间从这一串没接的球里第一球算，每级只走一次，错过就跳到够得着的最高一级。
+- **停下与恢复**：原球 + 轻球 + 换渠道三球都没接才停（`NO_TAKE_LIMIT = 3`）；最后一球后歇 3 小时（`REST_MS`）旧账清零。
+  以前停下后没有任何条件能解除。
+- **教练模式高频**：`coachMinGapMs` 8 分钟、`coachHourlyMax` 6、`coachDailyMax` 40，`/config` 可改；伙伴模式不变。
+  掷骰没中的下次检查跟 `minGap` 走，不再写死 30 分钟。
+- **回合里接着打不占额度**：每小时/每天上限只数新开的球和阶梯补的球（`rally.js` 的 `capCount`）。
+- **两张人格卡合一**：关系库 `persona` 表（价值观/底线/边界/口吻/兴趣）打底，`config.persona` 覆盖；`/status` 的
+  `personaEffective` 是实际进 prompt 的那张。
+- **部署清单守卫**：`test/manifest.test.mjs` 检查 `lib/` 下每个文件都写进了 `BuiltinPluginGuest.kt`。
+

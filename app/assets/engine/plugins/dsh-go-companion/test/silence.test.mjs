@@ -2,7 +2,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LADDER, NO_TAKE_LIMIT, serveWeights, silenceState, mutedUntil, LIGHTER_TYPES } from '../lib/silence.js'
+import { LADDER, NO_TAKE_LIMIT, REST_MS, serveWeights, silenceState, mutedUntil, LIGHTER_TYPES } from '../lib/silence.js'
 import { pickServeType } from '../lib/serve.js'
 
 const T0 = 1793000000000
@@ -43,11 +43,53 @@ test('接住了就不再走阶梯', () => {
   assert.equal(s.noTake, 0)
 })
 
-test('连续两次没接：这一轮停下', () => {
-  const entries = [serve('r1', T0, 'observe'), serve('r2', T0 + 20 * 60_000, 'chat')]
+/** 阶梯补的一球：账本里带着它是第几级发的。 */
+function ladderServe(requestId, at, serveType, silence) {
+  return { ...serve(requestId, at, serveType), silence }
+}
+
+test('连续三次没接：这一轮停下', () => {
+  const entries = [
+    serve('r1', T0, 'observe'),
+    ladderServe('r2', T0 + 5 * 60_000, 'chat', 'lighter'),
+    ladderServe('r3', T0 + 15 * 60_000, 'chat', 'channel'),
+  ]
   const s = silenceState(entries, { sessionId: 's', now: T0 + 40 * 60_000 })
   assert.equal(s.stage, 'stop')
   assert.equal(s.noTake, NO_TAKE_LIMIT)
+})
+
+test('5 分钟补了轻球还没接：15 分钟（从第一球算）换渠道，不再补第二个轻球', () => {
+  const entries = [serve('r1', T0, 'provoke'), ladderServe('r2', T0 + 5 * 60_000, 'chat', 'lighter')]
+  const early = silenceState(entries, { sessionId: 's', now: T0 + 11 * 60_000 })
+  assert.equal(early.stage, 'wait', '轻球已经补过了，11 分钟时不能再补一个')
+  assert.equal(early.nextAt, T0 + 15 * 60_000, '下一级的时间从第一球算')
+  const s = silenceState(entries, { sessionId: 's', now: T0 + 15 * 60_000 })
+  assert.equal(s.stage, 'channel')
+  assert.equal(s.noTake, 2)
+})
+
+test('刚发出去：告诉调度器下一级在 5 分钟后', () => {
+  const s = silenceState([serve('r1', T0, 'observe')], { sessionId: 's', now: T0 + 60_000 })
+  assert.equal(s.stage, 'wait')
+  assert.equal(s.nextAt, T0 + 5 * 60_000)
+})
+
+test('换渠道那一级走过了还没接：停下', () => {
+  const entries = [serve('r1', T0, 'observe'), ladderServe('r2', T0 + 20 * 60_000, 'chat', 'channel')]
+  const s = silenceState(entries, { sessionId: 's', now: T0 + 30 * 60_000 })
+  assert.equal(s.stage, 'stop', '锁屏错过了 5 分钟那级、直接跳到换渠道，走完就停')
+})
+
+test('停下之后歇够 3 小时：旧账清零，重新开始', () => {
+  const entries = [
+    serve('r1', T0, 'observe'),
+    ladderServe('r2', T0 + 5 * 60_000, 'chat', 'lighter'),
+    ladderServe('r3', T0 + 15 * 60_000, 'chat', 'channel'),
+  ]
+  const s = silenceState(entries, { sessionId: 's', now: T0 + 15 * 60_000 + REST_MS })
+  assert.equal(s.stage, 'none', '否则一停就永远停：没有新球，也就等不到接住')
+  assert.equal(s.noTake, 0)
 })
 
 test('中间接过一次，连续计数就断了', () => {

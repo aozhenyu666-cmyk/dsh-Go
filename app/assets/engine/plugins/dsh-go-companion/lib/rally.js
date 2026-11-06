@@ -76,3 +76,27 @@ export function rallyStats(entries, dayStart) {
 export function shotCount(entries, rallyId) {
   return rallyId ? hitsOf(entries, rallyId) : 0
 }
+
+/**
+ * 算进上限的发球数：从 since 起，发了几球——但**回合里接着打的不算**。
+ *
+ * "接着打" = 同一回合里上一球已经被他接住了（有 replied）。他在回球，就是在打乒乓，
+ * 这时候卡每小时/每天上限等于球打到一半自己走了。只有新开的球、和没人接时阶梯补的球才占额度。
+ */
+export function capCount(entries, since) {
+  const from = Number(since) || 0
+  const list = Array.isArray(entries) ? entries : []
+  const replied = new Set()
+  for (const e of list) if (e && e.state === 'replied' && e.requestId) replied.add(e.requestId)
+  const lastServe = new Map()
+  let n = 0
+  for (const e of list) {
+    if (!e || e.state !== 'generated') continue
+    const prev = e.rallyId ? lastServe.get(e.rallyId) : undefined
+    const continuing = prev !== undefined && replied.has(prev)
+    if (e.rallyId && e.requestId) lastServe.set(e.rallyId, e.requestId)
+    if (Number(e.at) < from) continue
+    if (!continuing) n += 1
+  }
+  return n
+}

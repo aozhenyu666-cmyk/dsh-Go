@@ -68,3 +68,56 @@ export function lastReplyClass(entries) {
   }
   return ''
 }
+
+function listOf(raw) {
+  try {
+    const v = JSON.parse(String(raw || '[]'))
+    return Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 关系库里的人物卡（dsh-go-relationship 的 persona 表，真机上已经有大肥鱼的价值观/底线/口吻）。
+ * 以前它存着没人读；现在当人格卡的底子，companion 配置里的人格卡只做覆盖。只读。
+ *
+ * @returns {{name?: string, voice?: string, interests?: string, values?: string, rules?: string, boundaries?: string} | null}
+ */
+export function readCorePersona(home) {
+  if (!DatabaseSync) return null
+  const file = join(home, 'relationship', 'relationship.db')
+  if (!existsSync(file)) return null
+  let db = null
+  try {
+    db = new DatabaseSync(file, { readOnly: true })
+    const row = db.prepare('SELECT * FROM persona WHERE id = 1').get()
+    if (!row) return null
+    let voice = {}
+    try {
+      voice = JSON.parse(String(row.voice_json || '{}')) || {}
+    } catch {
+      voice = {}
+    }
+    const out = {}
+    if (row.name) out.name = String(row.name)
+    if (typeof voice.tone === 'string' && voice.tone.trim()) out.voice = voice.tone.trim()
+    const interests = listOf(row.own_interests_json)
+    if (interests.length) out.interests = interests.join('；')
+    const values = listOf(row.values_json)
+    if (values.length) out.values = values.join('；')
+    const rules = listOf(row.non_negotiables_json)
+    if (rules.length) out.rules = rules.join('；')
+    const boundaries = listOf(row.boundaries_json)
+    if (boundaries.length) out.boundaries = boundaries.join('；')
+    return out
+  } catch {
+    return null
+  } finally {
+    try {
+      db?.close?.()
+    } catch {
+      // ignore
+    }
+  }
+}

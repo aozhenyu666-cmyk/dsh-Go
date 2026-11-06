@@ -5,6 +5,7 @@
 
 import { SERVE_LABEL } from './serve.js'
 import { modeOr, personaLines } from './persona.js'
+import { phoneLines } from './phone.js'
 
 const KIND_RULES = {
   continue:
@@ -89,6 +90,8 @@ export function buildPrompt(input) {
   }
   // 人格卡和模式：他是谁、这一阵子怎么说话。空的部分 personaLines 不会硬凑。
   for (const line of personaLines(input.persona, modeOr(input.mode))) lines.push(line)
+  // 手边的情况：现在开着什么、开了多久、今天刷了多久。手机没带就不写，绝不编。
+  for (const line of phoneLines(input.phone)) lines.push(line)
   if (topic) {
     lines.push('当前话题：' + String(topic.title || topic.text || '').slice(0, 400))
     if (topic.detail) lines.push('话题补充：' + String(topic.detail).slice(0, 300))

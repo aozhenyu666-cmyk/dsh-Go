@@ -25,10 +25,10 @@ import { DEFAULT_TZ, startOfDay as zoneStartOfDay, zoneOr } from './tz.js'
 import { classifyReply } from './classify.js'
 import { gardenClass, judgeReply } from './judge.js'
 import { isStock } from './stock.js'
-import { nextShot, rallyStats } from './rally.js'
+import { capCount, nextShot, rallyStats } from './rally.js'
 import { pickServeType } from './serve.js'
 import { LIGHTER_TYPES, mutedUntil, serveWeights, silenceState } from './silence.js'
-import { cleanPersona, effectiveMode, modeGap, modeOr, modeServeOrder, modeSwitch } from './persona.js'
+import { COACH_LIMITS, cleanPersona, effectiveMode, mergePersona, modeLimits, modeOr, modeServeOrder, modeSwitch } from './persona.js'
 import {
   MAX_ATTEMPTS,
   addTopic,
@@ -47,7 +47,8 @@ import {
   seedFromCommitments,
   seedFromMemory,
 } from './garden.js'
-import { lastReplyClass, readCommitments, readMood } from './context.js'
+import { lastReplyClass, readCommitments, readCorePersona, readMood } from './context.js'
+import { cleanPhone, worthObserving } from './phone.js'
 
 export const name = 'dsh-go-companion'
 // Without this, `ctx.tools` below throws "cannot get property tools without inject"
@@ -74,6 +75,8 @@ const DEFAULTS = Object.freeze({
   // 人格卡（口吻、口头禅、兴趣、关系、能说多狠、不碰的话题）和两种模式。
   persona: {},
   mode: 'partner',
+  // 教练模式自己的频率（乒乓式高频）：最小间隔 8 分钟、每小时 6、每天 40。
+  ...COACH_LIMITS,
 })
 
 function home() {
@@ -302,12 +305,9 @@ export function apply(ctx) {
     return out.slice(-3)
   }
 
-  /** 最近一小时发出去几条：阶梯能压过 minGap，靠这个兜住频率。 */
+  /** 最近一小时发出去几条：阶梯能压过 minGap，靠这个兜住频率。回合里接着打的不算（见 capCount）。 */
   function sentLastHour(entries, now) {
-    const since = Number(now) - 3_600_000
-    let n = 0
-    for (const e of entries) if (e?.state === 'generated' && Number(e.at) >= since) n += 1
-    return n
+    return capCount(entries, Number(now) - 3_600_000)
   }
 
   /** 上一次被漠视的那一球：阶梯换法子时拿它当素材（"我叫了你两次，你在刷什么"）。 */
@@ -323,6 +323,15 @@ export function apply(ctx) {
     return null
   }
 
+  /** 上一球是什么类型（观察球不连着打）。 */
+  function lastServeType(entries) {
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const e = entries[i]
+      if (e?.state === 'generated') return String(e.serveType || '')
+    }
+    return ''
+  }
+
   // 上一球如果被判成套话（3.3），把原句取出来，下一球照着打回。
   function lastStockBall(entries) {
     for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -333,7 +342,7 @@ export function apply(ctx) {
     return null
   }
 
-  async function compose(_req, sessionId) {
+  async function compose(req, sessionId) {
     const db = openMemoryDb(memoryPath())
     try {
       const now = Date.now()
@@ -366,10 +375,15 @@ export function apply(ctx) {
       const lighter = silence.stage === 'lighter' || silence.stage === 'channel'
       // 模式决定从哪几种球里挑：伙伴偏闲聊/记忆，教练偏观察/挑衅。前三种里挑。
       const mode = effectiveMode(config, now)
-      const serveType = pickServeType(entries, Math.floor(Math.random() * 100), {
-        only: lighter ? LIGHTER_TYPES : modeServeOrder(mode).slice(0, 3),
+      // 手边的情况由手机在 /request 里带来；没带就是不知道，观察球就不打（没东西可观察只能编）。
+      const phone = cleanPhone(req?.phone)
+      const order = modeServeOrder(mode).filter((t) => t !== 'observe' || phone)
+      const picked = pickServeType(entries, Math.floor(Math.random() * 100), {
+        only: lighter ? LIGHTER_TYPES : order.slice(0, 3),
         weights: serveWeights(entries),
       })
+      // 正开着娱乐 App 一阵子了：这一球就打观察（"你在 B站 20 分钟了"），上一球已经是观察就不连着打。
+      const serveType = !lighter && worthObserving(phone) && lastServeType(entries) !== 'observe' ? 'observe' : picked
       // 回合与拍数都从账本重建：进程重启不会丢，也不多存一份状态。
       const rally = nextShot(entries, { sessionId, now })
       const prompt = buildPrompt({
@@ -382,8 +396,10 @@ export function apply(ctx) {
         serveType,
         stockHit: lastStockBall(entries),
         ignored: lighter ? lastIgnored(entries) : undefined,
-        persona: config.persona,
+        // 人格卡：关系库人物卡打底，配置里的覆盖（两张卡合一）。
+        persona: mergePersona(readCorePersona(home()), config.persona),
         mode,
+        phone,
         owner: config.owner,
         self: config.self,
       })
@@ -717,6 +733,9 @@ export function apply(ctx) {
       hourlyMax: config.hourlyMax,
       minGapMs: config.minGapMs,
       diceThreshold: config.diceThreshold,
+      coachMinGapMs: config.coachMinGapMs,
+      coachHourlyMax: config.coachHourlyMax,
+      coachDailyMax: config.coachDailyMax,
       allowColdSession: config.allowColdSession,
       owner: config.owner,
       self: config.self,
@@ -725,6 +744,8 @@ export function apply(ctx) {
       muteUntil: Number(config.muteUntil) || 0,
       // 人格卡与模式：首页可以编辑，引擎只管用。
       persona: cleanPersona(config.persona),
+      // 实际进 prompt 的那张：关系库人物卡 + 上面的覆盖。
+      personaEffective: mergePersona(readCorePersona(home()), config.persona),
       mode: modeOr(config.mode),
       modeUntil: Number(config.modeUntil) || 0,
     }
@@ -760,12 +781,12 @@ export function apply(ctx) {
     })
     persistGarden()
     const out = decide({
-      // 教练模式更勤，伙伴更松：间隔按模式放大。
-      config: { ...config, minGapMs: modeGap(config.minGapMs, effectiveMode(config, now)) },
+      // 教练模式更勤，伙伴更松：间隔和上限都按模式取。
+      config: { ...config, ...modeLimits(config, effectiveMode(config, now)) },
       now,
       tz,
       topic,
-      sentToday: recent.counts.generated,
+      sentToday: capCount(ledger, startOfDay(now, tz)),
       sentLastHour: sentLastHour(ledger, now),
       lastAt: recent.lastAt,
       roll: body?.roll,
@@ -846,6 +867,9 @@ function mergeConfig(current, body) {
     if (body.persona && typeof body.persona === 'object') next.persona = cleanPersona(body.persona)
     if (typeof body.mode === 'string') next.mode = modeOr(body.mode)
     if (Number.isFinite(Number(body.modeUntil))) next.modeUntil = Math.max(0, Number(body.modeUntil))
+    if (Number.isFinite(Number(body.coachMinGapMs))) next.coachMinGapMs = Math.max(60_000, Math.min(6 * 3_600_000, Number(body.coachMinGapMs)))
+    if (Number.isFinite(Number(body.coachHourlyMax))) next.coachHourlyMax = Math.max(0, Math.min(20, Math.round(Number(body.coachHourlyMax))))
+    if (Number.isFinite(Number(body.coachDailyMax))) next.coachDailyMax = Math.max(0, Math.min(120, Math.round(Number(body.coachDailyMax))))
     if (Number.isFinite(Number(body.minGapMs))) next.minGapMs = Math.max(60_000, Math.min(24 * 3_600_000, Number(body.minGapMs)))
     if (Number.isFinite(Number(body.diceThreshold))) next.diceThreshold = Math.max(0, Math.min(100, Number(body.diceThreshold)))
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession

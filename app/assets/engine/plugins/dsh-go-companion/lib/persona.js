@@ -16,6 +16,10 @@ export const PERSONA_FIELDS = {
   relation: 200,
   bite: 200,
   avoid: 200,
+  // 下面三项默认来自关系库的人物卡（价值观 / 底线 / 边界），配置里写了就覆盖。
+  values: 300,
+  rules: 300,
+  boundaries: 300,
 }
 
 export const MODES = ['partner', 'coach']
@@ -60,6 +64,9 @@ export function personaLines(persona, mode) {
   if (p.relation) lines.push('你和他' + '的关系：' + p.relation)
   if (p.bite) lines.push('你能说多狠：' + p.bite)
   if (p.avoid) lines.push('这些话题不碰：' + p.avoid)
+  if (p.values) lines.push('你在意的：' + p.values)
+  if (p.rules) lines.push('你的底线（绝不做）：' + p.rules)
+  if (p.boundaries) lines.push('你的边界：' + p.boundaries)
   if (mode === 'coach') {
     lines.push('现在是教练模式：抓具体、给判断、不绕。夸要夸到点上，指出问题要给出下一步。')
   } else {
@@ -105,4 +112,41 @@ export function effectiveMode(config, now) {
   const until = Number(config?.modeUntil) || 0
   if (until > 0 && Number(now) >= until) return 'partner'
   return modeOr(config?.mode)
+}
+
+/** 教练模式自己的一套频率：乒乓式高频，设置里可调。伙伴模式沿用 minGap×1.5 / hourlyMax / dailyMax。 */
+export const COACH_LIMITS = Object.freeze({
+  coachMinGapMs: 8 * 60_000,
+  coachHourlyMax: 6,
+  coachDailyMax: 40,
+})
+
+function limitOr(raw, fallback) {
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : fallback
+}
+
+/** 这个模式下实际生效的间隔与上限。 */
+export function modeLimits(config, mode) {
+  const c = config || {}
+  if (modeOr(mode) === 'coach') {
+    return {
+      minGapMs: limitOr(c.coachMinGapMs, COACH_LIMITS.coachMinGapMs),
+      hourlyMax: limitOr(c.coachHourlyMax, COACH_LIMITS.coachHourlyMax),
+      dailyMax: limitOr(c.coachDailyMax, COACH_LIMITS.coachDailyMax),
+    }
+  }
+  return {
+    minGapMs: modeGap(c.minGapMs, 'partner'),
+    hourlyMax: limitOr(c.hourlyMax, 0),
+    dailyMax: limitOr(c.dailyMax, 0),
+  }
+}
+
+/**
+ * 两张人格卡合成一张：关系库的人物卡是底子，companion 配置里写了的字段覆盖它。
+ * 只补一处、不用填两遍；哪张都没有就是空卡（personaLines 不硬凑）。
+ */
+export function mergePersona(core, card) {
+  return { ...cleanPersona(core), ...cleanPersona(card) }
 }

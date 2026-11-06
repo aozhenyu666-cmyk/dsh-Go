@@ -32,7 +32,8 @@ class ProactivePage extends StatefulWidget {
     (12 * 60, 14 * 60),
   ];
 
-  static const dailyMaxSteps = [0, 2, 4, 6, 10];
+  // 20 / 40: 教练模式按乒乓的频率打（插件那边每天 40），手机侧的上限不能先把它卡在 10。
+  static const dailyMaxSteps = [0, 2, 4, 6, 10, 20, 40];
 
   @override
   State<ProactivePage> createState() => _ProactivePageState();

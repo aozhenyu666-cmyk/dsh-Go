@@ -51,6 +51,8 @@ export function validateRequest(body, limits = DEFAULT_LIMITS) {
       sessionId,
       payload: Object.fromEntries(entries),
       deadlineMs: Math.min(Math.max(deadlineMs, limits.minDeadlineMs), limits.maxDeadlineMs),
+      // 手机现状（前台 App、停留、今日累计）。只透传对象，字段由 phone.js 的 cleanPhone 洗。
+      phone: body.phone && typeof body.phone === 'object' && !Array.isArray(body.phone) ? body.phone : undefined,
     },
   }
 }

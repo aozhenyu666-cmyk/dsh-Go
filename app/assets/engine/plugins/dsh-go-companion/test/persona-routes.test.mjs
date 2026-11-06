@@ -160,9 +160,8 @@ test('说“进入教练模式”就切过去，账本记一笔，下一球按�
       .filter(Boolean)
       .map((l) => JSON.parse(l))
       .find((e) => e.requestId === 'req-p3-2' && e.state === 'accepted')
-    assert.ok(
-      modeServeOrder('coach').slice(0, 3).includes(accepted.serveType),
-      '教练模式挑出了 ' + accepted.serveType,
-    )
+    // 这次请求没带手机现状：观察球没东西可观察，从教练偏好里去掉它再取前三。
+    const coachNoPhone = modeServeOrder('coach').filter((t) => t !== 'observe').slice(0, 3)
+    assert.ok(coachNoPhone.includes(accepted.serveType), '教练模式挑出了 ' + accepted.serveType)
   })
 })

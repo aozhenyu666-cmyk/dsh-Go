@@ -37,7 +37,9 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.SurfaceReport
 import io.github.ccch1mneyyy.dsh_app.loop.core.WakeMode
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneControl
 import io.github.ccch1mneyyy.dsh_app.phone.PhoneTasks
+import io.github.ccch1mneyyy.dsh_app.phone.a11y.NowFeed
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.PhoneA11yService
+import io.github.ccch1mneyyy.dsh_app.loop.intercept.InterceptRuntime
 import java.io.File
 import java.util.Calendar
 import java.util.TimeZone
@@ -362,7 +364,12 @@ object ProactiveRuntime {
         }
         main.removeCallbacks(deadlineTick)
         coordinator?.nextDeadline()?.let { main.postDelayed(deadlineTick, (it - System.currentTimeMillis()).coerceIn(50, 10 * 60_000L)) }
-        if (step.closed.isNotEmpty()) arm()
+        if (step.closed.isNotEmpty()) {
+            arm()
+            // A closed attempt makes the scheduler pick a random 45 min–3 h gap; the companion's
+            // ladder (5 min lighter, 15 min channel) must win, so ask it right away.
+            consultPlanSoon()
+        }
     }
 
     private fun run(cmd: Command) {
@@ -374,8 +381,9 @@ object ProactiveRuntime {
             // when the port arrives. Only a port that is still missing after the deadline fails.
             is Command.RequestAgent -> {
                 val port = agentPort
-                if (port == null) holdAgent(cmd, AgentWire.requestBody(cmd, System.currentTimeMillis()))
-                else port.request(cmd.requestId, AgentWire.requestBody(cmd, System.currentTimeMillis()))
+                val body = AgentWire.requestBody(cmd, System.currentTimeMillis(), phoneContext())
+                if (port == null) holdAgent(cmd, body)
+                else port.request(cmd.requestId, body)
             }
             // The plugin answers a replayed requestId with its record and never sends twice.
             is Command.ResumeAgent -> {
@@ -516,6 +524,37 @@ object ProactiveRuntime {
 
     fun clocks() = Clocks(System.currentTimeMillis(), SystemClock.elapsedRealtime(),
         runCatching { Settings.Global.getInt(app.contentResolver, Settings.Global.BOOT_COUNT) }.getOrDefault(0))
+
+    /**
+     * 手边的情况 for the companion: front app, how long, today's totals, screen, charging, local
+     * time. From [NowFeed] (accessibility events, no screen text). Null when the service never fed
+     * it: unknown is not "not using the phone".
+     */
+    private fun phoneContext(): Map<String, Any?>? = runCatching {
+        val now = SystemClock.elapsedRealtime()
+        val s = NowFeed.snapshot(now)
+        if (s.lastEventAgeMs < 0) return@runCatching null
+        val wall = System.currentTimeMillis()
+        val targets = runCatching { InterceptRuntime.config().targets }.getOrNull().orEmpty()
+        val funApps = targets.associate { it.packageName to it.label }
+        val pm = app.packageManager
+        fun label(pkg: String): String? = funApps[pkg]
+            ?: runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+        val today = NowFeed.today(now, dayOf(wall)).map { (pkg, minutes) ->
+            linkedMapOf<String, Any?>("app" to pkg, "label" to label(pkg), "minutes" to minutes, "fun" to (pkg in funApps))
+        }
+        val front = s.app
+        linkedMapOf<String, Any?>(
+            "app" to front,
+            "label" to front?.let { label(it) },
+            "minutes" to s.appMinutes,
+            "fun" to (front != null && front in funApps),
+            "screenOn" to s.screenOn,
+            "charging" to s.charging,
+            "local" to String.format(java.util.Locale.US, "%02d:%02d", minuteOfDay(wall) / 60, minuteOfDay(wall) % 60),
+            "today" to today,
+        )
+    }.getOrNull()
 
     private fun minuteOfDay(wall: Long): Int = Calendar.getInstance(TimeZone.getDefault()).run {
         timeInMillis = wall; get(Calendar.HOUR_OF_DAY) * 60 + get(Calendar.MINUTE)

@@ -26,13 +26,27 @@ object NowFeed {
     private var screenOn = true
     private var charging = false
 
+    /** Today's time per app (ms), for 「今天刷了多久」. Counted on the same events, no polling. */
+    private val totals = HashMap<String, Long>()
+    private var totalsDay = Long.MIN_VALUE
+    /** Where the current app's running segment started counting toward [totals]; -1 = not counting. */
+    private var countedFrom = -1L
+
+    private fun closeSegment(now: Long) {
+        val a = app ?: return
+        if (countedFrom >= 0L) totals[a] = (totals[a] ?: 0L) + (now - countedFrom).coerceAtLeast(0L)
+        countedFrom = now
+    }
+
     @Synchronized
     fun onApp(packageName: String?, now: Long) {
         if (packageName.isNullOrBlank()) return
         if (isNoise(packageName)) return
         if (packageName != app) {
+            closeSegment(now)
             app = packageName
             since = now
+            countedFrom = now
         }
         lastEventAt = now
     }
@@ -50,8 +64,10 @@ object NowFeed {
     fun onScreen(on: Boolean, now: Long) {
         screenOn = on
         if (!on) {
+            closeSegment(now)
             app = null
             since = 0L
+            countedFrom = -1L
         }
         lastEventAt = now
     }
@@ -79,8 +95,35 @@ object NowFeed {
         )
     }
 
+    /**
+     * Today's top apps by time in front, in whole minutes (running segment included), most first.
+     * [day] is the caller's local day number; a new day clears the totals. Elapsed time cannot
+     * tell midnight, so the day comes from the caller's wall clock.
+     */
+    @Synchronized
+    fun today(now: Long, day: Long, limit: Int = 5): List<Pair<String, Int>> {
+        // The first ask only learns the day: what was counted before it is today's.
+        if (totalsDay == Long.MIN_VALUE) totalsDay = day
+        if (day != totalsDay) {
+            totals.clear()
+            totalsDay = day
+            if (app != null) countedFrom = now
+        }
+        val all = HashMap(totals)
+        val a = app
+        if (a != null && countedFrom >= 0L) all[a] = (all[a] ?: 0L) + (now - countedFrom).coerceAtLeast(0L)
+        return all.entries
+            .map { it.key to (it.value / 60_000L).toInt() }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(limit.coerceAtLeast(0))
+    }
+
     @Synchronized
     fun reset() {
+        totals.clear()
+        totalsDay = Long.MIN_VALUE
+        countedFrom = -1L
         app = null
         since = 0L
         lastEventAt = 0L

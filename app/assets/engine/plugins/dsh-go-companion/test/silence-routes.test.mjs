@@ -155,14 +155,15 @@ test('5 分钟没回：下一球换更轻的，prompt 里认这件事', async ()
   })
 })
 
-test('连续两次没接：不再发球', async () => {
+test('连续三次没接（阶梯走完）：不再发球', async () => {
   await withHome(async (home) => {
     seed(home)
     writeFileSync(
       join(home, 'companion', 'ledger.jsonl'),
       [
         { v: 1, requestId: 'old-1', sessionId: 'session-abc', state: 'generated', at: Date.now() - 40 * 60_000, serveType: 'observe' },
-        { v: 1, requestId: 'old-2', sessionId: 'session-abc', state: 'generated', at: Date.now() - 20 * 60_000, serveType: 'chat' },
+        { v: 1, requestId: 'old-2', sessionId: 'session-abc', state: 'generated', at: Date.now() - 35 * 60_000, serveType: 'chat', silence: 'lighter' },
+        { v: 1, requestId: 'old-3', sessionId: 'session-abc', state: 'generated', at: Date.now() - 25 * 60_000, serveType: 'chat', silence: 'channel' },
       ]
         .map((e) => JSON.stringify(e))
         .join('\n') + '\n',

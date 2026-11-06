@@ -5,7 +5,7 @@
 //   15 分钟  换渠道（浮层、语音念出来）。渠道是手机侧执行的，这里只把
 //            stage='channel' 写进账本当意图；P4 接浮层/语音时读它。
 //            插件不假装自己换了渠道。
-//   连续 2 次没接  本轮停下，把"几点、哪类球被漠视了"记进账本，下次拿它当素材。
+//   连续 3 次没接（阶梯走完）  本轮停下，歇 3 小时再开始，把"几点、哪类球被漠视了"记进账本，下次拿它当素材。
 //
 // shortcut: 只看账本里这条发球有没有回球，不区分"没看到"和"看到不理"——
 // 两者对阶梯的选择其实一样（都要换更轻的球）。真要分开，得让 App 把
@@ -19,8 +19,14 @@ export const LADDER = [
   { atMs: 15 * 60_000, stage: 'channel' },
 ]
 
-/** 连续这么多次没接，本轮就停下，不再追。 */
-export const NO_TAKE_LIMIT = 2
+/**
+ * 连续这么多次没接，本轮就停下，不再追：原球 + 轻球 + 换渠道那一球，三次。
+ * 以前是 2，可阶梯每一级都要发一球，2 次就停意味着 15 分钟换渠道那一级在正常时序下永远走不到。
+ */
+export const NO_TAKE_LIMIT = 3
+
+/** 停下之后歇多久重新开始：最后一球过去这么久，旧账清零，按新的一轮算。 */
+export const REST_MS = 3 * 3_600_000
 
 /** "更轻"的球：小挑战和闲聊。观点挑衅、复盘这些更重，没接球时先不用。 */
 export const LIGHTER_TYPES = ['challenge', 'chat']
@@ -43,37 +49,65 @@ function serves(entries, sessionId) {
   return out
 }
 
+/** 某一球发的时候走到阶梯哪一级（generated 那条没带时，看同一 requestId 的其他条）。 */
+function stageOf(entries, serve) {
+  if (typeof serve.silence === 'string') return serve.silence
+  for (const e of entries) if (e && e.requestId === serve.requestId && typeof e.silence === 'string') return e.silence
+  return ''
+}
+
 /**
  * 现在该按哪一级走。
  *
- * @returns {{stage: 'none'|'wait'|'lighter'|'channel'|'stop', sinceMs: number, noTake: number, serveType: string}}
- *   none    最近这一球被接了，正常发球
- *   wait    发出去了还没到 5 分钟
+ * 时间从这一串没接的球里**第一球**算起：5 分钟换轻球、15 分钟换渠道，每一级只走一次；
+ * 错过了（比如锁屏一直发不出去）就直接跳到够得着的最高一级。
+ *
+ * @returns {{stage: 'none'|'wait'|'lighter'|'channel'|'stop', sinceMs: number, noTake: number, serveType: string, nextAt?: number}}
+ *   none    最近这一球被接了（或歇够了），正常发球
+ *   wait    还没到下一级；nextAt 是下一级的时间
  *   lighter 到 5 分钟了，换更轻的球
  *   channel 到 15 分钟了，换渠道
- *   stop    连续 NO_TAKE_LIMIT 次没接，停下
+ *   stop    阶梯走完了 / 连续 NO_TAKE_LIMIT 次没接，停下
  */
-export function silenceState(entries, { sessionId, now, ladder = LADDER, limit = NO_TAKE_LIMIT } = {}) {
+export function silenceState(entries, { sessionId, now, ladder = LADDER, limit = NO_TAKE_LIMIT, restMs = REST_MS } = {}) {
   const at = Number(now) || Date.now()
-  const list = serves(Array.isArray(entries) ? entries : [], sessionId)
+  const all = Array.isArray(entries) ? entries : []
+  const list = serves(all, sessionId)
   if (!list.length) return { stage: 'none', sinceMs: 0, noTake: 0, serveType: '' }
 
-  // 一条接一条往回数：连着几条没接。
-  let noTake = 0
-  for (const s of list) {
-    if (answered(entries, s.requestId)) break
-    noTake += 1
-  }
   const last = list[0]
-  const sinceMs = Math.max(0, at - (Number(last.at) || 0))
   const serveType = String(last.serveType || '')
+  const sinceLast = Math.max(0, at - (Number(last.at) || 0))
   // 最后这一球已经被接了：阶梯到此为止，别拿旧账继续催。
-  if (answered(entries, last.requestId)) return { stage: 'none', sinceMs, noTake: 0, serveType }
-  if (noTake >= limit) return { stage: 'stop', sinceMs, noTake, serveType }
-  for (let i = ladder.length - 1; i >= 0; i -= 1) {
+  if (answered(all, last.requestId)) return { stage: 'none', sinceMs: sinceLast, noTake: 0, serveType }
+  // 歇够了：旧账清零。否则一旦停下就再也没有新球，也就永远等不到"接住"来解锁。
+  if (sinceLast >= restMs) return { stage: 'none', sinceMs: sinceLast, noTake: 0, serveType }
+
+  // 一条接一条往回数：连着几条没接（中间隔了一个歇息期的不算同一串）。
+  const streak = []
+  for (const s of list) {
+    if (answered(all, s.requestId)) break
+    if (streak.length && Number(streak[streak.length - 1].at) - Number(s.at) >= restMs) break
+    streak.push(s)
+  }
+  const noTake = streak.length
+  const first = streak[streak.length - 1]
+  const sinceMs = Math.max(0, at - (Number(first.at) || 0))
+  // 停下时 nextAt 是歇够的时间：到点旧账清零，重新开始。
+  const restAt = (Number(last.at) || at) + restMs
+  if (noTake >= limit) return { stage: 'stop', sinceMs, noTake, serveType, nextAt: restAt }
+
+  // 这一串里已经走过的最高一级；下一级只能比它高。
+  let used = -1
+  for (const s of streak) {
+    const i = ladder.findIndex((l) => l.stage === stageOf(all, s))
+    if (i > used) used = i
+  }
+  if (used >= ladder.length - 1) return { stage: 'stop', sinceMs, noTake, serveType, nextAt: restAt }
+  for (let i = ladder.length - 1; i > used; i -= 1) {
     if (sinceMs >= ladder[i].atMs) return { stage: ladder[i].stage, sinceMs, noTake, serveType }
   }
-  return { stage: 'wait', sinceMs, noTake, serveType }
+  return { stage: 'wait', sinceMs, noTake, serveType, nextAt: (Number(first.at) || at) + ladder[used + 1].atMs }
 }
 
 /** 被漠视的那类球少发、接住的类型多发。返回 type -> 权重（最小 1）。 */

@@ -120,6 +120,7 @@ object BuiltinPluginGuest {
                 "lib/judge.js",
                 "lib/silence.js",
                 "lib/persona.js",
+                "lib/phone.js",
             ),
         ),
     )

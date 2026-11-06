@@ -1,6 +1,7 @@
 package io.github.ccch1mneyyy.dsh_app.loop.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -48,5 +49,13 @@ class AgentWireTest {
         assertEquals(10_000L, body["deadlineMs"])
         assertEquals(setOf("v", "requestId", "eventId", "kind", "payload", "deadlineMs"), body.keys)
         assertEquals(5_000L, AgentWire.requestBody(Command.RequestAgent("e", "r", 10, req), 9)["deadlineMs"])
+    }
+
+    @Test fun requestBodyCarriesThePhoneOnlyWhenKnown() {
+        val req = EventRequest("evt-00000001", "SCHEDULER", "random_chat", "k", createdAt = 0, needsAgent = true)
+        val cmd = Command.RequestAgent("evt-00000001", "req-00000001", 1_000_000, req)
+        val phone = mapOf("app" to "tv.danmaku.bili", "minutes" to 23)
+        assertEquals(phone, AgentWire.requestBody(cmd, 990_000, phone)["phone"])
+        assertFalse("unknown stays out of the body", "phone" in AgentWire.requestBody(cmd, 990_000, null))
     }
 }

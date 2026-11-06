@@ -27,11 +27,15 @@ object AgentWire {
         data class Retry(val afterMs: Long, val reason: String) : Decoded
     }
 
-    /** Body of POST /request. Replaying it with the same requestId is safe: the plugin never sends twice. */
-    fun requestBody(cmd: Command.RequestAgent, now: Long): Map<String, Any?> = linkedMapOf(
+    /**
+     * Body of POST /request. Replaying it with the same requestId is safe: the plugin never sends twice.
+     * [phone] is what the phone knows right now (front app, minutes, today's totals; never screen
+     * text); null means unknown, and the plugin then writes nothing about it.
+     */
+    fun requestBody(cmd: Command.RequestAgent, now: Long, phone: Map<String, Any?>? = null): Map<String, Any?> = linkedMapOf<String, Any?>(
         "v" to 1, "requestId" to cmd.requestId, "eventId" to cmd.eventId, "kind" to cmd.request.kind,
         "payload" to cmd.request.payload, "deadlineMs" to (cmd.deadline - now).coerceIn(5_000, 120_000),
-    )
+    ).also { if (phone != null) it["phone"] = phone }
 
     fun resultPath(requestId: String, waitMs: Long = POLL_WAIT_MS) = "$PREFIX/result?requestId=$requestId&waitMs=$waitMs"
 

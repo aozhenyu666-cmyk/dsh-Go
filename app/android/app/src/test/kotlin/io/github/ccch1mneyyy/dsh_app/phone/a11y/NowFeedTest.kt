@@ -66,4 +66,30 @@ class NowFeedTest {
         NowFeed.onCharging(false, 3_000L)
         assertFalse(NowFeed.snapshot(4_000L).charging)
     }
+
+    @Test
+    fun todayAddsUpEachAppAcrossSwitchesAndScreenOff() {
+        NowFeed.reset()
+        NowFeed.onApp("tv.danmaku.bili", 0L)
+        NowFeed.onApp("com.tencent.mm", 10 * 60_000L)
+        NowFeed.onApp("tv.danmaku.bili", 15 * 60_000L)
+        NowFeed.onScreen(false, 20 * 60_000L)
+        NowFeed.onScreen(true, 60 * 60_000L)
+        NowFeed.onApp("com.xingin.xhs", 60 * 60_000L)
+
+        val top = NowFeed.today(63 * 60_000L, day = 1L)
+        assertEquals(listOf("tv.danmaku.bili" to 15, "com.tencent.mm" to 5, "com.xingin.xhs" to 3), top)
+    }
+
+    @Test
+    fun aNewDayStartsFromZeroButKeepsTheRunningApp() {
+        NowFeed.reset()
+        val t0 = 1_000L
+        NowFeed.onApp("tv.danmaku.bili", t0)
+        assertEquals(listOf("tv.danmaku.bili" to 30), NowFeed.today(t0 + 30 * 60_000L, day = 1L))
+        val next = NowFeed.today(t0 + 40 * 60_000L, day = 2L)
+        assertTrue(next.isEmpty())
+        assertEquals(listOf("tv.danmaku.bili" to 5), NowFeed.today(t0 + 45 * 60_000L, day = 2L))
+        assertEquals("dwell is not cut by midnight", 45, NowFeed.snapshot(t0 + 45 * 60_000L).appMinutes)
+    }
 }
