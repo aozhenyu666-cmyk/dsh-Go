@@ -34,6 +34,7 @@ import {
   markGenerated,
   markUsed,
   nextTopic,
+  nextTopicAt,
   publicTopic,
   saveGarden,
   seedFromCommitments,
@@ -495,6 +496,9 @@ export function apply(ctx) {
         }
         if (path === '/request') {
           const r = await desk.request(body.value)
+          if (r.status >= 400) {
+            console.error('[companion] request refused ' + r.status + ' ' + String(r.body?.error?.code || ''))
+          }
           return send(res, r.status, r.body)
         }
         if (path === '/cancel') {
@@ -539,7 +543,7 @@ export function apply(ctx) {
   function planRoute(body) {
     const now = Date.now()
     const sessionId = typeof body?.sessionId === 'string' && body.sessionId ? body.sessionId : config.sessionId
-    if (!sessionId) return { v: 1, speak: false, reason: 'no-session', topic: null }
+    if (!sessionId) return { v: 1, speak: false, reason: 'no-session', topic: null, nextCheckAt: now + 6 * 3_600_000 }
     const db = openMemoryDb(memoryPath())
     let candidates = { topics: [], facts: [], episodes: [] }
     try {
@@ -569,6 +573,7 @@ export function apply(ctx) {
       sentToday: recent.counts.generated,
       lastAt: recent.lastAt,
       roll: body?.roll,
+      nextTopicAt: nextTopicAt(garden, now),
     })
     return { v: 1, ...out, sessionId }
   }

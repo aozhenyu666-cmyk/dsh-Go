@@ -166,6 +166,24 @@ class ProactiveScheduler(
         persist()
     }
 
+    /**
+     * Companion /plan says the next topic is eligible at [at]. Keep one scheduler and one alarm:
+     * move the existing next check there instead of adding a second timer.
+     */
+    fun setNextDueAt(at: Long, now: Clocks) = synchronized(lock) {
+        if (!config.enabled || state.pendingEventId != null) return
+        val wall = at.coerceAtLeast(now.wall + 60_000)
+        state = state.copy(
+            nextDueWall = wall,
+            nextDueElapsed = now.elapsed + (wall - now.wall),
+            planBoot = now.boot,
+            planWall = now.wall,
+            planElapsed = now.elapsed,
+            lastReason = "companion_plan",
+        )
+        persist()
+    }
+
     /** Deterministic: the same state and clocks give the same answer. [force] is the user's 「现在试一次」. */
     fun evaluate(now: Clocks, force: Boolean = false): Decision = synchronized(lock) {
         val s = state

@@ -172,7 +172,11 @@ object ProactiveRuntime {
         dispatch(c.setGate(gate()))
         when (val d = s.evaluate(clocks(), force)) {
             is ProactiveScheduler.Decision.Fire -> submit(d.request, fromScheduler = true)
-            is ProactiveScheduler.Decision.Wait -> Unit
+            is ProactiveScheduler.Decision.Wait -> {
+                arm()
+                // 让 companion 的 nextEligibleAt 决定下一次检查；仍复用这一个 scheduler/alarm。
+                if (d.reason != "pending") consultPlanSoon()
+            }
         }
         arm()
         Log.d(TAG, "tick $reason")
@@ -225,7 +229,11 @@ object ProactiveRuntime {
         // deliberately *not* user activity: acknowledging is not answering, so it must not defer
         // the next attempt the way an answer does.
         if (report == SurfaceReport.Acked && before != null) scheduler?.onAcked(before.eventId, clocks())
-        if (report is SurfaceReport.Answered || report == SurfaceReport.Dismissed) scheduler?.onUserActivity(clocks())
+        if (report is SurfaceReport.Answered || report == SurfaceReport.Dismissed) {
+            scheduler?.onUserActivity(clocks())
+            // 人的回应会改变 garden 的 nextEligibleAt（2h / 12h / done），马上重新问一次。
+            consultPlanSoon()
+        }
     }
 
     /** Fire-and-forget: one delivery receipt for the companion ledger; a missing plugin is harmless. */
@@ -239,6 +247,35 @@ object ProactiveRuntime {
     private fun reportOutcome(requestId: String, stage: String) {
         if (requestId.isBlank() || !reportedOutcomes.add(requestId + ":" + stage)) return
         fetchPluginRoute(ignoreResult, "POST", "/outcome", linkedMapOf("requestId" to requestId, "stage" to stage))
+    }
+
+    private var lastPlanConsult = 0L
+    private val planResult = object : io.flutter.plugin.common.MethodChannel.Result {
+        override fun success(result: Any?) {
+            main.post { applyPlan(result) }
+        }
+        override fun error(code: String, message: String?, details: Any?) {}
+        override fun notImplemented() {}
+    }
+
+    /**
+     * Ask the companion when the next topic is eligible and move the single scheduler alarm there.
+     * This is the only bridge between garden.nextEligibleAt and AlarmManager; no second timer.
+     */
+    private fun consultPlanSoon() {
+        if (agentPort == null) return
+        val now = System.currentTimeMillis()
+        if (now - lastPlanConsult < 60_000) return
+        lastPlanConsult = now
+        fetchPluginRoute(planResult, "POST", "/plan", linkedMapOf("roll" to 100))
+    }
+
+    private fun applyPlan(raw: Any?) {
+        val map = raw as? Map<*, *> ?: return
+        val at = (map["nextCheckAt"] as? Number)?.toLong() ?: return
+        if (at <= 0) return
+        scheduler?.setNextDueAt(at, clocks())
+        arm()
     }
 
     /** Dart reports one HTTP answer from the plugin; status 0 = no answer. */

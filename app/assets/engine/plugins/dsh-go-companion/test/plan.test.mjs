@@ -23,6 +23,20 @@ test('关闭、安静、日上限、冷却、无话题都返回具体原因', ()
   assert.equal(plan({ config: { enabled: true }, now: NOW, topic: null, roll: 0 }).reason, 'no-topic')
 })
 
+test('nextCheckAt：安静结束、冷却结束、下一次话题到期', () => {
+  const quiet = plan({ config: { enabled: true, quietStart: 19, quietEnd: 21 }, now: NOW, topic, roll: 0 })
+  assert.equal(quiet.reason, 'quiet')
+  assert.equal(quiet.nextCheckAt, Date.parse('2026-11-05T21:00:00+08:00'))
+
+  const cool = plan({ config: { enabled: true, minGapMs: 3_600_000 }, now: NOW, topic, lastAt: NOW - 60_000, roll: 0 })
+  assert.equal(cool.reason, 'cooldown')
+  assert.equal(cool.nextCheckAt, NOW - 60_000 + 3_600_000)
+
+  const none = plan({ config: { enabled: true }, now: NOW, topic: null, nextTopicAt: NOW + 3 * 3_600_000, roll: 0 })
+  assert.equal(none.reason, 'no-topic')
+  assert.equal(none.nextCheckAt, NOW + 3 * 3_600_000)
+})
+
 test('掷骰：低于命中线才开口', () => {
   assert.equal(plan({ config: { enabled: true, diceThreshold: 60 }, now: NOW, topic, roll: 59 }).speak, true)
   assert.equal(plan({ config: { enabled: true, diceThreshold: 60 }, now: NOW, topic, roll: 60 }).speak, false)

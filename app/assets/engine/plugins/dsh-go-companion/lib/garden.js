@@ -99,10 +99,13 @@ function addOrMerge(garden, input, now) {
   if (!title) return null
   const sameId = garden.topics.find((t) => t.id === input.id)
   if (sameId) {
-    // A memory topic that already finished can come back after the person talks about it again.
     if (sameId.status === 'done') {
+      // 结束的话题不会因为记忆里还挂着 open 就复活：只有新的触碰时间或显式 reopen 才算。
+      const fresh = input.reopen === true || (Number(input.lastTouchAt) > Number(sameId.updatedAt))
+      if (!fresh) return sameId
       sameId.status = 'candidate'
       sameId.attempts = 0
+      sameId.avoidStreak = 0
       sameId.nextEligibleAt = 0
     }
     sameId.title = title
@@ -138,12 +141,14 @@ function addOrMerge(garden, input, now) {
     status: 'candidate',
     interest: Math.max(0, Math.min(2, Number(input.interest) || 1)),
     attempts: 0,
+    avoidStreak: 0,
     usedCount: 0,
     createdAt: now,
     updatedAt: now,
     lastUsedAt: 0,
     nextEligibleAt: Number(input.nextEligibleAt) || 0,
     lastReplyClass: '',
+    lastSentSummary: '',
     lastSummary: '',
     dueAt: Number(input.dueAt) || 0,
   }
@@ -162,6 +167,7 @@ export function seedFromMemory(garden, candidates, now) {
       detail: String(t.detail || ''),
       source: 'memory.topic',
       interest: Number(t.priority) >= 2 ? 2 : 1,
+      lastTouchAt: Number(t.last_touch_at) || 0,
     }, now)
   }
   for (const e of candidates.episodes || []) {
@@ -270,15 +276,19 @@ export function markUsed(garden, topicId, now) {
 export function markGenerated(garden, topicId, text, now) {
   const t = garden.topics.find((x) => x.id === topicId)
   if (!t) return null
-  t.lastSummary = String(text || '').replace(/\s+/g, ' ').slice(0, 200)
+  // AI 单方面说出的话只算“发过”，不算“聊过”；只有实质回应后才升级成 lastSummary。
+  t.lastSentSummary = String(text || '').replace(/\s+/g, ' ').slice(0, 200)
   t.updatedAt = now
   return t
 }
 
 /**
  * 交流结果 → 话题状态。
- * substantive: 继续；brief: 换轻一点、2 小时后再试；avoid: 保留但 12 小时后再试；
- * refuse: 停这个话题 24 小时；none: 有限跟进（第一次 4 小时，第二次 24 小时）。
+ * substantive: 继续，并把刚才那轮记成“聊过”；
+ * brief: 换轻一点、2 小时后再试；
+ * avoid: 12 小时后再试；连续两次回避改为 24 小时，不消耗无回应额度；
+ * refuse: 结束这个话题；
+ * none: 有限跟进（第一次 4 小时，第二次后冷却一周）。
  */
 export function applyReply(garden, topicId, replyClass, now) {
   const t = garden.topics.find((x) => x.id === topicId)
@@ -289,20 +299,27 @@ export function applyReply(garden, topicId, replyClass, now) {
     case 'substantive':
       t.status = 'active'
       t.attempts = 0
+      t.avoidStreak = 0
+      if (t.lastSentSummary) {
+        t.lastSummary = t.lastSentSummary
+        t.lastSentSummary = ''
+      }
       t.nextEligibleAt = now
       break
     case 'refuse':
       t.status = 'done'
       t.attempts = MAX_ATTEMPTS
+      t.avoidStreak = 0
       t.nextEligibleAt = 0
       break
     case 'avoid':
       t.status = 'paused'
-      t.attempts = (Number(t.attempts) || 0) + 1
-      t.nextEligibleAt = now + 12 * 3_600_000
+      t.avoidStreak = (Number(t.avoidStreak) || 0) + 1
+      t.nextEligibleAt = now + (t.avoidStreak >= 2 ? DAY : 12 * 3_600_000)
       break
     case 'brief':
       t.status = 'paused'
+      t.avoidStreak = 0
       t.nextEligibleAt = now + 2 * 3_600_000
       break
     default:
@@ -340,8 +357,19 @@ export function closeTopic(garden, topicId, status, now) {
   return t
 }
 
-export function gardenStats(garden, now = Date.now()) {
-  const counts = { candidate: 0, active: 0, paused: 0, done: 0 }
+/** 下一次有话题可聊的时间；用于 /plan 告诉 Android 什么时候再来检查。 */
+export function nextTopicAt(garden, now, fallbackMs = 6 * 3_600_000) {
+  let next = Infinity
+  for (const t of garden.topics) {
+    if (t.status === 'done') continue
+    if (Number(t.attempts) >= MAX_ATTEMPTS) continue
+    const at = Number(t.nextEligibleAt) || 0
+    if (at > now && at < next) next = at
+  }
+  return Number.isFinite(next) ? next : now + fallbackMs
+}
+
+export function gardenStats(garden, now = Date.now()) {  const counts = { candidate: 0, active: 0, paused: 0, done: 0 }
   for (const t of garden.topics) if (Object.hasOwn(counts, t.status)) counts[t.status] += 1
   const ready = garden.topics.filter(
     (t) => t.status !== 'done' && Number(t.nextEligibleAt) <= now && Number(t.attempts) < MAX_ATTEMPTS,
@@ -362,5 +390,6 @@ export function publicTopic(t) {
     lastUsedAt: t.lastUsedAt,
     nextEligibleAt: t.nextEligibleAt,
     lastReplyClass: t.lastReplyClass,
+    lastSummary: t.lastSummary || '',
   }
 }

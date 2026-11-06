@@ -20,6 +20,21 @@ export function inQuiet(now, startHour, endHour) {
   return a < b ? m >= a && m < b : m >= a || m < b
 }
 
+function quietEndAt(now, startHour, endHour) {
+  const end = Number.isFinite(Number(endHour)) ? Math.round(Number(endHour)) : 8
+  const d = new Date(now)
+  d.setHours(end, 0, 0, 0)
+  if (d.getTime() <= now) d.setDate(d.getDate() + 1)
+  return d.getTime()
+}
+
+function nextDayAt(now) {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + 1)
+  return d.getTime()
+}
+
 /**
  * @param {{config: object, now: number, topic: object|null, sentToday: number, lastAt: number, roll: number}} input
  * @returns {{speak: boolean, reason: string, topic: object|null}}
@@ -27,17 +42,33 @@ export function inQuiet(now, startHour, endHour) {
 export function plan(input) {
   const c = input.config || {}
   const now = Number(input.now) || Date.now()
-  if (c.enabled === false) return { speak: false, reason: 'disabled', topic: null }
-  if (inQuiet(now, c.quietStart, c.quietEnd)) return { speak: false, reason: 'quiet', topic: null }
-  const dailyMax = Math.max(0, Number(c.dailyMax) || 0)
-  if (dailyMax > 0 && Number(input.sentToday) >= dailyMax) return { speak: false, reason: 'daily_max', topic: null }
   const minGap = Math.max(0, Number(c.minGapMs) || 0)
-  if (minGap > 0 && Number(input.lastAt) > 0 && now - Number(input.lastAt) < minGap) {
-    return { speak: false, reason: 'cooldown', topic: null }
+  const fromTopic = Number(input.nextTopicAt) || 0
+  if (c.enabled === false) {
+    return { speak: false, reason: 'disabled', topic: null, nextCheckAt: now + 6 * 3_600_000 }
   }
-  if (!input.topic) return { speak: false, reason: 'no-topic', topic: null }
+  if (inQuiet(now, c.quietStart, c.quietEnd)) {
+    return { speak: false, reason: 'quiet', topic: null, nextCheckAt: quietEndAt(now, c.quietStart, c.quietEnd) }
+  }
+  const dailyMax = Math.max(0, Number(c.dailyMax) || 0)
+  if (dailyMax > 0 && Number(input.sentToday) >= dailyMax) {
+    return { speak: false, reason: 'daily_max', topic: null, nextCheckAt: nextDayAt(now) }
+  }
+  if (minGap > 0 && Number(input.lastAt) > 0 && now - Number(input.lastAt) < minGap) {
+    return { speak: false, reason: 'cooldown', topic: null, nextCheckAt: Number(input.lastAt) + minGap }
+  }
+  if (!input.topic) {
+    return {
+      speak: false,
+      reason: 'no-topic',
+      topic: null,
+      nextCheckAt: fromTopic > now ? fromTopic : now + 6 * 3_600_000,
+    }
+  }
   const threshold = Math.min(100, Math.max(0, Number(c.diceThreshold ?? 60)))
   const roll = Number.isFinite(Number(input.roll)) ? Number(input.roll) : randomInt(1000) / 10
-  if (roll >= threshold) return { speak: false, reason: 'dice', topic: null }
-  return { speak: true, reason: 'ok', topic: input.topic }
+  if (roll >= threshold) {
+    return { speak: false, reason: 'dice', topic: null, nextCheckAt: now + Math.max(minGap, 30 * 60_000) }
+  }
+  return { speak: true, reason: 'ok', topic: input.topic, nextCheckAt: now + Math.max(minGap, 30 * 60_000) }
 }

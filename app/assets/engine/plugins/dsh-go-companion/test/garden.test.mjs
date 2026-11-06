@@ -104,11 +104,20 @@ test('正常聊天里发现新话题：每天最多 3 条', () => {
   assert.equal(g.topics.length, 3)
 })
 
-test('生成后保存摘要，供下一次接着聊', () => {
+test('生成后保存摘要，只有实质回应后才算“聊过”', () => {
   const g = emptyGarden()
   addTopic(g, { title: '面试结果', kind: 'continue' }, NOW)
-  markGenerated(g, g.topics[0].id, '周五出结果，她说有点紧张', NOW)
+  const id = g.topics[0].id
+  markGenerated(g, id, '周五出结果，她说有点紧张', NOW)
+  assert.match(g.topics[0].lastSentSummary, /周五出结果/)
+  assert.equal(g.topics[0].lastSummary, '')
+  applyReply(g, id, 'substantive', NOW + 1000)
   assert.match(g.topics[0].lastSummary, /周五出结果/)
+  assert.equal(g.topics[0].lastSentSummary, '')
+
+  markGenerated(g, id, '第二轮只说了一半', NOW + 2000)
+  applyReply(g, id, 'brief', NOW + 3000)
+  assert.match(g.topics[0].lastSummary, /周五出结果/) // 没被单方面的话覆盖
 })
 
 test('关闭与统计', () => {
@@ -119,6 +128,33 @@ test('关闭与统计', () => {
   const s = gardenStats(g, NOW)
   assert.equal(s.done, 1)
   assert.equal(s.candidate, 1)
+})
+
+test('结束的话题不会因为记忆仍是 open 就复活；新触碰才复活', () => {
+  const g = emptyGarden()
+  seedFromMemory(g, { topics: [{ id: 't1', title: '面试结果', priority: 2, last_touch_at: NOW - 10_000 }], episodes: [] }, NOW)
+  closeTopic(g, 'topic:t1', 'done', NOW)
+  const updated = g.topics[0].updatedAt
+  // 旧的 last_touch_at：保持 done
+  seedFromMemory(g, { topics: [{ id: 't1', title: '面试结果', priority: 2, last_touch_at: NOW - 20_000 }], episodes: [] }, NOW + 1000)
+  assert.equal(g.topics[0].status, 'done')
+  // 新的触碰时间：允许重新候选
+  seedFromMemory(g, { topics: [{ id: 't1', title: '面试结果', priority: 2, last_touch_at: updated + 1 }], episodes: [] }, NOW + 2000)
+  assert.equal(g.topics[0].status, 'candidate')
+})
+
+test('连续回避：24 小时后恢复，不消耗无回应额度', () => {
+  const g = emptyGarden()
+  addTopic(g, { title: '面试结果', kind: 'continue', interest: 2 }, NOW)
+  const id = g.topics[0].id
+  markUsed(g, id, NOW)
+  applyReply(g, id, 'avoid', NOW + 1000)
+  assert.equal(g.topics[0].attempts, 0)
+  applyReply(g, id, 'avoid', NOW + 2000)
+  assert.equal(g.topics[0].attempts, 0)
+  assert.ok(g.topics[0].nextEligibleAt >= NOW + 24 * 3_600_000 - 1000)
+  assert.equal(nextTopic(g, { now: NOW + 13 * 3_600_000 }), null)
+  assert.ok(nextTopic(g, { now: NOW + 25 * 3_600_000 }))
 })
 
 test('持久化：写入后重新读回', () => {

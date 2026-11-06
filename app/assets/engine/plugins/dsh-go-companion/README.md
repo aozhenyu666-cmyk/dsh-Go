@@ -71,6 +71,17 @@
 正常聊天里，模型可以调用 `companion_topic` 工具（`add/list/done/pause`）把
 “以后还想聊的事”放进花园；主动回合内工具仍被硬拦。
 
+### P1.3 调度闭环（同一只闹钟）
+
+- `/plan` 额外返回 `nextCheckAt`（话题到期 / 冷却结束 / 安静结束 / 次日额度）。
+- 原生 `ProactiveRuntime` 在 tick 等待、以及用户回答/划掉之后调用 `/plan`，
+  把下一次检查写回唯一的 `ProactiveScheduler` 并重新 arm，不新增第二套定时器。
+- 已结束的话题不会因为记忆仍是 open 就复活；只有 `lastTouchAt` 比结束时间新，
+  或显式 `reopen`，才会重新成为候选。
+- 连续回避不消耗无回应额度：第一次 12h，第二次 24h，之后仍可回到候选。
+- `lastSentSummary` 只代表 AI 单方面发过；只有实质回应后才升级成 `lastSummary`，
+  下次 prompt 不会把“我说过”说成“我们聊过”。
+
 ## 部署
 
 作为内置插件放在 APK assets，由 `BuiltinPluginGuest` 每次启动铺到
@@ -80,7 +91,7 @@
 ## 验证
 
 ```bash
-cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs   # 41 项
+cd app/assets/engine/plugins/dsh-go-companion && node --test test/*.test.mjs   # 44 项
 ```
 
 真机：设置 → 手机操控 → 主动搭话 → 开启（会自动选一个空闲会话）→「现在试一次」；
