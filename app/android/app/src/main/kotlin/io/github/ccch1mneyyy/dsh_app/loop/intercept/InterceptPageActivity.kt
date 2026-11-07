@@ -351,9 +351,10 @@ class InterceptPageActivity : Activity() {
                 setPadding(0, dp(8), 0, dp(12))
             })
             // 大肥鱼自己的理由（/plan 的 force.why），不是一句固定的"娱乐拦截"。
-            if (!why.isNullOrBlank()) {
+            val whyLine = why
+            if (!whyLine.isNullOrBlank()) {
                 addView(TextView(ctx).apply {
-                    text = AppStrings.get(ctx, R.string.proactive_overlay_reply, why)
+                    text = AppStrings.get(ctx, R.string.proactive_overlay_reply, whyLine)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                     setTextColor(palette.onTonal)
                     setPadding(dp(12), dp(9), dp(12), dp(9))

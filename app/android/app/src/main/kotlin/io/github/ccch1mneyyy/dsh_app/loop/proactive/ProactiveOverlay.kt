@@ -139,7 +139,7 @@ object ProactiveOverlay {
         private var bubble: View? = null
         private var lastText = ""
         private var lastWhy: String? = null
-        private val slow = Runnable { setStatus(AppStrings.get(app, R.string.proactive_slow_model)) }
+        private val slow = Runnable { setStatus(AppStrings.get(app, R.string.proactive_overlay_slow_model)) }
         private val shrink = Runnable { collapse() }
 
         fun attach(text: String, why: String?) {

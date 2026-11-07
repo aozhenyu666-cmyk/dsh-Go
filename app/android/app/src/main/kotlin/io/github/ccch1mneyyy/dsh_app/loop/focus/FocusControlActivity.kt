@@ -116,7 +116,7 @@ class FocusControlActivity : Activity() {
         })
         val search = EditText(this).apply {
             hint = "搜索应用"
-            singleLine = true
+            isSingleLine = true
             textSize = 15f
             setTextColor(p.text)
             setHintTextColor(p.faint)
