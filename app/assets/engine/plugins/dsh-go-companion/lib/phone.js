@@ -78,7 +78,8 @@ export function cleanPhone(raw) {
       const pkg = pkgOf(t.app)
       const minutes = minutesOf(t.minutes)
       if (!pkg || !minutes) continue
-      today.push({ app: pkg, label: labelOf(pkg, t.label), minutes, fun: funOf(pkg, t.fun) })
+      const opens = Number.isFinite(Number(t.opens)) && Number(t.opens) > 0 ? Math.min(999, Math.round(Number(t.opens))) : undefined
+      today.push({ app: pkg, label: labelOf(pkg, t.label), minutes, fun: funOf(pkg, t.fun), ...(opens ? { opens } : {}) })
     }
   }
   const local = typeof raw.local === 'string' && /^\d{2}:\d{2}$/.test(raw.local) ? raw.local : ''
@@ -140,7 +141,7 @@ export function phoneLines(phone) {
   }
   // 今天整体用在哪（巡逻时判断他是不是在晃）：前 5 个，不只娱乐类。
   const top = [...phone.today].sort((a, b) => b.minutes - a.minutes).slice(0, 5).filter((t) => t.minutes > 0)
-  if (top.length) facts.push('今天手机用得最多：' + top.map((t) => t.label + ' ' + t.minutes + ' 分钟').join('、'))
+  if (top.length) facts.push('今天手机用得最多：' + top.map((t) => t.label + ' ' + t.minutes + ' 分钟' + (t.opens ? '（打开 ' + t.opens + ' 次）' : '')).join('、'))
   if (phone.charging) facts.push('手机正在充电')
   if (phone.local) facts.push('他那边现在 ' + phone.local)
   if (!facts.length) return []

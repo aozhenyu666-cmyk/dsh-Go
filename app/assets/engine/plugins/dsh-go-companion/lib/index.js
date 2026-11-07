@@ -58,6 +58,8 @@ import { decideForce, forceLines, refuseSwitch } from './force.js'
 import { BUSY_CHECK_MS, aiTask, applyGear, effectiveGear, gearLines, gearSwitch } from './gear.js'
 import { trustGap, trustLines, trustScore } from './trust.js'
 import { buildSnapshot, sistersView } from './panel.js'
+import { kbDir, kbWrite, knowledgeLines, scanUnfinished } from './notes.js'
+import { NIGHT_LOCK_TO, ROLL_MS, closeGates, localMinute, rhythmLines, trackRhythm } from './rhythm.js'
 import { GEMINI_PACKAGES, geminiBrief, geminiLines, geminiMode, geminiSteps, recapMarkdown, trackGemini } from './gemini.js'
 
 export const name = 'dsh-go-companion'
@@ -70,8 +72,9 @@ const MAX_BODY = 16 * 1024
 const DEFAULTS = Object.freeze({
   enabled: true,
   sessionId: undefined,
-  quietStart: 1,
-  quietEnd: 8,
+  // 安静时段 2–7 点（她们不说话）；0:30 以后娱乐照样锁（见 rhythm.js）。
+  quietStart: 2,
+  quietEnd: 7,
   // 整体高频（闲时档）：最短 18 分钟一次、每小时 4、每天 40，骰子 85 基本都开口。设置页可改。
   dailyMax: 40,
   // 每小时上限：阶梯换法子时 minGap 会被压过，靠它兜住"别连着砸"。
@@ -134,6 +137,8 @@ function readConfig() {
     merged.companionName = DEFAULTS.companionName
     merged.strategistName = DEFAULTS.strategistName
   }
+  // 上一版的默认安静时段 1–8 点：深夜 1 点正是该管的时候，没改过就换成 2–7。
+  if (merged.quietStart === 1 && merged.quietEnd === 8) Object.assign(merged, { quietStart: 2, quietEnd: 7 })
   // 上一版的默认频率（每天 6、每小时 3、45 分钟、骰子 60）也会随 /config 写进配置：没改过就升到现在的高频默认。
   if (merged.dailyMax === 6 && merged.hourlyMax === 3 && merged.minGapMs === 45 * 60_000 && merged.diceThreshold === 60) {
     Object.assign(merged, { dailyMax: DEFAULTS.dailyMax, hourlyMax: DEFAULTS.hourlyMax, minGapMs: DEFAULTS.minGapMs, diceThreshold: DEFAULTS.diceThreshold })
@@ -531,7 +536,7 @@ export function apply(ctx) {
           role: 'strategist',
           reason: why.reason,
           note: why.reason === 'handoff' ? note?.text : why.note,
-          busy: why.busy,
+          busy: why.digest === true ? { ...(why.busy || {}), digest: why.digestText || (why.digestText = takeDigest()) } : why.busy,
           contact: contactLines(readLedger(home(), 400), now),
           gemini: why.gemini,
           phone: cleanPhone(req?.phone),
@@ -783,6 +788,13 @@ export function apply(ctx) {
         lastHumanAt.set(String(session?.id || ''), Date.now())
         // 落进账本：引擎重启也知道他刚说过话（阶梯不会把聊过的球当成没接，发球也知道他多久前说的话）。
         record({ state: 'human', at: Date.now(), sessionId: String(session?.id || '') })
+        // 早上说了今天的 3 件事 / 晚上对了账：门关上，娱乐解锁（下一次 /plan 起）。
+        const gates = closeGates(loadRhythm(), text, Date.now())
+        if (gates.closed.length) {
+          saveRhythm(gates.state)
+          if (lastRhythm) lastRhythm = { ...lastRhythm, state: gates.state, morningGate: lastRhythm.morningGate && !gates.closed.includes('morning'), reviewGate: lastRhythm.reviewGate && !gates.closed.includes('review') }
+          record({ state: 'gate-closed', at: Date.now(), gates: gates.closed })
+        }
         // 他说"安静一小时""今天别找我"就照做：这是一句话就说清的事，不必占一次模型调用。
         const muteUntilAt = mutedUntil(text, Date.now(), { tz: config.timeZone })
         if (muteUntilAt) {
@@ -1110,6 +1122,19 @@ export function apply(ctx) {
     }
   }
   // ---------------------------------------------------------------- 档位 / Gemini / 控制
+  const loadRhythm = () => readState(stateFile('rhythm.json'), {}) || {}
+  const saveRhythm = (r) => writeJson(stateFile('rhythm.json'), r)
+  /** 最近一次 /plan 算出的作息（早上门 / 晚上门 / 深夜阶段 / 深夜锁到几点）。 */
+  let lastRhythm = null
+  const loadNotifs = () => readState(stateFile('notifs.json'), {}) || {}
+  const saveNotifs = (n) => writeJson(stateFile('notifs.json'), n)
+  /** 永远不封的：电话、短信、地图、支付、DSH 自己。 */
+  const NEVER_BLOCK = ['com.android.dialer', 'com.google.android.dialer', 'com.android.phone', 'com.android.server.telecom', 'com.android.mms',
+    'com.google.android.apps.messaging', 'com.android.contacts', 'com.autonavi.minimap', 'com.baidu.BaiduMap', 'com.google.android.apps.maps',
+    'com.tencent.map', 'com.eg.android.AlipayGphone', 'com.unionpay', 'io.github.ccch1mneyyy.dsh_app', 'io.github.ccch1mneyyy.dsh_app.fish']
+  /** 临时封禁名单（block_apps 写的）：还没到期的包名。 */
+  const blockedNow = (now) => (Array.isArray(config.blockExtra) ? config.blockExtra : [])
+    .filter((b) => b && Number(b.until) > now && !NEVER_BLOCK.includes(b.app)).map((b) => b.app)
   const loadGemini = () => readState(stateFile('gemini.json'), {}) || {}
   const saveGemini = (g) => writeJson(stateFile('gemini.json'), g)
   const loadGearState = () => readState(stateFile('gear.json'), {}) || {}
@@ -1131,6 +1156,15 @@ export function apply(ctx) {
     if (why.reason === 'busy-done' || why.reason === 'task-due') saveGearState({ ...loadGearState(), doneFor: Number(config.gearUntil) })
     if (why.reason === 'defied') pendingDefiance = null
     if (why.reason === 'restless') saveGearState({ ...loadGearState(), restlessAt: now })
+    // 任务 / 忙时结束：拦下的通知一次性交代。
+    if (why.digest === true && why.digestText === undefined) why.digestText = takeDigest()
+    if (why.reason === 'morning-gate') saveRhythm({ ...loadRhythm(), morningBall: true })
+    if (why.reason === 'review') saveRhythm({ ...loadRhythm(), reviewBall: true })
+    if (why.reason === 'night') saveRhythm({ ...loadRhythm(), nightBallAt: now })
+    if (why.reason === 'notes-chase' && why.note?.path) {
+      const gs = loadGearState()
+      saveGearState({ ...gs, chaseAt: now, chased: [...(Array.isArray(gs.chased) ? gs.chased : []), { path: why.note.path, at: now }].slice(-30) })
+    }
     if (why.reason === 'patrol') saveGearState({ ...loadGearState(), patrolAt: now, ...(why.note?.slot ? { patrolSlot: why.note.slot } : {}) })
     if (why.mark) saveGemini({ ...loadGemini(), ...why.mark })
   }
@@ -1146,7 +1180,11 @@ export function apply(ctx) {
     // 任务到点还没验收：继续锁（每次往后顺 10 分钟），直到姐姐 end_task_mode 或者兜底两小时。
     const pending = aiTask(config, now) ? Math.max(Number(config.gearUntil) || 0, now + 10 * 60_000) : 0
     if (onBreak(now)) return 0
-    return Math.max(r, session, pending)
+    // 作息：早上没说今天的 3 件事、晚上没对完账——滚动锁；深夜锁到早上 7 点。
+    const rh = lastRhythm
+    const gate = rh && (rh.morningGate || rh.reviewGate) ? now + ROLL_MS : 0
+    const night = rh && rh.night === 'lock' && Number(rh.nightUntil) > now ? Number(rh.nightUntil) : 0
+    return Math.max(r, session, pending, gate, night)
   }
   const toolOutput = {
     schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } },
@@ -1251,6 +1289,65 @@ export function apply(ctx) {
       },
     }
   }
+  /** 知识库：判断.md（她的观察和证据），我.md 只能在不存在时起草。 */
+  function kbTool(role) {
+    return {
+      name: 'kb_write',
+      description: '写笔记库 大肥鱼/ 下的文件：file=judge 整份更新 判断.md（你对他的判断和证据，保留他改过的，每次最多改 5 条）；' +
+        'file=self 起草 我.md（他的目标、硬安排、红线、希望你们怎么对他）——只在他还没写时能起草，起草完跟他说让他改。',
+      parameters: {
+        type: 'object',
+        properties: {
+          file: { type: 'string', enum: ['judge', 'self'] },
+          markdown: { type: 'string', description: '整份文件的 Markdown 内容' },
+        },
+        required: ['file', 'markdown'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const r = kbWrite(kbDir(notesDir(), home()), args.file, args.markdown, Date.now())
+        if (r.ok) record({ state: 'kb-write', at: Date.now(), by: role, file: args.file })
+        return { ok: r.ok, text: r.text }
+      },
+    }
+  }
+  /** 临时封禁名单：把 App 算进娱乐清单，到期自动失效。 */
+  function blockTool(role) {
+    return {
+      name: 'block_apps',
+      description: '把一些 App 临时算进娱乐清单（打开就照拒绝/任务/力度的规矩管）：比如晚上对账定下"明天封什么"，或者他最近沉迷某个不在清单里的 App。' +
+        '填包名（不知道就先 mcp__phone__apps 查）。电话、短信、地图、支付永远不封。',
+      parameters: {
+        type: 'object',
+        properties: {
+          apps: { type: 'array', items: { type: 'string' }, description: '包名列表，最多 10 个' },
+          hours: { type: 'integer', minimum: 1, maximum: 48, description: '封多久，默认 24 小时' },
+          reason: { type: 'string' },
+        },
+        required: ['apps'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const until = now + Math.max(1, Math.min(48, Math.round(Number(args.hours) || 24))) * 3_600_000
+        const want = (Array.isArray(args.apps) ? args.apps : []).map((a) => String(a).trim()).filter((a) => /^[A-Za-z0-9_.]{3,120}$/.test(a)).slice(0, 10)
+        const skipped = want.filter((a) => NEVER_BLOCK.includes(a))
+        const apps = want.filter((a) => !NEVER_BLOCK.includes(a))
+        if (!apps.length) return { ok: false, text: skipped.length ? '这些永远不封：' + skipped.join('、') : '没有有效的包名。' }
+        const keep = (Array.isArray(config.blockExtra) ? config.blockExtra : []).filter((b) => b && Number(b.until) > now && !apps.includes(b.app))
+        config = { ...config, blockExtra: [...keep, ...apps.map((app) => ({ app, until, by: role }))].slice(-30) }
+        try {
+          writeConfig(config)
+        } catch {
+          // 这一轮照样生效
+        }
+        record({ state: 'block', at: now, apps, until, by: role, reason: String(args.reason || '').slice(0, 120) })
+        return { ok: true, text: '封了 ' + apps.join('、') + '，到 ' + new Date(until).toISOString().slice(5, 16).replace('T', ' ') + ' UTC。' + (skipped.length ? '（' + skipped.join('、') + ' 永远不封）' : '') }
+      },
+    }
+  }
   /** 放风：信用分够才放得出来；到点自动恢复，回没回来记进信用分。 */
   function breakTool(role) {
     return {
@@ -1349,12 +1446,75 @@ export function apply(ctx) {
       record({ state: 'defied', at: now, app, label, until, source: pendingDefiance.source })
       return { v: 1, ok: true, refuse: { until }, force: { level: 4, app, why: '关掉提醒还在玩' + label + '，拒绝模式开了' } }
     }
+    // 锁屏页 / 无障碍报来的（DeepSeek 那边接）：
+    //   tamper     —— 管控期间他去设置里找"强行停止 / 卸载 / 关无障碍"：信用分清零，拒绝模式 60 分钟，鲸澜收尾。
+    //   breakglass —— 走够步数 + 手打违约说明，破窗 10 分钟：照放，扣信用分，记进账本晚上要问。
+    //   notif      —— 任务期间拦下的一条通知（只要 App 和标题，不要正文）：攒着，任务结束一次性简报。
+    if (type === 'tamper') {
+      const until = Math.max(now + 60 * 60_000, Number(config.refuseUntil) || 0)
+      config = { ...config, refuseUntil: until, refuseBy: config.refuseBy || 'tamper', muteUntil: 0 }
+      try {
+        writeConfig(config)
+      } catch {
+        // 这一轮照样生效
+      }
+      const what = typeof body?.what === 'string' ? body.what.slice(0, 60) : '设置'
+      pendingDefiance = { app: 'settings', label: '系统设置（' + what + '）', at: now, until, source: 'tamper' }
+      record({ state: 'tamper', at: now, what, until })
+      return { v: 1, ok: true, refuse: { until }, force: { level: 4, app: String(body?.app || ''), why: '想去设置里拆掉管控' } }
+    }
+    if (type === 'breakglass') {
+      const minutes = Math.max(5, Math.min(15, Math.round(Number(body?.minutes) || 10)))
+      const until = now + minutes * 60_000
+      config = { ...config, breakUntil: until, breakSince: now, breakChecked: false }
+      try {
+        writeConfig(config)
+      } catch {
+        // 这一轮照样生效
+      }
+      record({ state: 'breakglass', at: now, minutes, steps: Number(body?.steps) || undefined, note: typeof body?.note === 'string' ? body.note.slice(0, 300) : undefined })
+      return { v: 1, ok: true, breakUntil: until }
+    }
+    if (type === 'notif') {
+      const n = loadNotifs()
+      const label = String(body?.label || body?.app || '?').slice(0, 30)
+      const apps = { ...(n.apps || {}) }
+      const cur = apps[label] || { count: 0, titles: [], group: 0 }
+      cur.count += 1
+      if (body?.group === true) cur.group += 1
+      const title = typeof body?.title === 'string' ? body.title.slice(0, 40) : ''
+      if (title && cur.titles.length < 5 && !cur.titles.includes(title)) cur.titles.push(title)
+      apps[label] = cur
+      saveNotifs({ since: n.since || now, apps })
+      return { v: 1, ok: true }
+    }
     return { v: 1, ok: false, error: { code: 'unknown-event' } }
+  }
+  /** 任务期间拦下的通知，整理成一句简报（取完就清）。 */
+  function takeDigest() {
+    const n = loadNotifs()
+    const apps = Object.entries(n.apps || {})
+    if (!apps.length) return ''
+    saveNotifs({})
+    return '刚才拦下的通知：' + apps.sort((a, b) => b[1].count - a[1].count).slice(0, 6)
+      .map(([label, v]) => label + ' ' + v.count + ' 条' + (v.group ? '（群聊 ' + v.group + '）' : '') + (v.titles.length ? '：' + v.titles.slice(0, 3).join('、') : '')).join('；') + '。'
   }
   /**
    * 不许装看不见：鱼丸连着两球没人接，鲸澜接手；之后每 10 分钟来一次，直到他回一句（以前三球不接就歇 3 小时）。
    * noIgnore:false 回到旧的"歇着"。
    */
+  /** 未完成笔记追杀：他有空（闲时、不在玩、亮屏、9–22 点），三小时最多一次，挑一篇没想完的。 */
+  function chaseSignal(phone, now, tz) {
+    const dir = notesDir()
+    if (!dir || !phone?.screenOn || phone.fun) return null
+    const min = localMinute(phone, zoneMinuteOfDay(now, tz))
+    if (min < 9 * 60 || min >= 22 * 60) return null
+    const gs = loadGearState()
+    if (now - (Number(gs.chaseAt) || 0) < 3 * 3_600_000) return null
+    const asked = (Array.isArray(gs.chased) ? gs.chased : []).filter((c) => now - Number(c.at) < 7 * 86_400_000).map((c) => c.path)
+    const found = scanUnfinished(dir, { now, asked })
+    return found[0] || null
+  }
   const PRESS_MS = 10 * 60_000
   function pressIgnored(silence, now) {
     if (config.noIgnore === false || !silence || silence.noTake < 2) return null
@@ -1558,7 +1718,8 @@ export function apply(ctx) {
     const refuseLines = refuseAt > Date.now()
       ? ['拒绝模式开着（到 ' + new Date(refuseAt).toISOString().slice(11, 16) + ' UTC）：他一打开娱乐 App 手机就会把他赶回桌面锁住。他求你放行，不松；要关只能他自己说"关掉拒绝模式"。']
       : []
-    const stateLines = [...trustLines(trustNow()), ...gearLines(config, Date.now()), ...geminiLines(loadGemini(), Date.now())]
+    const stateLines = [...trustLines(trustNow()), ...rhythmLines(lastRhythm), ...gearLines(config, Date.now()), ...geminiLines(loadGemini(), Date.now()),
+      ...knowledgeLines(kbDir(notesDir(), home()), role)]
     const notes = notesFor(role).map((n) => (n.from === 'companion' ? names.companion : names.strategist) + '刚跟你递话（' +
       new Date(Number(n.at)).toISOString().slice(11, 16) + ' UTC）："' + n.text + '"')
     const noteLines = notes.length ? ['姐妹之间的悄悄话（他看不到，自然地用上就行）：', ...notes.map((t) => '- ' + t)] : []
@@ -1591,7 +1752,7 @@ export function apply(ctx) {
     // 传话工具按会话注册：这样工具知道是谁递给谁。
     if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function') {
       const offs = []
-      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), breakTool(role), geminiLiveTool(role), geminiLogTool(role)]
+      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), breakTool(role), kbTool(role), blockTool(role), geminiLiveTool(role), geminiLogTool(role)]
       for (const tool of config.dual !== false ? [sisterTool(role), ...common] : common) {
         try {
           const off = agent.ctx.tools.register(tool)
@@ -1829,8 +1990,21 @@ export function apply(ctx) {
     const silence = silenceState(ledger, { sessionId, now })
     // 手机每次问 /plan 都带上现状：水位决定节奏和力度，大脑顺带判上一球有没有把他拉回来。
     const phone = cleanPhone(body?.phone)
+    // 临时封禁名单里的 App 也算娱乐。
+    if (phone?.app && blockedNow(now).includes(phone.app)) phone.fun = true
     const mind = sense(phone, ledger, sessionId, now)
     if (phone) lastPhone = phone
+    // 作息：早上门、晚上门、深夜阶段（先算，力度和拒绝要用）。
+    {
+      const min = localMinute(phone, zoneMinuteOfDay(now, tz))
+      const dayKey = startOfDay(now, tz)
+      const reviewedToday = ledger.some((e) => e?.state === 'generated' && e.sessionId === config.strategistSessionId && e.reason === 'review' && Number(e.at) >= dayKey)
+      const rh = trackRhythm(loadRhythm(), { min, day: dayKey, now, screenOn: phone?.screenOn !== false && Boolean(phone), reviewedToday })
+      saveRhythm(rh.state)
+      lastRhythm = { ...rh, nightUntil: rh.night === 'lock' ? now + Math.max(1, NIGHT_LOCK_TO - min) * 60_000 : 0 }
+      if (rh.openMorning) record({ state: 'gate-open', at: now, gate: 'morning' })
+      if (rh.openReview) record({ state: 'gate-open', at: now, gate: 'review' })
+    }
     const trust = trustScore(readLedger(home(), 800), now)
     // 放风结束：看他回没回来（不在娱乐 App 里就算守约），记进信用分。
     if (Number(config.breakUntil) > 0 && Number(config.breakUntil) <= now && config.breakChecked === false) {
@@ -1868,7 +2042,8 @@ export function apply(ctx) {
       config: {
         ...config,
         ...limits,
-        minGapMs: trustGap(tideGap(limits.minGapMs, water.band), trust.band),
+        minGapMs: lastRhythm?.night === 'late' ? Math.min(8 * 60_000, trustGap(tideGap(limits.minGapMs, water.band), trust.band))
+          : trustGap(tideGap(limits.minGapMs, water.band), trust.band),
         hourlyMax: tideHourly(limits.hourlyMax, water.band),
         diceThreshold: water.band === 'sink' || water.band === 'trap' ? 100
           : water.band === 'slide' ? Math.max(80, Number(config.diceThreshold) || 0) : config.diceThreshold,
@@ -1900,6 +2075,10 @@ export function apply(ctx) {
     // 违抗：不管安静时段和"别烦我"（他刚点了别烦我还接着玩，就是违抗）。
     if (pendingDefiance && now - pendingDefiance.at < 10 * 60_000) {
       nextSpeaker = { role: thinker, reason: 'defied', at: now, note: pendingDefiance, mark: null }
+    } else if (canTalk && !gem.inside && lastRhythm?.morningGate && !lastRhythm.state.morningBall) {
+      nextSpeaker = { role: thinker, reason: 'morning-gate', at: now }
+    } else if (canTalk && !gem.inside && lastRhythm?.night === 'lock' && phone?.screenOn && now - (Number(lastRhythm.state.nightBallAt) || 0) >= 30 * 60_000) {
+      nextSpeaker = { role: thinker, reason: 'night', at: now }
     } else if (canTalk && !gem.inside) {
       const gs = loadGearState()
       const patrol = gearNow === 'free' && config.proactiveTools !== false ? patrolSignal(phone, now, tz) : null
@@ -1921,11 +2100,13 @@ export function apply(ctx) {
         Number(gs.doneFor) !== Number(config.gearUntil)) {
         // 她们立的任务到点：姐姐来验收（不自动算完成）；他自己定的忙时到点：妹妹来迎接。
         nextSpeaker = config.taskBy
-          ? { role: thinker, reason: 'task-due', at: now, busy: { goal: config.taskGoal, what: config.gearWhat } }
-          : { role: 'companion', reason: 'busy-done', at: now, what: config.gearWhat,
+          ? { role: thinker, reason: 'task-due', at: now, busy: { goal: config.taskGoal, what: config.gearWhat }, digest: true }
+          : { role: 'companion', reason: 'busy-done', at: now, what: config.gearWhat, digest: true,
             minutes: Math.round((Number(config.gearUntil) - Number(config.gearSince || config.gearUntil)) / 60_000) }
       } else if (patrol) {
         nextSpeaker = { role: thinker, reason: 'patrol', at: now, note: patrol }
+      } else if (gearNow === 'free' && config.proactiveTools !== false && chaseSignal(phone, now, tz)) {
+        nextSpeaker = { role: thinker, reason: 'notes-chase', at: now, note: chaseSignal(phone, now, tz) }
       }
     }
     if (nextSpeaker) Object.assign(out, { speak: true, reason: nextSpeaker.reason, nextCheckAt: now + 60_000 })
@@ -1936,7 +2117,8 @@ export function apply(ctx) {
       const todayStart = startOfDay(now, tz)
       const reviewedToday = ledger.some((e) => e?.state === 'generated' && e.sessionId === config.strategistSessionId && Number(e.at) >= todayStart)
       if (handoff) nextSpeaker = { role: 'strategist', reason: 'handoff', note: handoff, at: now }
-      else if (hour >= 20 && hour < 22 && !reviewedToday) nextSpeaker = { role: 'strategist', reason: 'review', at: now }
+      // 晚上对账：21:30 开门（rhythm.js），门开着、还没来过就来。
+      else if (lastRhythm?.reviewGate && !lastRhythm.state.reviewBall && !reviewedToday) nextSpeaker = { role: 'strategist', reason: 'review', at: now }
       if (nextSpeaker) Object.assign(out, { speak: true, reason: 'strategist-' + nextSpeaker.reason, nextCheckAt: now })
     }
     // 他在 Gemini 里连麦：谁都不插嘴；两分钟看一次，好知道他什么时候出来（出来了要读回那段对话）。
@@ -1967,6 +2149,10 @@ export function apply(ctx) {
       force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined,
         release: onBreak(now) || (!force.refuse && trust.band !== 'low' && Number(mind.brain.graceUntil) > now) },
       trust: { score: trust.score, band: trust.band },
+      // 临时封禁名单：手机把这些也当娱乐 App 管。
+      block: blockedNow(now),
+      // 通知防波堤：忙时 / 任务模式期间，非白名单通知收进缓存（手机端 NotificationShield）。
+      shield: effectiveGear(config, now) === 'busy' || aiTask(config, now) ? { until: Math.max(Number(config.gearUntil) || 0, now + ROLL_MS) } : null,
       // 拒绝模式：手机记住到期时间，自己在每次切到娱乐 App 的那一刻就锁，不等这一问。
       refuse: refuseUntilAt(now) > now ? { until: refuseUntilAt(now) } : null,
       gear: effectiveGear(config, now),

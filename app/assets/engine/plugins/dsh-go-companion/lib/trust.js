@@ -21,6 +21,8 @@ export const TRUST_WEIGHTS = {
   'gemini-start': 1,
   'gemini-recap': 3,
   'break-kept': 2,
+  breakglass: -5,
+  tamper: -100,
 }
 
 const DAY = 86_400_000
@@ -46,6 +48,8 @@ function kindOf(e, answered) {
     case 'gemini-start': return 'gemini-start'
     case 'gemini-recap': return 'gemini-recap'
     case 'break-end': return e.kept ? 'break-kept' : null
+    case 'breakglass': return 'breakglass'
+    case 'tamper': return 'tamper'
     case 'generated': return answered.has(e.requestId) ? null : 'ignored'
     default: return null
   }
@@ -88,7 +92,7 @@ export function trustScore(entries, now = Date.now()) {
 const LABEL = {
   replied: '接了球', substantive: '认真回', ignored: '没接球', 'overlay-closed-silent': '没回就关窗', defied: '关了提醒接着玩',
   'task-done': '任务验收通过', 'task-check-failed': '任务没通过', 'task-claim': '没做完就喊收工', 'gear-self': '自己开忙时',
-  'gemini-start': '去 Gemini 连麦', 'gemini-recap': '连麦复盘', 'break-kept': '休息按时回来',
+  'gemini-start': '去 Gemini 连麦', 'gemini-recap': '连麦复盘', 'break-kept': '休息按时回来', breakglass: '破窗', tamper: '想拆管控',
 }
 
 export function trustLabel(kind) {

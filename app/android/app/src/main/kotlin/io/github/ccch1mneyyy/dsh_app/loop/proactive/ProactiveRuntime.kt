@@ -434,8 +434,43 @@ object ProactiveRuntime {
         runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).edit().putLong("until", at).apply() }
         Log.i(TAG, "refuse mode " + if (at > System.currentTimeMillis()) "on until $at" else "off")
     }
-    private fun listed(pkg: String): Boolean =
-        runCatching { InterceptRuntime.config().targets.any { it.packageName == pkg } }.getOrDefault(false)
+    private fun listed(pkg: String): Boolean {
+        if (pkg in NEVER_LOCK) return false
+        if (pkg in blocked) return true
+        return runCatching { InterceptRuntime.config().targets.any { it.packageName == pkg } }.getOrDefault(false)
+    }
+
+    /** 电话、短信、地图、支付：任何模式都不锁（真急事的底线）。 */
+    private val NEVER_LOCK = setOf(
+        "com.android.dialer", "com.google.android.dialer", "com.android.phone", "com.android.server.telecom", "com.android.mms",
+        "com.google.android.apps.messaging", "com.android.contacts", "com.autonavi.minimap", "com.baidu.BaiduMap",
+        "com.google.android.apps.maps", "com.tencent.map", "com.eg.android.AlipayGphone", "com.unionpay",
+    )
+
+    /** 插件的临时封禁名单（/plan 的 block）：这些也当娱乐 App 管。 */
+    @Volatile private var blocked: Set<String> = emptySet()
+
+    /** 通知防波堤开到什么时候（/plan 的 shield）；存 prefs，App 进程重启后通知服务也知道。 */
+    @Volatile private var shieldUntil: Long = -1L
+    fun shieldActive(): Boolean {
+        if (shieldUntil < 0) shieldUntil = runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).getLong("shield", 0L) }.getOrDefault(0L)
+        return System.currentTimeMillis() < shieldUntil
+    }
+    private fun setShieldUntil(at: Long) {
+        if (at == shieldUntil) return
+        shieldUntil = at
+        runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).edit().putLong("shield", at).apply() }
+    }
+
+    /** NotificationShield 拦下一条：报给插件攒着（不带正文）。 */
+    fun onNotificationSwallowed(pkg: String, label: String, title: String, group: Boolean) {
+        if (!::app.isInitialized) return
+        main.post {
+            fetchPluginRoute(routeCallback { }, "POST", "/event", linkedMapOf(
+                "type" to "notif", "app" to pkg, "label" to label, "title" to title, "group" to group,
+            ))
+        }
+    }
     private var lastFront: String? = null
 
     /**
@@ -522,6 +557,7 @@ object ProactiveRuntime {
     private fun enforce(f: Force, fresh: Boolean = false) {
         if (!proactiveEnabled()) return
         // [fresh]: called with the foreground switch itself; NowFeed may not have caught up yet.
+        if (f.app in NEVER_LOCK) return
         val front = NowFeed.snapshot(SystemClock.elapsedRealtime()).app
         if (!fresh && front != f.app) return
         if (f.refuse && VisibleSurface.isHeldBy(VisibleSurface.OWNER_PROACTIVE)) {
@@ -557,6 +593,8 @@ object ProactiveRuntime {
         val target = f?.get("app") as? String
         val why = f?.get("why") as? String
         setRefuseUntil(((map["refuse"] as? Map<*, *>)?.get("until") as? Number)?.toLong() ?: 0L)
+        setShieldUntil(((map["shield"] as? Map<*, *>)?.get("until") as? Number)?.toLong() ?: 0L)
+        blocked = (map["block"] as? List<*>)?.mapNotNull { it as? String }?.filter { it !in NEVER_LOCK }?.toSet() ?: emptySet()
         val refusing = System.currentTimeMillis() < refuseUntil()
         force = if (level >= 3 && !target.isNullOrBlank()) {
             Force(level, target, why, System.currentTimeMillis() + FORCE_HOLD_MS, refuse = refusing)
@@ -867,15 +905,17 @@ object ProactiveRuntime {
         val pm = app.packageManager
         fun label(pkg: String): String? = funApps[pkg]
             ?: runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+        val opens = usageOpens(wall)
         val today = NowFeed.today(now, dayOf(wall)).map { (pkg, minutes) ->
-            linkedMapOf<String, Any?>("app" to pkg, "label" to label(pkg), "minutes" to minutes, "fun" to (pkg in funApps))
+            linkedMapOf<String, Any?>("app" to pkg, "label" to label(pkg), "minutes" to minutes, "fun" to (pkg in funApps || pkg in blocked),
+                "opens" to opens?.get(pkg))
         }
         val front = s.app
         linkedMapOf<String, Any?>(
             "app" to front,
             "label" to front?.let { label(it) },
             "minutes" to s.appMinutes,
-            "fun" to (front != null && front in funApps),
+            "fun" to (front != null && (front in funApps || front in blocked)),
             "screenOn" to s.screenOn,
             "charging" to s.charging,
             "local" to String.format(java.util.Locale.US, "%02d:%02d", minuteOfDay(wall) / 60, minuteOfDay(wall) % 60),
@@ -891,6 +931,36 @@ object ProactiveRuntime {
                 )
             },
         )
+    }.getOrNull()
+
+    /**
+     * 今天每个 App 打开了几次（"使用情况访问"授权了才有；没授权返回 null）。一分钟算一次，别每次 /plan 都扫一天的事件。
+     */
+    private var opensCache: Pair<Long, Map<String, Int>>? = null
+    private fun usageOpens(wall: Long): Map<String, Int>? = runCatching {
+        opensCache?.let { if (wall - it.first < 60_000L) return@runCatching it.second }
+        val ops = app.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        @Suppress("DEPRECATION")
+        val mode = ops.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), app.packageName)
+        if (mode != android.app.AppOpsManager.MODE_ALLOWED) return@runCatching null
+        val usm = app.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+        val start = Calendar.getInstance(TimeZone.getDefault()).run {
+            timeInMillis = wall; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0); timeInMillis
+        }
+        val events = usm.queryEvents(start, wall)
+        val e = android.app.usage.UsageEvents.Event()
+        val counts = HashMap<String, Int>()
+        var last: String? = null
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            // ACTIVITY_RESUMED（老名字 MOVE_TO_FOREGROUND，同一个值 1）；同一个 App 里切页面不重复算。
+            if (e.eventType == 1 && e.packageName != last) {
+                counts[e.packageName] = (counts[e.packageName] ?: 0) + 1
+                last = e.packageName
+            }
+        }
+        opensCache = wall to counts
+        counts
     }.getOrNull()
 
     private fun minuteOfDay(wall: Long): Int = Calendar.getInstance(TimeZone.getDefault()).run {

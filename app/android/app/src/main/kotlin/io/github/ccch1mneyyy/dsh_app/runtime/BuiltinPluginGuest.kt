@@ -131,6 +131,8 @@ object BuiltinPluginGuest {
                 "lib/gemini.js",
                 "lib/trust.js",
                 "lib/panel.js",
+                "lib/notes.js",
+                "lib/rhythm.js",
             ),
         ),
     )

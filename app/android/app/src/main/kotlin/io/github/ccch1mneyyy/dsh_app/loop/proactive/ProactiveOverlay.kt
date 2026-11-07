@@ -313,6 +313,14 @@ object ProactiveOverlay {
                 gravity = Gravity.END
                 setPadding(0, context.dp(4f), 0, 0)
             }
+            // 在开会 / 上课：一键回"在忙，晚点回你"——算回过，窗口收起，45 分钟内不再主动找（关了还去玩照样算违抗）。
+            actions.addView(textAction("在忙，晚点回") { // l10n:keep companion overlay quick reply
+                if (waiting) return@textAction
+                input?.setText("我在忙（开会/上课），晚点回你")
+                sendNow()
+                ProactiveRuntime.muteFor(45 * 60_000L)
+                close(SurfaceReport.Dismissed, muted = true)
+            })
             // 不许装看不见：没回过一句，「别烦我」「收起」都不放他走（他要的：总得说几句）。
             actions.addView(textAction(AppStrings.get(app, R.string.proactive_overlay_mute)) {
                 if (!mayLeave()) return@textAction

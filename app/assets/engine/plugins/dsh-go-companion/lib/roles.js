@@ -160,6 +160,25 @@ export function strategistBallFrame(owner, names, { reason, note, allowTools = f
     lines.push('别说教、别长篇；不要上网查资料。')
     return lines
   }
+  if (reason === 'morning-gate') {
+    lines.push('早上他刚拿起手机。娱乐先锁着（社交没锁），你来开今天的头：要他说出今天最重要的 3 件事、各自几点前做完。他说完、说得具体，娱乐就自动解锁。')
+    lines.push('一两句，像早上碰面那样，但别寒暄太久；他昨天答应过的事（下面有）可以顺带对一下。他回了以后，把这 3 件事用 remember（share: true）记下，晚上对账要用。')
+    lines.push('这一次不要上网查资料。')
+    return lines
+  }
+  if (reason === 'night') {
+    lines.push('现在已经过了 0:30，他还拿着手机。娱乐已经锁到早上 7 点。你来收手机：一两句，短、硬、不聊别的，让他现在放下手机去睡。明天最要紧的那件事（如果你知道）提一句当理由。')
+    lines.push('这一次不要上网查资料。')
+    return lines
+  }
+  if (reason === 'notes-chase') {
+    const n = note || {}
+    lines.push('他笔记库里有一篇没想完的：「' + (n.rel || '') + '」（' + (n.why || '') + '）。摘录：' + String(n.excerpt || '').slice(0, 300))
+    lines.push('他这会儿有空（不在忙、没在玩）。别问"你在干嘛"，直接把那半截观点抛给他：点出它卡在哪、你的看法是什么、逼他给一个判断。' +
+      (allowTools ? '他愿意展开就提议用 gemini_live（mode=think，10–15 分钟）去 Gemini 推演；推演完的结论用 gemini_log 存进 Gemini/，并在里面写明是接着「' + (n.rel || '') + '」那篇（别改他的原笔记）。' : ''))
+    lines.push('一两句就够。这一次不要上网查资料。')
+    return lines
+  }
   if (reason === 'ignored') {
     const n = note || {}
     lines.push('他已经连着 ' + (n.noTake || '几') + ' 次没理' + names.companion + '了' + (n.minutes ? '（最早那次是 ' + n.minutes + ' 分钟前）' : '') + '。' +
@@ -186,6 +205,7 @@ export function strategistBallFrame(owner, names, { reason, note, allowTools = f
     const t = busy || {}
     lines.push('你给他立的任务「' + (t.goal || t.what || '正事') + '」到点了。现在验收：要他交代做到哪了，要具体（能截图/读屏就让他给你看，或者你用 mcp__phone__screen 自己看）。')
     lines.push('合格就调用 end_task_mode（passed=true）解锁并夸一句具体的；不合格就 start_task_mode 再续一段（说清还差什么），不解锁。')
+    if (t.digest) lines.push(t.digest + '验收完顺带用一句话交代给他（哪些值得看、哪些可以直接忽略）。')
     lines.push('这一次不要上网查资料。')
     return lines
   }
@@ -201,6 +221,15 @@ export function strategistBallFrame(owner, names, { reason, note, allowTools = f
   if (reason === 'handoff' && note) {
     lines.push('妹妹' + names.companion + '刚跟你递话："' + String(note).slice(0, 200) + '"。你主动去找他，就这件事说一两句：先接住他，再给一个最小的下一步或者一个关键问题。不用说是妹妹告诉你的，除非自然。')
   } else {
+    if (reason === 'review') {
+      lines.push('现在是晚上对账（他没对完之前娱乐锁着，最多一小时）。按这个顺序来，一次问一件，别一口气全抛：')
+      lines.push('1. 今天早上他说的 3 件事（记忆里有）做了几件，哪件没做、为什么。')
+      lines.push('2. 手机时间花在哪（下面有今天用得最多的 App 和娱乐分钟）：点出最大的那块隐形损耗，比如"每次只刷三分钟、加起来两小时"。')
+      lines.push('3. 明天封什么：跟他一起定，定下来用 block_apps 写进明天的封禁名单。')
+      lines.push('对完以后用 kb_write file=judge 更新 大肥鱼/判断.md：保留他改过的，最多改 5 条，每条带证据（哪天、什么事）。')
+      lines.push('这一次不要上网查资料，也不要长篇推演。')
+      return lines
+    }
     lines.push('现在是晚上，你主动找他对一次账：他之前说过要做的那件事（记忆里的计划、截止日期、上次你给的第一步）做了没有。一两句话，问具体的，别查岗式地罗列。没有可对的账，就简短问一句今天过得怎么样、明天最要紧的是什么。')
   }
   lines.push('这一次不要上网查资料，也不要长篇推演；他回你之后再展开。')
@@ -221,6 +250,8 @@ export function capabilityLines(role, { notesDir = '', allowTools = true } = {})
     '- 文件和相册：/sdcard 是他的手机存储（相册 /sdcard/DCIM，截图 /sdcard/Pictures/Screenshots，下载 /sdcard/Download）。可以列出最近的照片/截图，看文件名、时间、EXIF（地点/时间），据此了解他最近在干嘛；给他的产出放 /sdcard/Download/DSH-Go/。',
     '- 记事：remember 记关于他的事；schedule 工具定时提醒（答应了就真设好）。',
     '- 管他：dafeiyu_control 一键切"忙时 X 分钟"（不闲聊、定时报到、娱乐一开就锁）/ "闲时" / 拒绝模式 / 安静 X 分钟 / 严格温和。他说"帮我盯着""接下来一小时别让我玩""我要去做饭"这类话，就直接用它，别只嘴上答应。',
+    '- 知识库：kb_write 写 大肥鱼/判断.md（你对他的判断和证据）；大肥鱼/我.md 是他写的规则，只有还没有时才能起草。',
+    '- 封禁名单：block_apps 把某些 App 临时算进娱乐清单（明天封什么、他最近沉迷什么），到期自动失效；电话、短信、地图、支付永远不封。',
     '- 放风：grant_break 给他一段休息（≤30 分钟，娱乐临时解锁，到点自动恢复）；只有信用分够（≥60）才放得出来，低分别想。',
     '- 立任务：start_task_mode 不用他同意就能立（目标、时长、理由），娱乐当场锁死，他自己说"忙完了"也解不开；只有验收合格调用 end_task_mode 才解锁。',
     '- Gemini 连麦：他有 Gemini App（Pro），开 Live 能实时语音、看他屏幕——比你们打字快得多。要高频盯他、陪他练、审他摸鱼、帮他想事时，用 gemini_live 生成给 Gemini 的背景（他是谁、这次干嘛、怎么盯他），照它返回的步骤写进剪贴板、打开 Gemini。连完之后用后台屏把那段对话读回来，gemini_log 存进笔记库。他说"读一下 Gemini""刚才跟 Gemini 聊了啥"也这样做。',
@@ -256,7 +287,7 @@ export const NOTES_CANDIDATES = [
 export function companionSpecialLines(special, names, allowTools = false) {
   if (!special) return []
   // 单人格（没有姐姐）时，报到和连麦复盘也由她来，用姐姐那套说法。
-  if (['checkin', 'gemini-recap', 'defied', 'patrol', 'task-due', 'ignored'].includes(special.reason)) {
+  if (['checkin', 'gemini-recap', 'defied', 'patrol', 'task-due', 'ignored', 'morning-gate', 'night', 'notes-chase', 'review'].includes(special.reason)) {
     return strategistBallFrame('他', names, { reason: special.reason, allowTools, busy: special.busy, gemini: special.gemini, note: special.note }).slice(2)
   }
   if (special.reason === 'restless') {
@@ -265,7 +296,8 @@ export function companionSpecialLines(special, names, allowTools = false) {
       '别讲道理、别说"你该去做事了"。']
   }
   if (special.reason === 'busy-done') {
-    return ['他刚忙完「' + (special.what || '正事') + '」' + (special.minutes ? '（忙了 ' + special.minutes + ' 分钟）' : '') + '。像朋友那样迎他：问一句搞定没、累不累，可以邀功（你一直憋着没吵他），然后正常闹他。']
+    return ['他刚忙完「' + (special.what || '正事') + '」' + (special.minutes ? '（忙了 ' + special.minutes + ' 分钟）' : '') + '。像朋友那样迎他：问一句搞定没、累不累，可以邀功（你一直憋着没吵他），然后正常闹他。' +
+      (special.digestText ? special.digestText + '顺带用你的方式交代一句（"群里聊了三十条废话，我都帮你挡了"）。' : '')]
   }
   if (special.reason === 'gemini-left') {
     return ['他跟 Gemini 连麦（' + (special.topic || '没说主题') + (special.left ? '，还剩约 ' + special.left + ' 分钟' : '') + '）连到一半跑去' + (special.app || '别的地方') + '了。' +

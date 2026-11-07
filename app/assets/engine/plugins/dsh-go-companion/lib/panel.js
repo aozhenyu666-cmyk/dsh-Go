@@ -140,6 +140,11 @@ function timelineRow(e, names, speakerOf) {
     case 'gemini-recap': return { title: 'Gemini 连麦复盘已存', subtitle: time + (e.file ? ' · ' + e.file.split('/').slice(-2).join('/') : ''), icon: 'book', tone: 'good' }
     case 'break-start': return { title: '放风 ' + e.minutes + ' 分钟', subtitle: time + (e.reason ? ' · ' + cut(e.reason, 40) : ''), icon: 'play', tone: 'good' }
     case 'break-end': return { title: e.kept ? '放风结束，按时回来了' : '放风结束，还在玩', subtitle: time, icon: 'clock', tone: e.kept ? 'good' : 'bad' }
+    case 'tamper': return { title: '想去设置里拆管控（' + (e.what || '') + '）→ 信用分清零', subtitle: time, icon: 'bell', tone: 'bad' }
+    case 'breakglass': return { title: '破窗 ' + e.minutes + ' 分钟' + (e.steps ? '（走了 ' + e.steps + ' 步）' : ''), subtitle: time + (e.note ? ' · ' + cut(e.note, 50) : ''), icon: 'bell', tone: 'warn' }
+    case 'block': return { title: '封禁：' + (e.apps || []).join('、'), subtitle: time + ' · 到 ' + hm(e.until) + (e.reason ? ' · ' + cut(e.reason, 40) : ''), icon: 'flag', tone: 'warn' }
+    case 'kb-write': return { title: e.file === 'self' ? '鲸澜起草了 我.md（等你改）' : '鲸澜更新了 判断.md', subtitle: time, icon: 'note' }
+    case 'gate-closed': return { title: (e.gates || []).includes('morning') ? '早上的 3 件事说完了，解锁' : '晚上对完账了，解锁', subtitle: time, icon: 'star', tone: 'good' }
     default: return null
   }
 }

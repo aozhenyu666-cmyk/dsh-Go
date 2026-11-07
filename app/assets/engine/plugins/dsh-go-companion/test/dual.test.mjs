@@ -176,12 +176,12 @@ test('姐妹传话：妹妹递急话 → 姐姐每轮看得到 → /plan 让姐�
   })
 })
 
-test('晚上 20–22 点（当地）姐姐对一次账，一天一次', async () => {
+test('晚上 21:30 以后（当地）姐姐对一次账，一天一次', async () => {
   await withHome(async (home) => {
     mkdirSync(join(home, 'companion'), { recursive: true })
     writeFileSync(join(home, 'companion', 'config.json'), JSON.stringify({ sessionId: 'session-sis', strategistSessionId: 'session-big', quietStart: 12, quietEnd: 12 }))
     const h = host({ 'session-sis': agentOf('session-sis'), 'session-big': agentOf('session-big') })
-    const phone = { app: 'com.tencent.mm', minutes: 1, screenOn: true, local: '21:10' }
+    const phone = { app: 'com.tencent.mm', minutes: 1, screenOn: true, local: '21:40' }
     const plan = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone })
     assert.equal(plan.body.reason, 'strategist-review', JSON.stringify(plan.body))
     const day = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: { ...phone, local: '16:00' } })
@@ -223,7 +223,7 @@ test('浮层里他刚回了一句：/plan 马上来问也不再发球（不把�
     const sis = agentOf('session-sis')
     const h = host({ 'session-sis': sis, 'session-big': agentOf('session-big') })
     // 晚上对账时段：不聊的时候这一问一定开口（姐姐对账），用来确认是"正在聊"把它压住的
-    const phone = { app: 'com.tencent.mm', minutes: 1, screenOn: true, local: '21:10' }
+    const phone = { app: 'com.tencent.mm', minutes: 1, screenOn: true, local: '21:40' }
     // 他发了一句；user/message 事件还没回来，手机的 /plan 就先到了
     const say = await call(h.handler(), 'POST', '/dsh-go-companion/v1/say', { v: 1, requestId: 'say-race-0001', text: '哈哈哈' })
     assert.equal(say.status, 202)
