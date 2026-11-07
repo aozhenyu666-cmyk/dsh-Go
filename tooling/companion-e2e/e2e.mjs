@@ -8,7 +8,8 @@ function check(name, ok, detail) {
   console.log((ok ? '  ✓ ' : '  ✗ ') + name + (ok ? '' : '  ← ' + JSON.stringify(detail).slice(0, 300)))
   if (!ok) failed += 1
 }
-const game = (minutes) => ({ app: 'com.tencent.tmgp.sgame', label: '王者荣耀', minutes, fun: true, screenOn: true, local: '22:05',
+// 15:00：避开第 8 节作息的早上门（5–10 点）、晚上对账（21:30 起）和深夜锁（0:30–7 点）。
+const game = (minutes) => ({ app: 'com.tencent.tmgp.sgame', label: '王者荣耀', minutes, fun: true, screenOn: true, local: '15:00',
   today: [{ app: 'com.tencent.tmgp.sgame', label: '王者荣耀', minutes, fun: true }] })
 const phase = process.argv[2]
 
@@ -70,6 +71,8 @@ if (phase === 'warm') {
 
   // 5. 阶梯：一球发出去 6 分钟没人接 → 下一球换轻的（时间注入：账本里写一条 6 分钟前的发球）
   // 用一个独立会话，避免刚接过的那一球把 silence 判成 none。
+  // 第 7 节起"他在这之后说过任何话就算接过"（跨会话），所以先把前面几步的账本清掉再注入。
+  writeFileSync(W + '/home/companion/ledger.jsonl', '')
   const ladderSid = 'session-ladder-' + Date.now()
   appendFileSync(W + '/home/companion/ledger.jsonl', JSON.stringify({ v: 1, requestId: 'old-silent', sessionId: ladderSid, state: 'generated', at: Date.now() - 6 * 60_000, serveType: 'provoke', text: 'x', rallyId: 'rally-x', shot: 1 }) + '\n')
   const lad = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', sessionId: ladderSid, phone: { ...game(12), app: 'com.tencent.mm', label: '微信', fun: false } })
