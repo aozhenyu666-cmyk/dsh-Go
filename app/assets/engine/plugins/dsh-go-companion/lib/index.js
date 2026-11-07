@@ -86,6 +86,9 @@ const DEFAULTS = Object.freeze({
   control: true,
   // 做题模式：默认关，主线是聊天。说"开始做题 / 做题模式"打开，"别出题了"关掉。
   drills: false,
+  // 判球可以单独配一个更快的模型；没配就沿用会话自己的 provider/model。
+  judgeProvider: undefined,
+  judgeModel: undefined,
 })
 
 function home() {
@@ -122,6 +125,43 @@ function writeConfig(cfg) {
   const tmp = p + '.' + String(process.pid) + '.tmp'
   writeFileSync(tmp, JSON.stringify(cfg, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
   renameSync(tmp, p)
+}
+
+/**
+ * 最近 10 次实测耗时的中位数。发球 / 判球 / 聊天分开算：模型慢的时候，设置页要能一眼看出
+ * 慢在哪一段，而不是只看到一句"没回"。
+ */
+function readTimings() {
+  let rows = []
+  try {
+    rows = readLedger(home(), 400)
+  } catch {
+    rows = []
+  }
+  const median = (values) => {
+    const a = values.filter((v) => Number.isFinite(v) && v >= 0).slice(0, 10).sort((x, y) => x - y)
+    return a.length ? a[Math.floor(a.length / 2)] : null
+  }
+  // 账本本身就是时间线：generated.at - accepted.at 就是模型这一段。不依赖进程内 map，
+  // 重启引擎后仍然能读出上一轮的真实耗时。
+  const began = new Map()
+  for (const e of rows) {
+    if (!e || !e.requestId || !Number.isFinite(Number(e.at))) continue
+    if (e.state === 'accepted' || e.state === 'said') began.set(String(e.requestId), Number(e.at))
+  }
+  const span = (state) => rows
+    .filter((e) => e && e.state === state && e.requestId && began.has(String(e.requestId)))
+    .map((e) => Number(e.at) - began.get(String(e.requestId)))
+    .reverse() // oldest → newest; the median wants the latest ten
+  const judge = rows
+    .filter((e) => e && e.state === 'replied' && Number.isFinite(Number(e.judgeMs)))
+    .map((e) => Number(e.judgeMs))
+    .reverse()
+  return {
+    generate: median(span('generated')),
+    judge: median(judge),
+    chat: median(span('heard')),
+  }
 }
 
 function memoryPath() {
@@ -250,7 +290,11 @@ function userMessage(text) {
  * 判球用哪个模型：跟当前会话自己的选择走（它自己的人格和历史也都在那个会话里）。
  * 拿不到就返回 undefined —— 判球会退回本地规则，不会因为没模型就卡住。
  */
-function judgeTargetOf(ctx, sessionId) {
+function judgeTargetOf(ctx, sessionId, config) {
+  // 单独配的判球模型优先：判球只有 6 秒预算，不值得排在会话那个慢模型后面。
+  const jp = config?.judgeProvider
+  const jm = config?.judgeModel
+  if (typeof jp === 'string' && jp && typeof jm === 'string' && jm) return { provider: jp, model: jm }
   try {
     const agent = liveAgent(ctx, sessionId)
     const cfg = agent?.config
@@ -344,6 +388,8 @@ export function apply(ctx) {
   const saveBrain = (b) => writeJson(stateFile('brain.json'), b)
   /** requestId -> 发球时的现状（generated 时交给大脑开始计"有没有拉回来"）。 */
   const servedContext = new Map()
+  /** requestId -> first seen moment, for the median latencies in /status (P6). */
+  const startedAt = new Map()
 
   function hourOf(phone, now) {
     if (phone?.local) return Number(phone.local.slice(0, 2))
@@ -567,7 +613,12 @@ export function apply(ctx) {
     allowBusy: true,
     onChange: (r) => {
       const state = { accepted: 'said', generated: 'heard', failed: 'chat-failed' }[r.state]
-      if (state) record({ requestId: r.requestId, sessionId: r.sessionId, state, at: Date.now(), failure: r.failure ?? undefined })
+      const now = Date.now()
+      const key = String(r.requestId)
+      const began = startedAt.get(key)
+      if (r.state === 'accepted') startedAt.set(key, now)
+      if (state) record({ requestId: r.requestId, sessionId: r.sessionId, state, at: now, ms: began ? now - began : undefined, failure: r.failure ?? undefined })
+      if (r.state !== 'accepted') startedAt.delete(key)
     },
   })
 
@@ -578,6 +629,10 @@ export function apply(ctx) {
     isArchived: (id) => isArchived(ctx, id),
     defaultSession: () => config.sessionId,
     onChange: (r) => {
+      const now = Date.now()
+      const key = String(r.requestId)
+      const began = startedAt.get(key)
+      if (r.state === 'accepted') startedAt.set(key, now)
       record({
         requestId: r.requestId,
         eventId: r.eventId,
@@ -590,7 +645,8 @@ export function apply(ctx) {
         silence: r.silence ?? undefined,
         ...(r.extra && (r.state === 'accepted' || r.state === 'generated') ? r.extra : {}),
         state: r.state,
-        at: Date.now(),
+        at: now,
+        ms: began ? now - began : undefined,
         text: r.text ?? undefined,
         // 套话只在生成时判：谁都能说的模板不算开口。判出来就记进账本，
         // 下一球把它打回去，P5 的评测也靠这个数。
@@ -598,6 +654,7 @@ export function apply(ctx) {
         failure: r.failure ?? undefined,
         cold: r.cold === true,
       })
+      if (r.state !== 'accepted') startedAt.delete(key)
       // 生成成功后等一次人的回应；2 小时内没有就记 none（有限跟进/冷却的依据）。
       if (r.state === 'generated') {
         // 大脑从这一刻开始计：10 分钟内他有没有离开那个娱乐 App。
@@ -679,7 +736,8 @@ export function apply(ctx) {
         const pending = takePending(session?.id)
         if (pending) {
           // 这一球由大肥鱼自己判（6 秒超时或连不上就退回规则），不再按字数。
-          const target = judgeTargetOf(ctx, session?.id)
+          const target = judgeTargetOf(ctx, session?.id, config)
+          const judgeBegan = Date.now()
           const judged = await judgeReply({
             stream: streamOf(),
             provider: target?.provider,
@@ -691,6 +749,7 @@ export function apply(ctx) {
             criteria: drillOf(pending.drill)?.pass,
             mode: effectiveMode(config, Date.now()),
           })
+          const judgeMs = Date.now() - judgeBegan
           const replyClass = gardenClass(judged.verdict)
           const now = Date.now()
           const shot = (Number(pending.shot) || 0) + 1
@@ -702,6 +761,7 @@ export function apply(ctx) {
             shot: pending.rallyId ? shot : undefined,
             state: 'replied',
             at: now,
+            judgeMs,
             replyClass,
             verdict: judged.verdict,
             why: judged.why || undefined,
@@ -896,6 +956,10 @@ export function apply(ctx) {
           })
         }
         if (path === '/request') {
+          // Start the clock here, not in the Desk callback: the accepted callback is not the only
+          // entry point and this is the one moment that is certainly before the model runs.
+          const rid = String(body.value?.requestId ?? '')
+          if (rid) startedAt.set(rid, Date.now())
           const r = await desk.request(body.value)
           if (r.status >= 400) {
             console.error('[companion] request refused ' + r.status + ' ' + String(r.body?.error?.code || ''))
@@ -911,6 +975,7 @@ export function apply(ctx) {
           const said = String(body.value?.text ?? '').trim()
           if (!said) return send(res, 400, { v: 1, error: { code: 'empty', message: 'text' } })
           const id = typeof body.value?.requestId === 'string' && body.value.requestId ? body.value.requestId : 'say-' + randomUUID()
+          startedAt.set(id, Date.now())
           const r = await chat.request({ v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000 })
           return send(res, r.status, r.body)
         }
@@ -957,6 +1022,11 @@ export function apply(ctx) {
       persona: cleanPersona(config.persona),
       // 实际进 prompt 的那张：关系库人物卡 + 上面的覆盖。
       personaEffective: mergePersona(readCorePersona(home()), config.persona),
+      // 判球模型（没配就是 null，表示沿用会话）。
+      judgeProvider: config.judgeProvider || null,
+      judgeModel: config.judgeModel || null,
+      // 最近 10 次的实测耗时：发球 / 判球 / 聊天。设置页显示中位数，一眼看出是不是模型慢。
+      timings: readTimings(),
       control: config.control !== false,
       drills: config.drills === true,
       // 大脑现在对他的判断（会随证据改）和脾气的底色。
@@ -1073,6 +1143,10 @@ export function apply(ctx) {
       v: 1,
       version: '0.2.0',
       config: publicConfig(),
+      // 首页直接读这两项（不必再拆 config）：判球模型和最近 10 次的实测耗时。
+      judgeProvider: config.judgeProvider || null,
+      judgeModel: config.judgeModel || null,
+      timings: readTimings(),
       sessionId: config.sessionId ?? null,
       agents: live,
       counters: desk.counters,
@@ -1128,6 +1202,9 @@ function mergeConfig(current, body) {
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
     if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)
+    // 判球模型：空字符串 = 清掉，回到沿用会话。
+    if (typeof body.judgeProvider === 'string') next.judgeProvider = body.judgeProvider.trim().slice(0, 80) || undefined
+    if (typeof body.judgeModel === 'string') next.judgeModel = body.judgeModel.trim().slice(0, 120) || undefined
   }
   return next
 }

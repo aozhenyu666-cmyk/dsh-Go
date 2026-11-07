@@ -92,6 +92,15 @@ object ProactiveRuntime {
     private var listening: PhoneTasks? = null
     private var lastOpportunistic = 0L
 
+    /**
+     * The companion's last /plan answer. When it is present the plugin is the only scheduler: the
+     * phone side's random gap, daily cap, reply defer and ignore backoff stay dormant (they are the
+     * fallback for "plugin unreachable" only). [speak] at [at] means one attempt, nothing earlier.
+     */
+    private data class CompanionPlan(val speak: Boolean, val at: Long, val reason: String, val receivedAt: Long)
+    private var companionPlan: CompanionPlan? = null
+    private var lastPlanError: String? = null
+
     /** Agent commands that arrived before Dart connected; see [holdAgent]. */
     private data class HeldAgent(val requestId: String, val body: Map<String, Any?>?, val deadline: Long)
     private val heldAgent = LinkedHashMap<String, HeldAgent>()
@@ -107,10 +116,13 @@ object ProactiveRuntime {
     private const val SAY_POLL_WAIT_MS = 8_000L
     /** How long a 锁 / 赶 holds without a fresh /plan saying so again. */
     private const val FORCE_HOLD_MS = 3 * 60_000L
+    /** A plan older than its own next-check time by this much is stale; fall back to the local scheduler. */
+    private const val PLAN_STALE_MS = 15 * 60_000L
 
     fun ensure(context: Context): Coordinator {
         coordinator?.let { return it }
         app = context.applicationContext
+        ProactiveOverlay.install(app)
         // Load 触发测试's switch before anything reads it: if Flutter starts before the accessibility
         // service, an unloaded LoopEngine would read as "off" and applySwitches would cancel live
         // app-enter events with the wrong reason (review r3, startup race).
@@ -150,6 +162,14 @@ object ProactiveRuntime {
         refreshGate("config")
         // 主动搭话 alone still needs foreground readings for the protected-page gate (review r3, C).
         runCatching { LoopRuntime.configChanged() }
+        companionConfigChanged()
+    }
+
+    /** The plugin's target/config changed: throw away the old plan and ask it again right now. */
+    fun companionConfigChanged() {
+        companionPlan = null
+        lastPlanConsult = 0L
+        consultPlanSoon(minGapMs = 0)
     }
 
     fun proactiveEnabled(): Boolean = scheduler?.config?.enabled == true
@@ -178,6 +198,15 @@ object ProactiveRuntime {
         watchTasks()
         applySwitches()
         dispatch(c.setGate(gate()))
+        // P2: while the companion answers /plan, its answer is the whole schedule. The local
+        // scheduler still owns the single alarm and the fallback, but it does not get to vote.
+        val plan = companionPlan
+        if (!force && plan != null && planAuthoritative(plan)) {
+            tickByPlan(plan, reason)
+            arm()
+            Log.d(TAG, "tick $reason by companion plan (${plan.reason})")
+            return
+        }
         when (val d = s.evaluate(clocks(), force)) {
             is ProactiveScheduler.Decision.Fire -> submit(d.request, fromScheduler = true)
             is ProactiveScheduler.Decision.Wait -> {
@@ -189,6 +218,41 @@ object ProactiveRuntime {
         arm()
         Log.d(TAG, "tick $reason")
     }
+
+    /**
+     * One alarm tick under the companion's plan: speak at [CompanionPlan.at] exactly once, otherwise
+     * just move the alarm. No random gap, no daily cap, no reply defer — those live in the plugin now.
+     */
+    private fun tickByPlan(plan: CompanionPlan, reason: String) {
+        val now = System.currentTimeMillis()
+        if (now + 1_000L < plan.at) {
+            scheduler?.setNextDueAt(plan.at, clocks())
+            return
+        }
+        if (!plan.speak) {
+            // The plugin's own "look again" time has passed (it was, say, quiet-hours end). Ask again
+            // rather than inventing a gap here.
+            companionPlan = null
+            consultPlanSoon(minGapMs = 0)
+            return
+        }
+        // Fire once. Clearing first also covers a coordinator rejection: the next /plan decides.
+        companionPlan = null
+        val at = clocks()
+        val request = EventRequest(
+            eventId = java.util.UUID.randomUUID().toString(),
+            source = "SCHEDULER", kind = "random_chat", dedupeKey = "companion:plan:${plan.receivedAt}",
+            priority = schedulerConfig().priority, createdAt = at.wall, ttlMs = schedulerConfig().eventTtlMs,
+            needsAgent = true,
+            payload = mapOf("plan" to plan.reason),
+        )
+        submit(request, fromScheduler = true)
+        Log.i(TAG, "companion plan fired ($reason, ${plan.reason})")
+    }
+
+    /** The plugin is reachable and this answer is still the current one (not a stale minute-old one). */
+    private fun planAuthoritative(plan: CompanionPlan): Boolean =
+        agentPort != null && plan.receivedAt > 0 && System.currentTimeMillis() <= plan.at + PLAN_STALE_MS
 
     /** Window events from LoopRuntime: cheap, throttled; the only clock in OPPORTUNISTIC mode. */
     fun onWindowActivity() {
@@ -257,6 +321,16 @@ object ProactiveRuntime {
         fetchPluginRoute(ignoreResult, "POST", "/outcome", linkedMapOf("requestId" to requestId, "stage" to stage))
     }
 
+    /** 「别烦我 1 小时」: the plugin's own mute, so /plan stops saying speak until it ends. */
+    fun muteFor(ms: Long) {
+        fetchPluginRoute(
+            ignoreResult, "POST", "/config",
+            linkedMapOf("v" to 1, "muteUntil" to (System.currentTimeMillis() + ms.coerceIn(60_000L, 24 * 3_600_000L))),
+        )
+        companionPlan = CompanionPlan(false, System.currentTimeMillis() + ms, "muted", System.currentTimeMillis())
+        arm()
+    }
+
     /**
      * 浮层里直接聊: hand one line to the companion's /say (it goes into the session as the person's
      * own words), then long-poll /result until 大肥鱼 has answered. [done] runs on the main thread
@@ -297,8 +371,17 @@ object ProactiveRuntime {
         override fun success(result: Any?) {
             main.post { applyPlan(result) }
         }
-        override fun error(code: String, message: String?, details: Any?) {}
-        override fun notImplemented() {}
+        override fun error(code: String, message: String?, details: Any?) {
+            main.post {
+                // No /plan: the local scheduler is the fallback again, honestly labelled.
+                lastPlanError = code
+                companionPlan = null
+                arm()
+            }
+        }
+        override fun notImplemented() {
+            main.post { lastPlanError = "not_implemented"; companionPlan = null; arm() }
+        }
     }
 
     /**
@@ -322,7 +405,7 @@ object ProactiveRuntime {
     }
 
     /** The companion's last 锁 / 赶, kept for a short while so re-entering the app meets it at once. */
-    private data class Force(val level: Int, val app: String, val until: Long)
+    private data class Force(val level: Int, val app: String, val why: String?, val until: Long)
     private var force: Force? = null
     private var lastFront: String? = null
 
@@ -350,20 +433,51 @@ object ProactiveRuntime {
             runCatching { PhoneA11yService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
                 .onFailure { Log.w(TAG, "home", it) }
         }
-        val shown = runCatching { InterceptRuntime.forceBlock(app, f.app, null) }.getOrDefault(false)
+        val shown = runCatching { InterceptRuntime.forceBlock(app, f.app, f.why) }.getOrDefault(false)
         Log.i(TAG, "companion force=${f.level} ${f.app} shown=$shown")
+    }
+
+    /**
+     * 讲通了: the companion dropped the force below 3. If the page on screen is the one its own lock
+     * opened (never the person's own interception rule), release it and put the app back.
+     */
+    private fun releaseCompanionLock() {
+        runCatching { InterceptRuntime.releaseCompanion(app) }
+            .onSuccess { if (it) Log.i(TAG, "companion force dropped: released its lock") }
+            .onFailure { Log.w(TAG, "release companion lock", it) }
     }
 
     private fun applyPlan(raw: Any?) {
         val map = raw as? Map<*, *> ?: return
+        lastPlanError = (map["error"] as? Map<*, *>)?.get("code") as? String
+        if (lastPlanError != null) { companionPlan = null; arm(); return }
         // 力度：插件说"锁 / 赶"就执行（插件只决定，手机执行）；低于 3 就撤掉记着的那一次。
         val f = map["force"] as? Map<*, *>
         val level = (f?.get("level") as? Number)?.toInt() ?: 0
         val target = f?.get("app") as? String
-        force = if (level >= 3 && !target.isNullOrBlank()) Force(level, target, System.currentTimeMillis() + FORCE_HOLD_MS) else null
+        val why = f?.get("why") as? String
+        force = if (level >= 3 && !target.isNullOrBlank()) Force(level, target, why, System.currentTimeMillis() + FORCE_HOLD_MS) else null
+        if (level < 3) releaseCompanionLock()
         force?.let { enforce(it) }
-        val at = (map["nextCheckAt"] as? Number)?.toLong() ?: return
+        val at = (map["nextCheckAt"] as? Number)?.toLong() ?: 0L
+        val speak = map["speak"] == true
+        val reason = map["reason"] as? String ?: ""
         if (at <= 0) return
+        // P2: the plugin decides, the phone executes. speak=true means this ball now; nextCheckAt is
+        // when to look again afterwards. speak=false means only move the single alarm.
+        if (speak) {
+            val now = clocks()
+            val request = EventRequest(
+                eventId = UUID.randomUUID().toString(),
+                source = "SCHEDULER", kind = "random_chat", dedupeKey = "companion:plan:${now.wall}",
+                priority = schedulerConfig().priority, createdAt = now.wall, ttlMs = schedulerConfig().eventTtlMs,
+                needsAgent = true, payload = mapOf("plan" to reason),
+            )
+            submit(request, fromScheduler = true)
+        }
+        // Keep the plugin's next-check time authoritative even after this ball: no local vote until
+        // the next /plan or until the plugin goes away.
+        companionPlan = CompanionPlan(false, at, reason, System.currentTimeMillis())
         scheduler?.setNextDueAt(at, clocks())
         arm()
     }
@@ -386,6 +500,12 @@ object ProactiveRuntime {
             is AgentWire.Decoded.Retry -> main.postDelayed({
                 if (c.active()?.agentRequestId == requestId) agentPort?.poll(requestId)
             }, d.afterMs)
+            is AgentWire.Decoded.Skip -> {
+                // "Not this time" is a decision, not a delivery failure (P2): close quietly rather
+                // than feeding notDeliveredStreak and retrying within the minute.
+                val eventId = c.active()?.takeIf { it.agentRequestId == requestId }?.eventId
+                if (eventId != null) dispatch(c.cancel(eventId, "skip:" + d.code))
+            }
         }
     }
 
@@ -438,7 +558,12 @@ object ProactiveRuntime {
     private fun dispatch(step: Step) {
         for (cmd in step.commands) runCatching { run(cmd) }.onFailure { Log.w(TAG, "command $cmd", it) }
         for (closed in step.closed) {
-            scheduler?.onOutcome(closed.eventId, closed.engagement, clocks())
+            val skip = closed.reason?.takeIf { it.startsWith("skip:") }?.substringAfter("skip:")
+            if (skip != null) {
+                scheduler?.onSkipped(closed.eventId, skip, clocks())
+            } else {
+                scheduler?.onOutcome(closed.eventId, closed.engagement, clocks())
+            }
             // The kernel owns the outcome; the round-1 twin mirrors it (review r3, A).
             runCatching { LoopRuntime.onKernelClosed(closed) }
             Log.i(TAG, "closed ${closed.eventId} ${closed.outcome} ${closed.reason} engagement=${closed.engagement}")
@@ -484,7 +609,11 @@ object ProactiveRuntime {
                         Log.i(TAG, "activity surface busy (" + VisibleSurface.holder() + "); not stacking")
                         dispatch(c.onSurface(cmd.token, SurfaceReport.Failed("surface_busy")))
                     } else {
-                        val ok = ProactivePageActivity.start(app, cmd.token, cmd.content.text, cmd.deadline)
+                        // P1: a real window, not an Activity — switching apps must not dismiss it.
+                        // The Activity stays as the fallback when no overlay host is available.
+                        val text = cmd.content.text
+                        val ok = runCatching { ProactiveOverlay.show(cmd.token, text, cmd.deadline) }.getOrDefault(false) ||
+                            ProactivePageActivity.start(app, cmd.token, text, cmd.deadline)
                         if (!ok) VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, cmd.token)
                         dispatch(c.onSurface(cmd.token, if (ok) SurfaceReport.Posted else SurfaceReport.Failed("start_failed")))
                     }
@@ -496,12 +625,14 @@ object ProactiveRuntime {
             }
             is Command.Withdraw -> when (cmd.surface) {
                 Surface.ACTIVITY -> {
+                    ProactiveOverlay.withdraw(cmd.token)
                     ProactivePageActivity.withdraw(cmd.token)
                     VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, cmd.token)
                 }
                 Surface.NOTIFICATION -> notificationPort?.cancel(cmd.token)
             }
             Command.ClearLeftovers -> {
+                ProactiveOverlay.withdrawAll()
                 ProactivePageActivity.withdrawAll()
                 VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, null)
                 notificationPort?.cancelAll()
@@ -515,6 +646,8 @@ object ProactiveRuntime {
         flushHeldAgent()
         // The gate depends on the port (notificationsAllowed), so the decision has to be revisited.
         refreshGate("agent_port")
+        // The plugin is reachable now: let its /plan take over the one alarm again.
+        consultPlanSoon(minGapMs = 0)
     }
 
     /**
@@ -600,6 +733,13 @@ object ProactiveRuntime {
     private fun arm() {
         val s = scheduler ?: return
         val mode = WakeMode.of(caps())
+        val plan = companionPlan
+        if (plan != null && agentPort != null) {
+            // One alarm, at the companion's own next check. The local random gap/cap is not asked.
+            val now = System.currentTimeMillis()
+            WakeAlarm.set(app, plan.at.coerceAtLeast(now + 60_000L), mode)
+            return
+        }
         WakeAlarm.set(app, s.nextWake(clocks(), mode), mode)
     }
 

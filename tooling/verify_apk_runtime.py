@@ -137,16 +137,36 @@ def verify(apk: pathlib.Path, plugin_dir: pathlib.Path | None = None) -> list[di
     return checks
 
 
+def checked_apk(raw: pathlib.Path, ap: argparse.ArgumentParser) -> pathlib.Path:
+    """A real .apk file, with `..` rejected before it is resolved.
+
+    This is a local diagnostic tool, but the argument still comes from the command line: keeping
+    it a resolved, existing .apk keeps a bad argument from turning into an arbitrary read.
+    """
+    if any(part == ".." for part in raw.parts):
+        ap.error(f"apk path must not contain '..': {raw}")
+    path = raw.expanduser().resolve()
+    if path.suffix.lower() != ".apk" or not path.is_file():
+        ap.error(f"not an APK file: {path}")
+    return path
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("apk", type=pathlib.Path)
     ap.add_argument("--plugin", type=pathlib.Path, help="repo plugin dir to compare against")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    checks = verify(a.apk, a.plugin)
+    apk_path = checked_apk(a.apk, ap)
+    plugin = None
+    if a.plugin is not None:
+        if any(part == ".." for part in a.plugin.parts):
+            ap.error(f"--plugin path must not contain '..': {a.plugin}")
+        plugin = a.plugin.expanduser().resolve()
+    checks = verify(apk_path, plugin)
     ok = all(c["result"] == "PASS" for c in checks)
     if a.json:
-        print(json.dumps({"apk": str(a.apk), "apkSha256": sha256(a.apk.read_bytes()) if a.apk.exists() else None,
+        print(json.dumps({"apk": str(apk_path), "apkSha256": sha256(apk_path.read_bytes()) if apk_path.exists() else None,
                           "ok": ok, "checks": checks}, ensure_ascii=False, indent=2))
     else:
         for c in checks:

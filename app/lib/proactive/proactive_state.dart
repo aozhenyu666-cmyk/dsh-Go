@@ -161,6 +161,7 @@ class ProactiveStatus {
     this.storageError,
     this.recoveryIssue,
     this.activeStage,
+    this.capabilities = const {},
   });
 
   final ProactiveConfig config;
@@ -180,6 +181,9 @@ class ProactiveStatus {
   final String? recoveryIssue;
   final String? activeStage;
 
+  /// P7: a11y / overlay / notifications / exactAlarm / battery — what a new install still needs.
+  final Map<String, bool> capabilities;
+
   /// True when the system refuses background wakeups, so a message only happens while DSH is open.
   bool get wakeRestricted => wakeMode == 'OPPORTUNISTIC';
 
@@ -198,7 +202,16 @@ class ProactiveStatus {
       storageError: s(m['storageError']),
       recoveryIssue: s(m['recoveryIssue']),
       activeStage: m['active'] is Map ? s((m['active'] as Map)['stage']) : null,
+      capabilities: _bools(m['capabilities']),
     );
+  }
+
+  static Map<String, bool> _bools(Object? raw) {
+    if (raw is! Map) return const {};
+    return {
+      for (final e in raw.entries)
+        if (e.key is String && e.value is bool) e.key as String: e.value as bool,
+    };
   }
 }
 
@@ -259,6 +272,15 @@ class ProactiveChannel {
     }
   }
 
+  /// P7: opens the system page for one missing capability (a11y / overlay / notifications / …).
+  Future<bool> openCapability(String kind) async {
+    try {
+      return await _methods.invokeMethod<bool>('openCapability', {'kind': kind}) ?? false;
+    } on Exception {
+      return false;
+    }
+  }
+
   /// The plugin's live sessions and the configured target (`GET /dsh-go-companion/v1/status`).
   ///
   /// Carried over the same authenticated connection D1 uses. The answer is parsed here only to
@@ -297,6 +319,9 @@ class ProactiveAgentSessions {
     this.today = const {},
     this.lastTopicId,
     this.memoryExists = false,
+    this.judgeProvider,
+    this.judgeModel,
+    this.timings = const {},
   });
 
   /// The configured target; null means "not chosen yet", and then no proactive turn happens.
@@ -317,6 +342,13 @@ class ProactiveAgentSessions {
   /// Whether `fish-memory.sqlite` exists for the selected session.
   final bool memoryExists;
 
+  /// P6: the separately configured judge model; null = same as the session.
+  final String? judgeProvider;
+  final String? judgeModel;
+
+  /// P6: median milliseconds of the last 10 rounds — generate / judge / chat.
+  final Map<String, int> timings;
+
   bool get ready => error == null;
 
   static ProactiveAgentSessions fromWire(Object? raw) {
@@ -328,10 +360,17 @@ class ProactiveAgentSessions {
     final agents = raw['agents'];
     final today = raw['today'];
     final memory = raw['memory'];
+    final timings = raw['timings'];
     final counts = <String, int>{};
     if (today is Map) {
       for (final e in today.entries) {
         if (e.key is String && e.value is num) counts[e.key as String] = (e.value as num).toInt();
+      }
+    }
+    final medians = <String, int>{};
+    if (timings is Map) {
+      for (final e in timings.entries) {
+        if (e.key is String && e.value is num) medians[e.key as String] = (e.value as num).toInt();
       }
     }
     return ProactiveAgentSessions(
@@ -344,6 +383,9 @@ class ProactiveAgentSessions {
       today: counts,
       lastTopicId: raw['lastTopicId'] is String ? raw['lastTopicId'] as String : null,
       memoryExists: memory is Map && memory['exists'] == true,
+      judgeProvider: raw['judgeProvider'] is String ? raw['judgeProvider'] as String : null,
+      judgeModel: raw['judgeModel'] is String ? raw['judgeModel'] as String : null,
+      timings: medians,
     );
   }
 }

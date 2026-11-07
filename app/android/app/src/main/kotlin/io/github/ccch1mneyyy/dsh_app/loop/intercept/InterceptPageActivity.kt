@@ -3,18 +3,30 @@
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import io.github.ccch1mneyyy.dsh_app.R
 import io.github.ccch1mneyyy.dsh_app.loop.core.InterceptDrill
+import io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime
 import io.github.ccch1mneyyy.dsh_app.i18n.AppStrings
+import io.github.ccch1mneyyy.dsh_app.pet.OverlayPalette
 
 /**
  * 濞变箰 APP 鎷︽埅椤?(round 4, M1). One page per interception, bound to the eventId the guard minted
@@ -38,6 +50,7 @@ class InterceptPageActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private var eventId: String? = null
     private var packageName: String? = null
+    private var why: String? = null
     private var reported = false
 
     /** The block was proven on screen and reported; the page may now offer its ways out. */
@@ -55,8 +68,26 @@ class InterceptPageActivity : Activity() {
     private var drillStatus: TextView? = null
     private val drillButtons = LinkedHashMap<Int, Button>()
 
+    /** P3: 跟大肥鱼讲道理 right here; a real reason makes the companion drop the lock. */
+    private var chatLog: TextView? = null
+    private var chatScroll: ScrollView? = null
+    private var chatInput: EditText? = null
+    private var chatSend: ImageView? = null
+    private var chatStatus: TextView? = null
+    private var chatting = false
+
+    /** The native side's 雾蓝 palette (same one the pet bubble / AskBar use). */
+    private val palette by lazy { OverlayPalette.of(this) }
+
+    private fun dp(v: Int): Int =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The card draws its own 18 dp surface; the dialog window behind it must not paint a
+        // rectangle behind those corners.
+        window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        window?.setDimAmount(0.45f)
         setFinishOnTouchOutside(false)
         if (savedInstanceState != null) { finish(); return } // restored by the system: the interception is gone
         bind(intent)
@@ -80,6 +111,7 @@ class InterceptPageActivity : Activity() {
         }
         eventId = id
         packageName = start.getStringExtra(EXTRA_PACKAGE)
+        why = start.getStringExtra(EXTRA_WHY)
         drill = InterceptRuntime.drill(id)
         live[id] = this
         setContentView(content(label))
@@ -177,6 +209,60 @@ class InterceptPageActivity : Activity() {
         if (pkg != null) InterceptRuntime.openTarget(this, pkg)
     }
 
+    /**
+     * 讲道理: the line goes into 大肥鱼's session as the person's own words. If it accepts the reason
+     * (a real pushback), the plugin drops /plan's force below 3 and ProactiveRuntime releases this
+     * very page — the page itself never decides that.
+     */
+    private fun sendChat() {
+        val box = chatInput ?: return
+        val text = box.text?.toString()?.trim().orEmpty()
+        if (text.isEmpty() || chatting) return
+        box.setText("")
+        appendChat(AppStrings.get(this, R.string.proactive_overlay_you, text))
+        chatting = true
+        refreshChatSend()
+        setChatStatus(AppStrings.get(this, R.string.proactive_overlay_thinking))
+        ProactiveRuntime.say(text) { reply, error ->
+            if (isFinishing || isDestroyed) return@say
+            chatting = false
+            refreshChatSend()
+            setChatStatus(null)
+            appendChat(
+                when {
+                    !reply.isNullOrBlank() -> AppStrings.get(this, R.string.proactive_overlay_reply, reply)
+                    error == "agent-busy" || error == "desk-busy" -> AppStrings.get(this, R.string.proactive_overlay_busy)
+                    error == "timeout" -> AppStrings.get(this, R.string.proactive_overlay_slow_model)
+                    else -> AppStrings.get(this, R.string.proactive_overlay_failed, error ?: "unknown")
+                },
+            )
+        }
+    }
+
+    private fun setChatStatus(text: String?) {
+        chatStatus?.text = text ?: ""
+        chatStatus?.visibility = if (text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
+    }
+
+    /** Same 40 dp circular send key as 问一句, so the two chat entries look alike. */
+    private fun refreshChatSend() {
+        val key = chatSend ?: return
+        val can = !chatting && !chatInput?.text.isNullOrBlank()
+        key.isEnabled = can
+        key.alpha = if (can) 1f else 0.4f
+        key.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (can) palette.accent else palette.pressed)
+        }
+        key.imageTintList = ColorStateList.valueOf(if (can) palette.onAccent else palette.muted)
+    }
+
+    private fun appendChat(line: String) {
+        val view = chatLog ?: return
+        view.append(if (view.text.isNullOrEmpty()) line else "\n\n$line")
+        chatScroll?.post { chatScroll?.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
     private fun unregister() { eventId?.let { if (live[it] === this) live.remove(it) } }
 
     private fun render() {
@@ -189,6 +275,7 @@ class InterceptPageActivity : Activity() {
             )
             // The button only ever offers what the guard will accept: a solved drill.
             b.isEnabled = shown && solved
+            b.alpha = if (b.isEnabled) 1f else 0.5f
         }
         drillStatus?.let { t ->
             t.text = when {
@@ -208,6 +295,7 @@ class InterceptPageActivity : Activity() {
         val done = order.take(d.cursor).toSet()
         drillButtons.forEach { (value, button) ->
             button.isEnabled = shown && !d.solved && value !in done
+            button.alpha = if (button.isEnabled) 1f else 0.5f
         }
     }
 
@@ -220,18 +308,18 @@ class InterceptPageActivity : Activity() {
         }
     }
 
-    private fun drillRow(ctx: android.content.Context, dp: (Int) -> Int): LinearLayout {
+    private fun drillRow(ctx: android.content.Context): LinearLayout {
         val d = drill ?: return LinearLayout(ctx)
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, 0, 0, dp(4))
         }
         for (value in d.candidates) {
-            row.addView(Button(ctx).apply {
-                text = value.toString()
+            row.addView(pillButton(value.toString(), weight = 1f, onTap = { tapDrill(value) }).apply {
                 minimumWidth = dp(56)
-                setOnClickListener { tapDrill(value) }
                 drillButtons[value] = this
+            }, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                marginEnd = dp(6)
             })
         }
         return row
@@ -239,20 +327,102 @@ class InterceptPageActivity : Activity() {
 
 
     private fun content(label: String): LinearLayout {
-        fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
         val ctx = this
         val releaseMinutes = (InterceptRuntime.releaseMs() / 60_000L).coerceAtLeast(1L).toInt()
         return LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(12))
+            setPadding(dp(20), dp(18), dp(20), dp(14))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(22).toFloat()
+                setColor(palette.fill)
+                setStroke(dp(1).coerceAtLeast(1), palette.stroke)
+            }
             addView(TextView(ctx).apply {
                 text = AppStrings.get(ctx, R.string.intercept_title, label)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setTextColor(palette.ink)
+                setTypeface(typeface, Typeface.BOLD)
             })
             addView(TextView(ctx).apply {
                 text = AppStrings.get(ctx, R.string.intercept_body, label)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setPadding(0, dp(8), 0, dp(16))
+                setTextColor(palette.muted)
+                setLineSpacing(0f, 1.25f)
+                setPadding(0, dp(8), 0, dp(12))
+            })
+            // 大肥鱼自己的理由（/plan 的 force.why），不是一句固定的"娱乐拦截"。
+            if (!why.isNullOrBlank()) {
+                addView(TextView(ctx).apply {
+                    text = AppStrings.get(ctx, R.string.proactive_overlay_reply, why)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setTextColor(palette.onTonal)
+                    setPadding(dp(12), dp(9), dp(12), dp(9))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(12).toFloat()
+                        setColor(palette.tonal)
+                    }
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(12)
+                })
+            }
+            // P3: 直接讲道理。判球是真反驳时，插件会把力度降到 1，本页由手机侧关闭。
+            val log = TextView(ctx).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(palette.ink)
+                setLineSpacing(0f, 1.2f)
+            }
+            chatLog = log
+            addView(ScrollView(ctx).apply {
+                chatScroll = this
+                addView(log)
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(140)).apply {
+                bottomMargin = dp(8)
+            })
+            addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.BOTTOM
+                val box = EditText(ctx).apply {
+                    hint = AppStrings.get(ctx, R.string.proactive_overlay_hint)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    setTextColor(palette.ink)
+                    setHintTextColor(palette.muted)
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    maxLines = 4
+                    imeOptions = EditorInfo.IME_ACTION_SEND
+                    setPadding(dp(12), dp(9), dp(12), dp(9))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(14).toFloat()
+                        setColor(palette.pressed)
+                    }
+                    setOnEditorActionListener { _, action, _ -> if (action == EditorInfo.IME_ACTION_SEND) { sendChat(); true } else false }
+                }
+                chatInput = box
+                box.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                    override fun afterTextChanged(s: android.text.Editable?) = refreshChatSend()
+                })
+                addView(box, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(ImageView(ctx).apply {
+                    chatSend = this
+                    setImageResource(R.drawable.ic_pet_send)
+                    scaleType = ImageView.ScaleType.CENTER
+                    contentDescription = AppStrings.get(ctx, R.string.pet_ask_send)
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { sendChat() }
+                }, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                    marginStart = dp(8)
+                })
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(4)
+            })
+            addView(TextView(ctx).apply {
+                chatStatus = this
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(palette.muted)
+                visibility = android.view.View.GONE
+                setPadding(0, dp(2), 0, dp(4))
             })
             // The 训练题: the only door that does not spend money or time, and it has to be earned.
             drill?.let { d ->
@@ -264,50 +434,76 @@ class InterceptPageActivity : Activity() {
                             if (d.ascending) R.string.intercept_drill_ascending else R.string.intercept_drill_descending,
                         ),
                     )
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                    setPadding(0, 0, 0, dp(8))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setTextColor(palette.muted)
+                    setPadding(0, dp(4), 0, dp(8))
                 })
-                addView(drillRow(ctx, ::dp))
+                addView(drillRow(ctx))
                 addView(TextView(ctx).apply {
                     drillStatus = this
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                    setPadding(0, 0, 0, dp(12))
+                    setTextColor(palette.muted)
+                    setPadding(0, dp(2), 0, dp(4))
                 })
             }
             // The ways out, in increasing order of commitment: the drill, timed pass, standing pass,
             // pause everything, leave. Every button names this page's eventId, never a new one.
-            addView(Button(ctx).apply {
-                trainingButton = this
-                isEnabled = false
-                setOnClickListener { if (drill?.solved == true) release(InterceptRuntime.RELEASE_TRAINING) }
-            })
-            addView(Button(ctx).apply {
-                text = AppStrings.get(ctx, R.string.intercept_rule, releaseMinutes)
-                setOnClickListener { release(InterceptRuntime.RELEASE_RULE) }
-            })
-            addView(Button(ctx).apply {
-                text = AppStrings.get(ctx, R.string.intercept_whitelist)
-                setOnClickListener { release(InterceptRuntime.RELEASE_WHITELIST) }
-            })
+            addView(pillButton("", primary = true, onTap = {
+                if (drill?.solved == true) release(InterceptRuntime.RELEASE_TRAINING)
+            }).apply { trainingButton = this })
+            addView(pillButton(AppStrings.get(ctx, R.string.intercept_rule, releaseMinutes), onTap = {
+                release(InterceptRuntime.RELEASE_RULE)
+            }))
+            addView(pillButton(AppStrings.get(ctx, R.string.intercept_whitelist), onTap = {
+                release(InterceptRuntime.RELEASE_WHITELIST)
+            }))
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
-                addView(Button(ctx).apply {
-                    text = AppStrings.get(ctx, R.string.intercept_pause)
-                    setOnClickListener { pause() }
+                addView(pillButton(AppStrings.get(ctx, R.string.intercept_pause), secondary = true, weight = 1f, onTap = { pause() }), LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    topMargin = dp(8); marginEnd = dp(6)
                 })
-                addView(Button(ctx).apply {
-                    text = AppStrings.get(ctx, R.string.intercept_exit)
-                    setOnClickListener { exit() }
+                addView(pillButton(AppStrings.get(ctx, R.string.intercept_exit), secondary = true, weight = 1f, onTap = { exit() }), LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    topMargin = dp(8)
                 })
             })
+            refreshChatSend()
         }
+    }
+
+    /** One DSH-Go pill button: accent for the main door, tonal for the rest, outline for the way out. */
+    private fun pillButton(
+        label: String,
+        primary: Boolean = false,
+        secondary: Boolean = false,
+        weight: Float = 0f,
+        onTap: () -> Unit,
+    ): Button = Button(this).apply {
+        text = label
+        textSize = 15f
+        isAllCaps = false
+        setTextColor(if (primary) palette.onAccent else if (secondary) palette.ink else palette.onTonal)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(14).toFloat()
+            setColor(if (primary) palette.accent else if (secondary) palette.fill else palette.tonal)
+            if (secondary) setStroke(dp(1).coerceAtLeast(1), palette.stroke)
+        }
+        stateListAnimator = null
+        backgroundTintList = null
+        elevation = 0f
+        layoutParams = if (weight > 0f) {
+            LinearLayout.LayoutParams(0, dp(46), weight)
+        } else {
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(8) }
+        }
+        setOnClickListener { onTap() }
     }
 
     companion object {
         private const val EXTRA_EVENT_ID = "intercept_event_id"
         private const val EXTRA_PACKAGE = "intercept_package"
         private const val EXTRA_LABEL = "intercept_label"
+        private const val EXTRA_WHY = "intercept_why"
         private const val EXTRA_TRAINING_MS = "intercept_training_ms"
         private const val EXTRA_DEADLINE = "intercept_deadline"
 
@@ -319,12 +515,12 @@ class InterceptPageActivity : Activity() {
         private val live = HashMap<String, InterceptPageActivity>()
 
         /** Started from DSH's own process; false if the system refused at once. */
-        fun start(context: Context, eventId: String, pkg: String, label: String, trainingMs: Long, deadline: Long): Boolean = runCatching {
+        fun start(context: Context, eventId: String, pkg: String, label: String, trainingMs: Long, deadline: Long, why: String? = null): Boolean = runCatching {
             context.startActivity(
                 Intent(context, InterceptPageActivity::class.java)
                     .putExtra(EXTRA_EVENT_ID, eventId).putExtra(EXTRA_PACKAGE, pkg)
                     .putExtra(EXTRA_LABEL, label.take(64)).putExtra(EXTRA_TRAINING_MS, trainingMs)
-                    .putExtra(EXTRA_DEADLINE, deadline)
+                    .putExtra(EXTRA_DEADLINE, deadline).putExtra(EXTRA_WHY, why?.take(200))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_ANIMATION),
             )
         }.isSuccess

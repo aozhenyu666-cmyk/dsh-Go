@@ -160,12 +160,67 @@ class _ProactivePageState extends State<ProactivePage> {
     await _save(config.copyWith(dailyMax: steps[(i + 1) % steps.length]));
   }
 
+  /// P7: "能不能主动开口" — every row is one thing a new install must turn on, and its tap opens
+  /// exactly that system page. Green rows are already done; nothing here decides anything.
+  Widget _readinessCard(ProactiveStatus status, bool pluginOnline) {
+    final caps = status.capabilities;
+    final colors = DshColors.of(context);
+    final items = <(String, bool, String)>[
+      ('选好大肥鱼的会话', _sessions.sessionId != null, 'session'),
+      ('无障碍已连接', caps['a11y'] ?? false, 'a11y'),
+      ('悬浮窗权限', caps['overlay'] ?? false, 'overlay'),
+      ('通知权限', caps['notifications'] ?? false, 'notifications'),
+      ('精确闹钟', caps['exactAlarm'] ?? false, 'exactAlarm'),
+      ('电池不限制', caps['battery'] ?? false, 'battery'),
+    ];
+    final missing = items.where((i) => !i.$2).length;
+    return ListPageCard(
+      title: '能不能主动开口',
+      children: [
+        ListPageRow(
+          icon: missing == 0 ? AppIcons.allowed : AppIcons.warning,
+          iconColor: missing == 0 ? colors.success : colors.warning,
+          title: missing == 0 ? '六项都开了' : '还差 $missing 项',
+          subtitle: missing == 0 ? '大肥鱼可以主动找你了' : '每项点一下就是对应的系统页，开完回来刷新',
+          subtitleMaxLines: 2,
+        ),
+        for (final item in items)
+          ListPageRow(
+            icon: item.$2 ? AppIcons.allowed : AppIcons.error,
+            iconColor: item.$2 ? colors.success : colors.textTertiary,
+            title: item.$1,
+            value: item.$2 ? '已开' : '去开启',
+            onTap: item.$2
+                ? null
+                : () async {
+                    if (item.$3 == 'session') {
+                      await _pickSession();
+                    } else {
+                      await _channel.openCapability(item.$3);
+                      await _refresh();
+                    }
+                  },
+          ),
+        if (!pluginOnline)
+          ListPageRow(
+            icon: AppIcons.warning,
+            iconColor: colors.warning,
+            title: '主动插件没连上',
+            subtitle: '插件在线时由它决定什么时候开口；现在手机侧只是兜底',
+            subtitleMaxLines: 2,
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final colors = DshColors.of(context);
     final status = _status;
     final config = status?.config ?? const ProactiveConfig();
+    // The plugin answers /status: /plan is the only schedule while this is true (P2).
+    final pluginOnline = _sessions.ready && (status?.transport ?? false);
     return AppPage.list(
       title: l10n.proactiveTitle,
       subtitle: Text(l10n.proactiveSubtitle),
@@ -173,6 +228,9 @@ class _ProactivePageState extends State<ProactivePage> {
         GlassIconButton(icon: AppIcons.refresh, tooltip: l10n.loopRefresh, onPressed: () => unawaited(_refresh())),
       ],
       children: [
+        // P7: 新装什么都不能开口。把"还差哪几项"放在最上面，每项点开就是对应的系统页。
+        if (status != null) _readinessCard(status, pluginOnline),
+        if (status != null) const SizedBox(height: 24),
         ListPageCard(
           children: [
             MergeSemantics(
@@ -191,9 +249,9 @@ class _ProactivePageState extends State<ProactivePage> {
             ListPageRow(
               icon: AppIcons.commandTimeout,
               title: l10n.proactiveGap,
-              subtitle: l10n.proactiveGapHint,
+              subtitle: pluginOnline ? '由大肥鱼决定（插件在线时手机侧只做兜底）' : l10n.proactiveGapHint,
               value: l10n.proactiveGapValue(config.minIntervalMs ~/ 60000, config.maxIntervalMs ~/ 60000),
-              onTap: status == null
+              onTap: status == null || pluginOnline
                   ? null
                   : () => unawaited(_editMinutes(
                       title: l10n.proactiveGap,
@@ -205,9 +263,9 @@ class _ProactivePageState extends State<ProactivePage> {
             ListPageRow(
               icon: AppIcons.commandTimeout,
               title: l10n.proactiveGapMax,
-              subtitle: l10n.proactiveGapMaxHint,
+              subtitle: pluginOnline ? '由大肥鱼决定' : l10n.proactiveGapMaxHint,
               value: l10n.proactiveMinutes(config.maxIntervalMs ~/ 60000),
-              onTap: status == null
+              onTap: status == null || pluginOnline
                   ? null
                   : () => unawaited(_editMinutes(
                       title: l10n.proactiveGapMax,
@@ -228,9 +286,9 @@ class _ProactivePageState extends State<ProactivePage> {
             ListPageRow(
               icon: AppIcons.today,
               title: l10n.proactiveDaily,
-              subtitle: l10n.proactiveDailyHint,
+              subtitle: pluginOnline ? '由大肥鱼决定（插件在线时手机侧只做兜底）' : l10n.proactiveDailyHint,
               value: config.dailyMax <= 0 ? l10n.loopDailyCapOff : l10n.proactiveDailyValue(config.dailyMax),
-              onTap: status == null ? null : () => unawaited(_cycleDaily(config)),
+              onTap: status == null || pluginOnline ? null : () => unawaited(_cycleDaily(config)),
             ),
             ListPageRow(
               icon: AppIcons.chat,
@@ -327,6 +385,38 @@ class _ProactivePageState extends State<ProactivePage> {
               ),
           ],
         ),
+        if (_sessions.timings.isNotEmpty || _sessions.judgeModel != null) ...[
+          const SizedBox(height: 24),
+          ListPageCard(
+            title: '模型速度（最近 10 次中位数）',
+            children: [
+              ListPageRow(
+                icon: AppIcons.chart,
+                title: '发球',
+                value: timingLabel(_sessions.timings['generate']),
+              ),
+              ListPageRow(
+                icon: AppIcons.chat,
+                title: '判球',
+                value: timingLabel(_sessions.timings['judge']),
+              ),
+              ListPageRow(
+                icon: AppIcons.send,
+                title: '聊天',
+                value: timingLabel(_sessions.timings['chat']),
+              ),
+              ListPageRow(
+                icon: AppIcons.settings,
+                title: '判球模型',
+                subtitle: _sessions.judgeModel == null ? '没单独配，跟会话用同一个（慢的话可以在插件 /config 里换快的）' : null,
+                subtitleMaxLines: 2,
+                value: _sessions.judgeModel == null
+                    ? null
+                    : '${_sessions.judgeProvider ?? ''}/${_sessions.judgeModel}',
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 24),
         ListPageCard(
           title: l10n.proactiveReceipts,
@@ -466,6 +556,30 @@ class _SessionList extends StatelessWidget {
   }
 }
 
+/// P5: the kernel/plugin's internal codes, in the person's words. `agent_no-topic` etc. must never
+/// reach the receipt row raw; those are our bug names, not something he can act on.
+String? proactiveReasonLabel(String? reason) {
+  if (reason == null || reason.isEmpty) return null;
+  final code = reason.startsWith('skip:') ? reason.substring(5) : reason.replaceFirst(RegExp(r'^agent_'), '');
+  return switch (code) {
+    'no-topic' => '没话可说（旧版本才会有）',
+    'agent-busy' || 'in-conversation' || 'desk-busy' => '你们正在聊，这次不插嘴',
+    'no-session' => '还没选大肥鱼的会话',
+    'no-agent' => '会话没加载起来',
+    'deadline' || 'timeout' => '模型太慢，超时了',
+    'transport' || 'no_answer' || 'no_transport' => '引擎没连上',
+    'surface_busy' || 'start_failed' => '屏幕被别的界面占着，这次没弹出来',
+    _ => null,
+  };
+}
+
+/// `1.2 秒` / `850 毫秒`; null → `还没测到`.
+String timingLabel(int? ms) {
+  if (ms == null || ms < 0) return '还没测到';
+  if (ms < 1000) return '$ms 毫秒';
+  return '${(ms / 1000).toStringAsFixed(1)} 秒';
+}
+
 /// The outcome of one receipt, in the person's words.
 String proactiveOutcomeLabel(L10n l10n, String? outcome) => switch (outcome) {
   'RESPONDED' => l10n.proactiveOutcomeResponded,
@@ -474,6 +588,7 @@ String proactiveOutcomeLabel(L10n l10n, String? outcome) => switch (outcome) {
   'IGNORED_SEEN' => l10n.proactiveOutcomeIgnoredSeen,
   'UNCONFIRMED' => l10n.proactiveOutcomeUnconfirmed,
   'NOT_DELIVERED' => l10n.proactiveOutcomeNotDelivered,
+  'CANCELLED' => '这次没说',
   null => l10n.proactiveOutcomeOpen,
   _ => outcome,
 };
@@ -491,9 +606,12 @@ class _ReceiptRow extends StatelessWidget {
       'RESPONDED' => (AppIcons.allowed, colors.success),
       'DISMISSED' || 'IGNORED_SEEN' => (AppIcons.stopped, colors.warning),
       'NOT_DELIVERED' => (AppIcons.error, colors.danger),
-      'UNCONFIRMED' => (AppIcons.pending, colors.textTertiary),
+      'UNCONFIRMED' || 'CANCELLED' => (AppIcons.pending, colors.textTertiary),
       _ => (AppIcons.pending, colors.textTertiary),
     };
+    // P5: "这次不说" is not FAILED — grey, and with the plugin's own words instead of a code.
+    final skipped = receipt.outcome == 'CANCELLED' && (receipt.reason?.startsWith('skip:') ?? false);
+    final reason = proactiveReasonLabel(receipt.reason) ?? receipt.reason;
     // The six moments the kernel keeps apart, so "it was sent" and "they saw it" never blur.
     final marks = <String>[
       if (receipt.acceptedAt != null) l10n.proactiveMarkAccepted,
@@ -506,11 +624,11 @@ class _ReceiptRow extends StatelessWidget {
       'notification' => l10n.loopSurfaceNotification,
       _ => null,
     };
-    final detail = [?surface, if (marks.isNotEmpty) marks.join(' 鈫?'), ?receipt.reason].join(' 路 ');
+    final detail = [?surface, if (marks.isNotEmpty) marks.join('  → '), ?reason].join(' · ');
     return ListPageRow(
       icon: icon,
       iconColor: color,
-      title: proactiveOutcomeLabel(l10n, receipt.outcome),
+      title: skipped ? '这次不说' : proactiveOutcomeLabel(l10n, receipt.outcome),
       subtitle: detail.isEmpty ? null : detail,
       subtitleMaxLines: 3,
       meta: formatLogTime(receipt.closedAt ?? receipt.deliveredAt ?? receipt.createdAt),

@@ -1,22 +1,28 @@
 package io.github.ccch1mneyyy.dsh_app.loop.focus
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import io.github.ccch1mneyyy.dsh_app.MainActivity
 import io.github.ccch1mneyyy.dsh_app.loop.LoopRuntime
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -53,6 +59,118 @@ class FocusControlActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+    }
+
+    /**
+     * 返回不是退出整个 App：这个页面常常是被磁贴或通知单独拉起来的，背后没有 Flutter 页面。
+     * 回到 DSH 主界面（已经开着就提到前面），由那里继续设置。
+     */
+    @Deprecated("Activity back handling; targetSdk 28")
+    override fun onBackPressed() {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        finish()
+    }
+
+    private data class AppChoice(val pkg: String, val label: String)
+
+    /** The launcher entry points only: anything with an icon in the drawer can be a task app. */
+    private fun launcherApps(): List<AppChoice> = runCatching {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        pm.queryIntentActivities(intent, 0)
+            .mapNotNull { it.activityInfo?.applicationInfo }
+            .distinctBy { it.packageName }
+            .filter { it.packageName != packageName }
+            .map { AppChoice(it.packageName, runCatching { pm.getApplicationLabel(it).toString() }.getOrDefault(it.packageName)) }
+            .sortedBy { it.label.lowercase(Locale.getDefault()) }
+    }.getOrDefault(emptyList())
+
+    /**
+     * P4: the old button read LoopRuntime.lastForeground while this very page was in front, so the
+     * "front app" was always DSH itself and it could never succeed. Pick from the launcher instead,
+     * with a search box and the app last in front first.
+     */
+    private fun pickApp() {
+        val all = launcherApps()
+        if (all.isEmpty()) {
+            toast("读不到应用列表：系统可能限制了应用可见性")
+            return
+        }
+        val recent = LoopRuntime.lastForeground
+        val ordered = all.sortedWith(compareBy({ it.pkg != recent }, { it.label.lowercase(Locale.getDefault()) }))
+        var shown = ordered
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(8))
+            background = rounded(p.card, dp(18), p.stroke)
+        }
+        root.addView(text("选择任务应用", 18f, p.text).apply {
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(10))
+        })
+        val search = EditText(this).apply {
+            hint = "搜索应用"
+            singleLine = true
+            textSize = 15f
+            setTextColor(p.text)
+            setHintTextColor(p.faint)
+            background = rounded(p.input, dp(12), p.stroke)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        val list = ListView(this)
+        // The dialog's own item layout is the system's black/white; paint it with the page palette
+        // so the picker does not flip colour on a dark page.
+        val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, shown.map { it.label }) {
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val v = super.getView(position, convertView, parent)
+                (v as TextView).apply {
+                    setTextColor(p.text)
+                    textSize = 15f
+                    setPadding(dp(8), dp(12), dp(8), dp(12))
+                }
+                return v
+            }
+        }
+        list.adapter = adapter
+        list.divider = null
+        val dialog = AlertDialog.Builder(this)
+            .setView(root)
+            .setNegativeButton("取消", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(p.accent)
+        }
+        list.setOnItemClickListener { _, _, position, _ ->
+            shown.getOrNull(position)?.let {
+                capturedPackage = it.pkg
+                capturedLabel = it.label
+                dialog.dismiss()
+                refresh()
+            }
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString()?.trim().orEmpty()
+                shown = if (q.isEmpty()) ordered else ordered.filter { it.label.contains(q, ignoreCase = true) || it.pkg.contains(q, ignoreCase = true) }
+                adapter.clear()
+                adapter.addAll(shown.map { it.label })
+                adapter.notifyDataSetChanged()
+            }
+        })
+        root.addView(search, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        root.addView(list, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(340)).apply {
+            topMargin = dp(8)
+        })
+        dialog.show()
     }
 
     private fun applySystemBars() {
@@ -107,16 +225,7 @@ class FocusControlActivity : Activity() {
         taskCard.addView(taskInput)
         appLine = text("", 13f, p.sub).apply { setPadding(0, dp(10), 0, 0) }
         taskCard.addView(appLine)
-        taskCard.addView(button("把当前前台应用设为任务应用") {
-            val front = LoopRuntime.lastForeground
-            if (front.isNullOrBlank() || front == packageName) {
-                toast("现在读不到前台应用：先打开要专注的那个应用，再回来点一次")
-            } else {
-                capturedPackage = front
-                capturedLabel = FocusRuntime.labelOf(front)
-                refresh()
-            }
-        })
+        taskCard.addView(button("选择任务应用") { pickApp() })
         taskCard.addView(text("电话、输入法、系统 UI、DSH 自己永远放行。", 12f, p.faint).apply {
             setPadding(0, dp(10), 0, 0)
         })

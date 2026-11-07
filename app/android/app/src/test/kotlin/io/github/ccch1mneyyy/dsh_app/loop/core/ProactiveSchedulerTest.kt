@@ -73,8 +73,21 @@ class ProactiveSchedulerTest {
         assertEquals(1, s.state.countToday)
     }
 
-    @Test fun quietHoursPushAttemptsToTheMorning() {
+    /** P2: a 409 "not this time" ends the attempt without counting it or rushing the next one. */
+    @Test fun aSkippedAttemptIsOverWithoutCountingOrBackoff() {
         val s = armed()
+        val r = s.fireNext()
+        val due = s.state.nextDueElapsed
+        s.onSkipped(r.eventId, "agent-busy", now())
+        assertNull("no longer pending", s.state.pendingEventId)
+        assertEquals("not delivered, so not counted", 0, s.state.countToday)
+        assertEquals(0, s.state.notDeliveredStreak)
+        assertEquals(0, s.state.ignoredStreak)
+        assertEquals("skipped:agent-busy", s.state.lastReason)
+        assertEquals("no retrySoon: the companion's next /plan moves the alarm", due, s.state.nextDueElapsed)
+    }
+
+    @Test fun quietHoursPushAttemptsToTheMorning() {        val s = armed()
         advance(13 * hour) // 23:00
         assertEquals("quiet", (s.evaluate(now()) as ProactiveScheduler.Decision.Wait).reason)
         val until = (s.evaluate(now()) as ProactiveScheduler.Decision.Wait).untilWall

@@ -133,7 +133,13 @@ def main() -> None:
         flavor, _, path = item.partition("=")
         if flavor not in FLAVORS or not path:
             sys.exit(f"expected FLAVOR=PATH with FLAVOR in {FLAVORS}: {item}")
-        sources[flavor] = pathlib.Path(path)
+        p = pathlib.Path(path)
+        if any(part == ".." for part in p.parts):
+            sys.exit(f"{flavor}: path must not contain '..': {path}")
+        p = p.expanduser().resolve()
+        if p.suffix.lower() != ".apk":
+            sys.exit(f"{flavor}: not an APK: {p}")
+        sources[flavor] = p
     if not sources:
         sources["arm64"] = ROOT / "app" / "build" / "app" / "outputs" / "flutter-apk" / "app-arm64-release.apk"
     for flavor, path in sources.items():

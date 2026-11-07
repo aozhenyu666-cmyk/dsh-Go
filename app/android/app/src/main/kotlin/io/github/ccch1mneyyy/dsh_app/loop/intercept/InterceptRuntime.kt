@@ -110,7 +110,7 @@ object InterceptRuntime {
      * book, whatever this feature's own switch and caps say (see [InterceptGuard.force]). False when
      * nothing was shown; the companion asks again within a minute, so a busy screen only delays it.
      */
-    fun forceBlock(context: Context, packageName: String, label: String?): Boolean {
+    fun forceBlock(context: Context, packageName: String, label: String?, why: String? = null): Boolean {
         val g = ensure(context)
         if (!VisibleSurface.isFree() && !VisibleSurface.isHeldBy(VisibleSurface.OWNER_INTERCEPT)) return false
         val now = System.currentTimeMillis()
@@ -119,11 +119,27 @@ object InterceptRuntime {
             Log.d(TAG, "companion lock skipped for " + packageName + ": " + ((d as? InterceptDecision.Allow)?.reason ?: "ignore"))
             return false
         }
-        show(d, now)
+        show(d, now, why)
         return true
     }
 
-    private fun show(block: InterceptDecision.Block, now: Long) {
+    /**
+     * 讲通了: the companion dropped force below 3. Release only the block its own force opened,
+     * never one the person's interception rule made, and put the app back in front.
+     */
+    fun releaseCompanion(context: Context): Boolean {
+        val g = guardOrNull() ?: return false
+        val id = g.openByCompanion() ?: return false
+        val pkg = g.openPackage()
+        val now = System.currentTimeMillis()
+        if (!g.onReleased(id, RELEASE_RULE, now)) return false
+        InterceptPageActivity.withdraw(id)
+        if (pkg != null) runCatching { openTarget(context, pkg) }
+        Log.i(TAG, "companion force dropped: released " + pkg + " (" + id + ")")
+        return true
+    }
+
+    private fun show(block: InterceptDecision.Block, now: Long, why: String? = null) {
         // Race guard: onForeground already refused to decide while another feature held the screen,
         // so reaching here with the slot taken means the proactive page claimed it in between. The
         // decision has been made by then, so the honest record is NOT_SHOWN rather than pretending
@@ -135,7 +151,7 @@ object InterceptRuntime {
         }
         val ok = InterceptPageActivity.start(
             app, block.eventId, block.target.packageName, block.target.label,
-            config().trainingMs, now + PAGE_TTL_MS,
+            config().trainingMs, now + PAGE_TTL_MS, why,
         )
         if (!ok) {
             VisibleSurface.release(VisibleSurface.OWNER_INTERCEPT, block.eventId)

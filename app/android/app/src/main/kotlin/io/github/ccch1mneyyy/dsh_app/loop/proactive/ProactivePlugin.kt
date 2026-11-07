@@ -1,8 +1,14 @@
 package io.github.ccch1mneyyy.dsh_app.loop.proactive
 
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -10,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.github.ccch1mneyyy.dsh_app.loop.core.CoreCodecPublic
 import io.github.ccch1mneyyy.dsh_app.loop.core.ProactiveScheduler
 import io.github.ccch1mneyyy.dsh_app.loop.core.SchedulerConfig
+import io.github.ccch1mneyyy.dsh_app.phone.a11y.PhoneA11yService
 
 /**
  * `dsh/proactive` (methods) + `dsh/proactive/agent` (events): the App side of the agent port.
@@ -106,6 +113,8 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
             "userActivity" -> { ProactiveRuntime.onUserActivity(); result.success(true) }
             "tick" -> { ProactiveRuntime.tick("app"); result.success(true) }
             "tickNow" -> { ProactiveRuntime.tick("app_manual", force = true); result.success(true) }
+            // P7: the new-install checklist rows open the exact system page they talk about.
+            "openCapability" -> { openCapability(call.argument<String>("kind")); result.success(true) }
             // 专注监督 is a native screen reached from the same phone-control settings page.
             "focusControl" -> {
                 runCatching {
@@ -123,7 +132,16 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
             // that one may be used (the plugin refuses missing, archived and busy agents itself).
             "agentSessions" -> ProactiveRuntime.fetchPluginRoute(result, "GET", "/status", null)
             "agentSessionSet" -> ProactiveRuntime.fetchPluginRoute(
-                result, "POST", "/config", linkedMapOf("sessionId" to call.argument<String>("sessionId")),
+                object : MethodChannel.Result {
+                    override fun success(value: Any?) {
+                        // A new target must not wait for the old "no-session" six-hour alarm.
+                        ProactiveRuntime.companionConfigChanged()
+                        result.success(value)
+                    }
+                    override fun error(code: String, message: String?, details: Any?) = result.error(code, message, details)
+                    override fun notImplemented() = result.notImplemented()
+                },
+                "POST", "/config", linkedMapOf("sessionId" to call.argument<String>("sessionId")),
             )
             else -> result.notImplemented()
         }
@@ -141,6 +159,38 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
             "queued" to c.queued().size,
             "storageError" to c.storageError,
             "recoveryIssue" to c.recoveryIssue,
+            // P7: what a brand-new install still has to turn on before 大肥鱼 can speak.
+            "capabilities" to capabilities(),
         )
+    }
+
+    private fun capabilities(): Map<String, Any?> {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val am = context.getSystemService(android.app.AlarmManager::class.java)
+        val pm = context.getSystemService(PowerManager::class.java)
+        return linkedMapOf(
+            "a11y" to PhoneA11yService.isConnected(),
+            "overlay" to (PhoneA11yService.isConnected() || Settings.canDrawOverlays(context)),
+            "notifications" to (nm?.areNotificationsEnabled() == true),
+            "exactAlarm" to (Build.VERSION.SDK_INT < 31 || am?.canScheduleExactAlarms() == true),
+            "battery" to (pm?.isIgnoringBatteryOptimizations(context.packageName) == true),
+        )
+    }
+
+    private fun openCapability(kind: String?) {
+        val intent = when (kind) {
+            "a11y" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            "overlay" -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName))
+            "notifications" -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            "exactAlarm" -> if (Build.VERSION.SDK_INT >= 31) {
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:" + context.packageName))
+            } else {
+                Intent(Settings.ACTION_SETTINGS)
+            }
+            "battery" -> Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            else -> return
+        }
+        runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 }

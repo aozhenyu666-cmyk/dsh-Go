@@ -221,6 +221,17 @@ class ProactiveScheduler(
     }
 
     /**
+     * 这次不说 (409 no-topic / agent-busy / in-conversation / desk-busy): the attempt is over, but
+     * nothing failed. No delivery count, no not-delivered streak, no quick retry — the companion's
+     * next /plan decides when to look again.
+     */
+    fun onSkipped(eventId: String, reason: String, now: Clocks) = synchronized(lock) {
+        if (eventId != state.pendingEventId) return@synchronized
+        state = state.copy(pendingEventId = null, lastReason = "skipped:$reason")
+        persist()
+    }
+
+    /**
      * The person pressed 「我看到了」 on the pending attempt. Attention is confirmed but nothing is
      * answered yet, so the gap is *not* widened and nothing is paused: the attempt stays pending
      * until the coordinator's reply window runs out ([Engagement.IGNORED_SEEN]) or an answer comes.
@@ -243,8 +254,7 @@ class ProactiveScheduler(
     }
 
     /** A receipt from the coordinator. Only the pending attempt's receipt counts; repeats are ignored. */
-    fun onOutcome(eventId: String, engagement: Engagement, now: Clocks): Boolean = synchronized(lock) {
-        if (eventId != state.pendingEventId) return@synchronized false
+    fun onOutcome(eventId: String, engagement: Engagement, now: Clocks): Boolean = synchronized(lock) {        if (eventId != state.pendingEventId) return@synchronized false
         rollDay(now)
         val s = state.copy(pendingEventId = null)
         val delivered = engagement != Engagement.NOT_DELIVERED

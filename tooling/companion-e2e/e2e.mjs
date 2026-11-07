@@ -20,6 +20,13 @@ if (phase === 'warm') {
   writeFileSync(W + '/sid.txt', sid || '')
   await route('POST', '/config', { sessionId: sid, mode: 'coach', quietStart: 3, quietEnd: 3 })
 
+  // P6: /status carries the judge model and the measured medians; /config can set a faster judge.
+  const st0 = await route('GET', '/status')
+  check('/status 给出判球模型与耗时中位数', st0.body?.timings !== undefined && 'judgeModel' in (st0.body || {}), st0.body)
+  const jc = await route('POST', '/config', { judgeProvider: 'deepseek', judgeModel: 'deepseek-flash' })
+  check('判球模型可单独配置', jc.body?.config?.judgeModel === 'deepseek-flash', jc.body)
+  await route('POST', '/config', { judgeProvider: '', judgeModel: '' })
+
   // 1. 记忆是空的、在游戏里 40 分钟：必须开口（以前 no-topic 永远闭嘴）
   const plan = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(40) })
   check('空记忆也开口（/plan speak）', plan.body.speak === true, plan.body)
@@ -37,6 +44,8 @@ if (phase === 'warm') {
   const rep = ledger().find((e) => e.requestId === id && e.state === 'replied')
   check('App 里的回复被认出来并判球', !!rep && rep.judged === true, rep)
   check('讲了理由 → 先松 20 分钟', ledger().some((e) => e.state === 'grace'), ledger().map((e) => e.state))
+  const st1 = await route('GET', '/status')
+  check('发球与判球都有实测耗时', Number.isFinite(st1.body?.timings?.generate) && Number.isFinite(st1.body?.timings?.judge), st1.body?.timings)
   await sleep(1500)
   const plan2 = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(45) })
   check('松的这段时间不锁', plan2.body.force?.level <= 1, plan2.body.force)
@@ -59,9 +68,10 @@ if (phase === 'warm') {
   check('排队的那句也拿到回复', br?.state === 'generated', br)
 
   // 5. 阶梯：一球发出去 6 分钟没人接 → 下一球换轻的（时间注入：账本里写一条 6 分钟前的发球）
-  appendFileSync(W + '/home/companion/ledger.jsonl', JSON.stringify({ v: 1, requestId: 'old-silent', sessionId: sid, state: 'generated', at: Date.now() - 6 * 60_000, serveType: 'provoke', text: 'x', rallyId: 'rally-x', shot: 1 }) + '\n')
-  await sleep(3 * 60_000 > 0 ? 0 : 0)
-  const lad = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: { ...game(12), app: 'com.tencent.mm', label: '微信', fun: false } })
+  // 用一个独立会话，避免刚接过的那一球把 silence 判成 none。
+  const ladderSid = 'session-ladder-' + Date.now()
+  appendFileSync(W + '/home/companion/ledger.jsonl', JSON.stringify({ v: 1, requestId: 'old-silent', sessionId: ladderSid, state: 'generated', at: Date.now() - 6 * 60_000, serveType: 'provoke', text: 'x', rallyId: 'rally-x', shot: 1 }) + '\n')
+  const lad = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', sessionId: ladderSid, phone: { ...game(12), app: 'com.tencent.mm', label: '微信', fun: false } })
   check('6 分钟没接 → 阶梯换轻的球', lad.body.reason === 'ladder-lighter' || lad.body.reason === 'in-conversation', lad.body)
 }
 

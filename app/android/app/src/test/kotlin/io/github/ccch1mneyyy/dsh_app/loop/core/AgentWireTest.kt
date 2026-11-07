@@ -29,7 +29,7 @@ class AgentWireTest {
     }
 
     @Test fun refusalsAreTerminalAndNamed() {
-        for (code in listOf("no-session", "no-agent", "agent-busy", "desk-busy", "event-in-flight", "archived", "followup-failed")) {
+        for (code in listOf("no-session", "no-agent", "event-in-flight", "archived", "followup-failed")) {
             assertEquals(AgentWire.Decoded.Reply(AgentReply.Failed(code), true), AgentWire.decode(409, err(code)))
         }
         assertEquals(AgentReply.Failed("auth"), reply(AgentWire.decode(401, null)).reply)
@@ -37,6 +37,13 @@ class AgentWireTest {
         assertEquals(AgentReply.Failed("lost"), reply(AgentWire.decode(404, err("not-found"))).reply)
         assertEquals(AgentReply.Failed("plugin_missing"), reply(AgentWire.decode(404, "Not Found")).reply)
         assertEquals(AgentReply.Failed("protocol_bad-request-id"), reply(AgentWire.decode(400, err("bad-request-id"))).reply)
+    }
+
+    /** P2: "not this time" is a decision, not a delivery failure — no streak, no quick retry. */
+    @Test fun notThisTimeIsASkipNotAFailure() {
+        for (code in listOf("no-topic", "agent-busy", "in-conversation", "desk-busy")) {
+            assertEquals(AgentWire.Decoded.Skip(code), AgentWire.decode(409, err(code)))
+        }
     }
 
     @Test fun transientProblemsRetryTheSameIdempotentCall() {

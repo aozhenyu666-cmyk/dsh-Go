@@ -572,6 +572,15 @@ class InterceptGuard(
 
     fun openPackage(): String? = synchronized(lock) { state.openPackage }
 
+    /**
+     * The open interception only if 大肥鱼's own force opened it (never the person's rule). The
+     * companion may drop the force after a real reason; that release must never unlock a block the
+     * person configured themselves.
+     */
+    fun openByCompanion(): String? = synchronized(lock) {
+        state.openEventId?.takeIf { state.lastReason == REASON_COMPANION }
+    }
+
     /** The 训练题 the page must show, or null when nothing is open. */
     fun drill(): InterceptDrill? = synchronized(lock) { if (state.openEventId == null) null else state.drill }
 

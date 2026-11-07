@@ -25,7 +25,16 @@ object AgentWire {
         data class Reply(val reply: AgentReply, val terminal: Boolean) : Decoded
         /** Nothing learned; try the same call again after [afterMs] (still bounded by the event's deadline). */
         data class Retry(val afterMs: Long, val reason: String) : Decoded
+        /**
+         * The plugin said "not this time" (409 no-topic / agent-busy / in-conversation / desk-busy).
+         * That is a decision, not a delivery failure: close the attempt quietly instead of feeding
+         * the not-delivered streak and retrying within the minute.
+         */
+        data class Skip(val code: String) : Decoded
     }
+
+    /** 409 codes that mean "he is talking / there is nothing to say now", not "it broke". */
+    private val SKIP_CODES = setOf("no-topic", "agent-busy", "in-conversation", "desk-busy")
 
     /**
      * Body of POST /request. Replaying it with the same requestId is safe: the plugin never sends twice.
@@ -54,6 +63,7 @@ object AgentWire {
             status == 404 && code == "not-found" -> Decoded.Reply(AgentReply.Failed("lost"), true)
             status == 404 -> Decoded.Reply(AgentReply.Failed("plugin_missing"), true)
             status == 429 || status == 503 || status >= 500 -> Decoded.Retry(3_000, "http_$status")
+            status == 409 && code in SKIP_CODES -> Decoded.Skip(code!!)
             status == 409 -> Decoded.Reply(AgentReply.Failed(code ?: "conflict"), true)
             status in 400..499 -> Decoded.Reply(AgentReply.Failed("protocol_${code ?: status}"), true)
             status == 200 || status == 202 -> state(m)
