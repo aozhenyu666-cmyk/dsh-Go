@@ -205,3 +205,13 @@ test('活人感：妹妹有固定的小日常，姐姐不是每次都查资料�
   assert.match(big, /小事一两句/)
   assert.match(big, /跑步/)
 })
+
+test('上一版存进配置的默认名字（小肥鱼/大肥鱼）升级后换成鱼丸/鲸澜', async () => {
+  await withHome(async (home) => {
+    mkdirSync(join(home, 'companion'), { recursive: true })
+    writeFileSync(join(home, 'companion', 'config.json'), JSON.stringify({ sessionId: 'session-sis', strategistSessionId: 'session-big', companionName: '小肥鱼', strategistName: '大肥鱼' }))
+    const sis = agentOf('session-sis')
+    host({ 'session-sis': sis, 'session-big': agentOf('session-big') })
+    assert.match(sis.contexts[0].text(), /你是鱼丸/)
+  })
+})

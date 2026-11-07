@@ -120,6 +120,11 @@ function readConfig() {
   } catch {
     // defaults
   }
+  // 上一版的默认名字（小肥鱼 / 大肥鱼）会随任何一次 /config 写进配置；那不是他起的，换成现在的默认名。
+  if (merged.companionName === '小肥鱼' && merged.strategistName === '大肥鱼') {
+    merged.companionName = DEFAULTS.companionName
+    merged.strategistName = DEFAULTS.strategistName
+  }
   // 旧 dsh-go-proactive 设置过目标会话：迁过来，避免升级后“开了但不说话”。
   if (!merged.sessionId) {
     try {
