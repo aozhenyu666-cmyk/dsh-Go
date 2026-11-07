@@ -20,6 +20,7 @@ import io.github.ccch1mneyyy.dsh_app.loop.core.ProactiveEvent
 import io.github.ccch1mneyyy.dsh_app.loop.core.Switches
 import io.github.ccch1mneyyy.dsh_app.loop.focus.FocusRuntime
 import io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime
+import io.github.ccch1mneyyy.dsh_app.loop.proactive.TamperGuard
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.Box
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.ProtectedPages
 import io.github.ccch1mneyyy.dsh_app.phone.a11y.TreeCapture
@@ -127,6 +128,11 @@ object LoopRuntime {
 
     fun onEvent(s: AccessibilityService, event: AccessibilityEvent?) {
         proactive(event)
+        // 管控期间去设置里拆管控：读一眼设置页，拦下并报 tamper（不依赖下面两个功能的开关）。
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            runCatching { TamperGuard.onWindow(s, event.packageName?.toString()) }
+                .onFailure { Log.w("LoopRuntime", "tamper guard", it) }
+        }
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
         // 专注监督只靠前台读数：没有 DSH 引擎时也要继续观察。

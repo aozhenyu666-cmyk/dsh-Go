@@ -1,13 +1,20 @@
 ﻿package io.github.ccch1mneyyy.dsh_app.loop.intercept
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -75,6 +82,30 @@ class InterceptPageActivity : Activity() {
     private var chatSend: ImageView? = null
     private var chatStatus: TextView? = null
     private var chatting = false
+
+    /** 计步破窗（第 8 节）：走够 150 步 + 手打 100 字违约说明，换 10 分钟放风。 */
+    private var breakDialog: android.app.Dialog? = null
+    private var breakStepsView: TextView? = null
+    private var breakNoteView: EditText? = null
+    private var breakCountView: TextView? = null
+    private var breakSubmit: Button? = null
+    private var stepSensor: Sensor? = null
+    private var stepBaseline: Float? = null
+    private var steps = 0
+    private val stepListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent?) {
+            val value = event?.values?.firstOrNull() ?: return
+            val base = stepBaseline
+            if (base == null) {
+                stepBaseline = value
+                steps = 0
+            } else {
+                steps = (value - base).toInt().coerceAtLeast(0)
+            }
+            refreshBreak()
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
 
     /** The native side's 雾蓝 palette (same one the pet bubble / AskBar use). */
     private val palette by lazy { OverlayPalette.of(this) }
@@ -210,6 +241,146 @@ class InterceptPageActivity : Activity() {
     }
 
     /**
+     * 计步破窗：替代"点一下就跑"的紧急退出。走够 150 步、手打 100 字违约说明，
+     * 手机把 steps / note 报给插件；插件放风 10 分钟、扣信用分，晚上对账会问。
+     */
+    private fun showBreakglass() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.ACTIVITY_RECOGNITION), REQUEST_STEPS)
+            return
+        }
+        steps = 0
+        stepBaseline = null
+        val ctx = this
+        val column = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(12))
+        }
+        column.addView(TextView(ctx).apply {
+            text = AppStrings.get(ctx, R.string.intercept_break_title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextColor(palette.ink)
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        column.addView(TextView(ctx).apply {
+            text = AppStrings.get(ctx, R.string.intercept_break_body)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(palette.muted)
+            setLineSpacing(0f, 1.25f)
+            setPadding(0, dp(8), 0, dp(10))
+        })
+        column.addView(TextView(ctx).apply {
+            breakStepsView = this
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(palette.ink)
+        })
+        column.addView(EditText(ctx).apply {
+            breakNoteView = this
+            hint = AppStrings.get(ctx, R.string.intercept_break_hint)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(palette.ink)
+            setHintTextColor(palette.muted)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 4
+            maxLines = 6
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(palette.pressed)
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: android.text.Editable?) = refreshBreak()
+            })
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+        column.addView(TextView(ctx).apply {
+            breakCountView = this
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(palette.muted)
+            setPadding(0, dp(4), 0, dp(8))
+        })
+        column.addView(pillButton(AppStrings.get(ctx, R.string.intercept_break_submit), primary = true, onTap = {
+            val note = breakNoteView?.text?.toString()?.trim().orEmpty()
+            if (steps < BREAK_STEPS) {
+                android.widget.Toast.makeText(ctx, R.string.intercept_break_wait, android.widget.Toast.LENGTH_SHORT).show()
+                return@pillButton
+            }
+            submitBreakglass(note)
+        }).apply { breakSubmit = this })
+        column.addView(pillButton(AppStrings.get(ctx, R.string.intercept_break_cancel), secondary = true, onTap = {
+            breakDialog?.dismiss()
+        }))
+
+        val dialog = android.app.Dialog(this)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        dialog.setContentView(ScrollView(ctx).apply { addView(column) })
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.setOnShowListener {
+            val sensor = (getSystemService(Context.SENSOR_SERVICE) as? SensorManager)?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+            stepSensor = sensor
+            if (sensor == null) {
+                breakStepsView?.text = AppStrings.get(ctx, R.string.intercept_break_no_sensor)
+            } else {
+                (getSystemService(Context.SENSOR_SERVICE) as? SensorManager)?.registerListener(
+                    stepListener, sensor, SensorManager.SENSOR_DELAY_NORMAL,
+                )
+            }
+            refreshBreak()
+        }
+        dialog.setOnDismissListener {
+            (getSystemService(Context.SENSOR_SERVICE) as? SensorManager)?.unregisterListener(stepListener)
+            stepSensor = null
+            if (breakDialog === dialog) breakDialog = null
+        }
+        breakDialog = dialog
+        dialog.show()
+    }
+
+    private fun refreshBreak() {
+        breakStepsView?.let { if (stepSensor != null) it.text = AppStrings.get(this, R.string.intercept_break_steps, steps) }
+        val length = breakNoteView?.text?.toString()?.trim()?.length ?: 0
+        breakCountView?.text = AppStrings.get(this, R.string.intercept_break_note, length)
+        breakSubmit?.let {
+            val ready = steps >= BREAK_STEPS && length >= BREAK_CHARS && stepSensor != null
+            it.isEnabled = ready
+            it.alpha = if (ready) 1f else 0.5f
+        }
+    }
+
+    private fun submitBreakglass(note: String) {
+        val button = breakSubmit ?: return
+        button.isEnabled = false
+        button.text = AppStrings.get(this, R.string.intercept_break_sending)
+        ProactiveRuntime.breakglass(steps, note) { ok ->
+            if (isFinishing || isDestroyed) return@breakglass
+            if (!ok) {
+                button.text = AppStrings.get(this, R.string.intercept_break_submit)
+                refreshBreak()
+                android.widget.Toast.makeText(this, R.string.intercept_break_failed, android.widget.Toast.LENGTH_SHORT).show()
+                return@breakglass
+            }
+            breakDialog?.dismiss()
+            // 破窗是允许的离开：不报 exit，也不触发违抗复查。
+            reported = true
+            val pkg = packageName
+            if (!isFinishing) finish()
+            if (pkg != null) InterceptRuntime.openTarget(this, pkg)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_STEPS) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) showBreakglass()
+        else android.widget.Toast.makeText(this, R.string.intercept_break_denied, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    /**
      * 讲道理: the line goes into 大肥鱼's session as the person's own words. If it accepts the reason
      * (a real pushback), the plugin drops /plan's force below 3 and ProactiveRuntime releases this
      * very page — the page itself never decides that.
@@ -261,6 +432,38 @@ class InterceptPageActivity : Activity() {
         val view = chatLog ?: return
         view.append(if (view.text.isNullOrEmpty()) line else "\n\n$line")
         chatScroll?.post { chatScroll?.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    /**
+     * 急事底线：电话、短信、地图、支付在锁屏页上也能直接打开（和 ProactiveRuntime.NEVER_LOCK 同一组）。
+     * 只列出真的装了的 App；打开时静默关页，不算紧急退出、不触发违抗复查。
+     */
+    private fun quickRow(ctx: Context): LinearLayout? {
+        val groups = listOf(
+            R.string.intercept_quick_call to listOf("com.android.dialer", "com.google.android.dialer", "com.miui.dialer"),
+            R.string.intercept_quick_sms to listOf("com.android.mms", "com.google.android.apps.messaging", "com.miui.message"),
+            R.string.intercept_quick_maps to listOf(
+                "com.google.android.apps.maps", "com.autonavi.minimap", "com.baidu.BaiduMap", "com.tencent.map",
+            ),
+            R.string.intercept_quick_pay to listOf("com.eg.android.AlipayGphone", "com.unionpay"),
+        )
+        val available = groups.mapNotNull { (label, pkgs) ->
+            pkgs.firstOrNull { packageManager.getLaunchIntentForPackage(it) != null }?.let { label to it }
+        }
+        if (available.isEmpty()) return null
+        return LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            available.forEach { (label, pkg) ->
+                addView(pillButton(AppStrings.get(ctx, label), secondary = true, weight = 1f, onTap = {
+                    reported = true
+                    if (!isFinishing) finish()
+                    InterceptRuntime.openTarget(ctx, pkg)
+                }), LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+                    topMargin = dp(8)
+                    marginEnd = dp(6)
+                })
+            }
+        }
     }
 
     private fun unregister() { eventId?.let { if (live[it] === this) live.remove(it) } }
@@ -458,6 +661,8 @@ class InterceptPageActivity : Activity() {
             addView(pillButton(AppStrings.get(ctx, R.string.intercept_whitelist), onTap = {
                 release(InterceptRuntime.RELEASE_WHITELIST)
             }))
+            // 破窗：走够步数 + 写清违约说明，换 10 分钟放风（比"点一下就退出"贵，但留下了记录）。
+            addView(pillButton(AppStrings.get(ctx, R.string.intercept_break), onTap = { showBreakglass() }))
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
@@ -468,6 +673,8 @@ class InterceptPageActivity : Activity() {
                     topMargin = dp(8)
                 })
             })
+            // 急事底线：电话 / 短信 / 地图 / 支付永远从这里能打开。
+            quickRow(ctx)?.let { addView(it) }
             refreshChatSend()
         }
     }
@@ -511,6 +718,11 @@ class InterceptPageActivity : Activity() {
         /** ~2 s of retries for the visibility proof, like the proactive page. */
         private const val PROOF_STEP_MS = 100L
         private const val MAX_PROOF_ATTEMPTS = 20
+
+        /** 计步破窗：150 步 + 100 字违约说明（第 8 节）。 */
+        private const val REQUEST_STEPS = 411
+        private const val BREAK_STEPS = 150
+        private const val BREAK_CHARS = 100
 
         /** Pages on screen by eventId, so a withdrawal can close them. Main thread only. */
         private val live = HashMap<String, InterceptPageActivity>()

@@ -277,3 +277,30 @@ test('旧的低频默认（每天 6 次、45 分钟）升级成高频默认；�
     assert.equal(res.body.config.dailyMax, 6)
   })
 })
+
+test('手机报 tamper：拒绝模式 60 分钟、力度 4，下一次 /plan 也照锁', async () => {
+  await withHome(async (home) => {
+    const t = setup(home)
+    const res = await call(t.h.handler(), 'POST', '/dsh-go-companion/v1/event', { type: 'tamper', what: '强行停止', app: 'com.android.settings' })
+    assert.equal(res.body.ok, true)
+    assert.ok(res.body.refuse.until > Date.now() + 59 * 60_000, JSON.stringify(res.body))
+    assert.equal(res.body.force.level, 4)
+    const p = await t.plan(game)
+    assert.ok(p.body.refuse?.until > Date.now() + 55 * 60_000, 'tamper 之后拒绝模式还在')
+  })
+})
+
+test('手机报 breakglass：放风 10 分钟，期间娱乐不再锁', async () => {
+  await withHome(async (home) => {
+    const t = setup(home)
+    await call(t.h.handler(), 'POST', '/dsh-go-companion/v1/event', { type: 'tamper', what: '卸载', app: 'com.android.settings' })
+    const res = await call(t.h.handler(), 'POST', '/dsh-go-companion/v1/event', {
+      type: 'breakglass', minutes: 10, steps: 152, note: '走够步数了，这十分钟回个消息',
+    })
+    assert.equal(res.body.ok, true)
+    assert.ok(res.body.breakUntil > Date.now() + 9 * 60_000, JSON.stringify(res.body))
+    const p = await t.plan(game)
+    assert.equal(p.body.force.level, 0, '放风期间不锁')
+    assert.equal(p.body.refuse, null, '放风盖过拒绝模式')
+  })
+})

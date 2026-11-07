@@ -329,7 +329,8 @@ test('/plan：一早还没开过口、屏幕亮着，不等骰子直接开球', 
     const phone = cleanPhone({ app: 'com.android.launcher', minutes: 0, screenOn: true, local: '08:05' })
     const out = await call(host.handler, 'POST', '/dsh-go-companion/v1/plan', { v: 1, timeZone: 'Asia/Shanghai', phone, roll: 99 })
     assert.equal(out.body.speak, true, JSON.stringify(out.body))
-    assert.equal(out.body.reason, 'morning')
+    // 5–10 点的第一次亮屏现在由"早上开门"接手：问今天最重要的 3 件事。
+    assert.equal(out.body.reason, 'morning-gate')
   })
 })
 

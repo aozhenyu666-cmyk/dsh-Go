@@ -462,6 +462,25 @@ object ProactiveRuntime {
         runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).edit().putLong("shield", at).apply() }
     }
 
+    /** 破窗放风到什么时候（/event breakglass 回的 breakUntil）；存 prefs，进程重启后仍然放过。 */
+    @Volatile private var breakUntil: Long = -1L
+    fun breaking(): Boolean {
+        if (!::app.isInitialized) return false
+        if (breakUntil < 0) breakUntil = runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).getLong("break", 0L) }.getOrDefault(0L)
+        return System.currentTimeMillis() < breakUntil
+    }
+    private fun setBreakUntil(at: Long) {
+        if (at == breakUntil) return
+        breakUntil = at
+        runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).edit().putLong("break", at).apply() }
+    }
+
+    /** 管控期间：设置页自卫和破窗只在此时生效（拒绝模式、锁 / 赶、任务模式、防波堤）。 */
+    fun controlActive(): Boolean {
+        if (!::app.isInitialized) return false
+        return System.currentTimeMillis() < refuseUntil() || force != null || shieldActive()
+    }
+
     /** NotificationShield 拦下一条：报给插件攒着（不带正文）。 */
     fun onNotificationSwallowed(pkg: String, label: String, title: String, group: Boolean) {
         if (!::app.isInitialized) return
@@ -522,6 +541,50 @@ object ProactiveRuntime {
     }
 
     /**
+     * 设置页自卫：管控期间他去设置里找"强行停止 / 卸载 / 关无障碍"。插件按规矩清零信用分、
+     * 开 60 分钟拒绝模式、叫鲸澜来收尾，并把 refuse / force 一起回给手机照着锁。
+     */
+    fun reportTamper(what: String, pkg: String) {
+        if (!::app.isInitialized) return
+        main.post {
+            fetchPluginRoute(routeCallback { m ->
+                ((m["refuse"] as? Map<*, *>)?.get("until") as? Number)?.toLong()?.let { setRefuseUntil(it) }
+                val f = m["force"] as? Map<*, *>
+                val level = (f?.get("level") as? Number)?.toInt() ?: 0
+                if (level >= 3) {
+                    val fx = Force(level, pkg, f?.get("why") as? String, System.currentTimeMillis() + FORCE_HOLD_MS, refuse = true)
+                    force = fx
+                    enforce(fx)
+                }
+                consultPlanSoon(minGapMs = 0L)
+            }, "POST", "/event", linkedMapOf("type" to "tamper", "what" to what.take(60), "app" to pkg))
+        }
+    }
+
+    /**
+     * 计步破窗：走够步数 + 手打违约说明后换 10 分钟放风。插件把 breakUntil 写进配置，
+     * 之后的 /plan 不会再给 force / refuse；手机本地也记一份，到点自动恢复。
+     */
+    fun breakglass(steps: Int, note: String, done: (Boolean) -> Unit) {
+        if (!::app.isInitialized) { done(false); return }
+        main.post {
+            fetchPluginRoute(routeCallback { m ->
+                val until = (m["breakUntil"] as? Number)?.toLong() ?: 0L
+                val ok = until > System.currentTimeMillis()
+                if (ok) {
+                    setBreakUntil(until)
+                    force = null
+                    releaseCompanionLock()
+                    consultPlanSoon(minGapMs = 0L)
+                }
+                done(ok)
+            }, "POST", "/event", linkedMapOf(
+                "type" to "breakglass", "minutes" to 10, "steps" to steps, "note" to note.take(300),
+            ))
+        }
+    }
+
+    /**
      * Look again in 30 s: if he is in a listed (entertainment) app by then, he closed the reminder
      * and went on playing. Also called when he leaves the lock page by its exit.
      */
@@ -556,6 +619,7 @@ object ProactiveRuntime {
     /** 说到做到: 赶 = back to the launcher first; then 锁 the app behind a drill. */
     private fun enforce(f: Force, fresh: Boolean = false) {
         if (!proactiveEnabled()) return
+        if (breaking()) return
         // [fresh]: called with the foreground switch itself; NowFeed may not have caught up yet.
         if (f.app in NEVER_LOCK) return
         val front = NowFeed.snapshot(SystemClock.elapsedRealtime()).app

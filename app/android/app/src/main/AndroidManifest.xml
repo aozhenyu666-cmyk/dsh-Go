@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Composer voice input (voice/VoicePlugin.kt), asked for on the first tap of the mic. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 计步破窗 (loop/intercept/InterceptPageActivity.kt): 走够 150 步才能换 10 分钟放风；首次点破窗时申请。 -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <!-- TODO(targetSdk >= 30): package visibility hides recognition services from
          SpeechRecognizer.isRecognitionAvailable unless declared; add to <queries>:
          <intent><action android:name="android.speech.RecognitionService" /></intent> -->
