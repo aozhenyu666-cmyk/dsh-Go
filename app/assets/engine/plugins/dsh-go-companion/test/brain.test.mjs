@@ -375,7 +375,7 @@ test('做题默认关：在游戏里也不出题，锁之前问他为什么，�
     const prompt = agent.sent[0].content[0].text
     assert.doesNotMatch(prompt, /思维题/)
     assert.match(prompt, /为什么现在还在这里/)
-    assert.match(prompt, /先把理由弄懂/, '回话那一轮要先听懂他')
+    assert.match(prompt, /讲得通就放他一马|先把理由弄懂/, '回话那一轮要先听懂他（妹妹的说法：讲得通就放他一马）')
     const accepted = ledgerOf(home).find((e) => e.requestId === 'req-chat-1' && e.state === 'accepted')
     assert.notEqual(accepted.serveType, 'drill')
   })

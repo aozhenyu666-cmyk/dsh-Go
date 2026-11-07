@@ -345,7 +345,7 @@ test('关系库的人物卡当底子，配置里写了的字段覆盖它', async
 
 test('/request：companion 配置里人格卡是空的，prompt 里照样有关系库的价值观和底线', async () => {
   await withHome(async (home) => {
-    seed(home)
+    seed(home, { dual: false })
     seedCorePersona(home)
     const agent = makeAgent()
     const host = makeHost({ agent })

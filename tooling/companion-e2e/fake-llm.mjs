@@ -18,7 +18,7 @@ function answer(body) {
     if (/\d/.test(reply)) return { kind: 'judge', text: '{"verdict":"engaged","why":"给了数字","next":"deeper"}' }
     return { kind: 'judge', text: '{"verdict":"brief","why":"太短、凭感觉","next":"angle"}' }
   }
-  if (/这不是.*说的话，是 DSH Go 手机端发起的一次主动交流/.test(u)) return { kind: 'serve', text: '你在王者里泡了四十分钟了。我猜你在躲那份作业——说说看我猜错没有？' }
+  if (/这不是.*说的话，是 DSH Go 手机端发起的一次主动交流|这不是.*说的话，是手机端让你主动去找他的一次机会/.test(u)) return { kind: 'serve', text: '你在王者里泡了四十分钟了。我猜你在躲那份作业——说说看我猜错没有？' }
   if (/心情|mood|情绪/.test(sys) && /JSON/.test(sys)) return { kind: 'mood', text: '{"delta":0}' }
   return { kind: 'chat', text: '我听懂了：你是说「' + u.slice(0, 30) + '」。这个理由站得住，这局打完就收。' }
 }
@@ -30,8 +30,9 @@ http.createServer((req, res) => {
     try { body = JSON.parse(raw || '{}') } catch {}
     const a = req.url.includes('chat/completions') || req.url.includes('/messages') ? answer(body) : null
     // 主动发球和判球的完整输入另记一份，验收时核对"这一球到底带了什么"。
-    if (a && (a.kind === 'serve' || a.kind === 'judge')) {
-      appendFileSync(LOG.replace(/llm\.log$/, 'prompts.jsonl'), JSON.stringify({ at: Date.now(), kind: a.kind, text: lastUser(body.messages || []), system: textOf(body.system).slice(0, 4000) }) + '\n')
+    if (a && (a.kind === 'serve' || a.kind === 'judge' || a.kind === 'chat')) {
+      appendFileSync(LOG.replace(/llm\.log$/, 'prompts.jsonl'), JSON.stringify({ at: Date.now(), kind: a.kind, text: lastUser(body.messages || []), system: textOf(body.system).slice(0, 4000),
+        all: (textOf(body.system) + '\n' + (body.messages || []).map((m) => textOf(m.content)).join('\n')).slice(-8000) }) + '\n')
     }
     if (a && req.url.includes('/messages')) {
       appendFileSync(LOG, JSON.stringify({ at: new Date().toISOString(), url: req.url, kind: a.kind, lastUser: lastUser(body.messages || []).slice(0, 120), tools: (body.tools || []).length }) + '\n')

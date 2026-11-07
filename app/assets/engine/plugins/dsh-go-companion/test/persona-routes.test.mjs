@@ -104,7 +104,8 @@ async function withHome(fn) {
 
 test('人格卡和模式进了发球 prompt', async () => {
   await withHome(async (home) => {
-    seed(home, { persona: { voice: '直说不哄', catchphrase: '说人话', avoid: '家里的事' }, mode: 'coach' })
+    // 单人格（dual 关）时人格卡进发球；双人格时妹妹用自己的人设，见 dual.test.mjs。
+    seed(home, { persona: { voice: '直说不哄', catchphrase: '说人话', avoid: '家里的事' }, mode: 'coach', dual: false })
     const agent = makeAgent()
     const host = makeHost({ agent })
     const res = await call(host.handler, 'POST', '/dsh-go-companion/v1/request', {

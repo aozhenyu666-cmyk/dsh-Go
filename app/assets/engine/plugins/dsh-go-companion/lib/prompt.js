@@ -8,6 +8,7 @@ import { modeOr, personaLines } from './persona.js'
 import { phoneLines } from './phone.js'
 import { temperLine } from './temper.js'
 import { drillLines } from './drills.js'
+import { COMPANION_REPLY_LINE, COMPANION_SERVE_RULES, companionBallFrame } from './roles.js'
 
 const KIND_RULES = {
   continue:
@@ -53,6 +54,12 @@ export function buildPrompt(input) {
   const serveType = SERVE_RULES[String(input.serveType || '')] ? String(input.serveType) : ''
 
   const lines = []
+  // 姐妹双人格：主动找他的是妹妹（陪伴）。她的开场、发球玩法、回话方式都换成她自己的。
+  const companion = input.role === 'companion'
+  const names = input.names || { companion: '小肥鱼', strategist: '大肥鱼' }
+  if (companion) {
+    for (const l of companionBallFrame(owner, names)) lines.push(l)
+  } else {
   lines.push(
     '（这不是' + owner + '说的话，是 DSH Go 手机端发起的一次主动交流。' +
       '你是' + self + '：直接、稳、不哄；日常像朋友，必要时像思维教练；不为了让他舒服而改变判断，也不替他做决定。' +
@@ -69,6 +76,7 @@ export function buildPrompt(input) {
     '发之前自己过一遍：像“你在做什么”“下一步是什么”“依据是什么”“加油”“你可以的”这种谁都能说的模板，' +
       '就换一种说法重写一遍再说出口，别把填空当发球。',
   )
+  }
   if (input.stockHit) {
     // 上一球被判成套话：照着原句打回，换说法，不要换个模板继续填空。
     lines.push(
@@ -89,7 +97,9 @@ export function buildPrompt(input) {
   }
   // 一早第一球：开球定今天的锚，之后拿它对账。
   if (input.morning) {
-    lines.push('这是今天的第一球。问他今天最重要的一件事是什么、几点之前做完——要他说具体，之后你会拿这个对账。')
+    lines.push(companion
+      ? '这是今天你第一次找他：像刚碰面那样打个招呼，顺嘴问他今天打算干嘛（是好奇，不是查岗）。'
+      : '这是今天的第一球。问他今天最重要的一件事是什么、几点之前做完——要他说具体，之后你会拿这个对账。')
   }
   // 力度到了锁 / 赶：这一球是宣布，不是商量（锁在手机上执行）。
   for (const line of Array.isArray(input.force) ? input.force : []) lines.push(line)
@@ -98,13 +108,20 @@ export function buildPrompt(input) {
   if (input.drill) {
     for (const line of drillLines(input.drill)) lines.push(line)
   } else if (serveType) {
-    lines.push('这一球的类型：' + SERVE_RULES[serveType])
+    lines.push('这一球的类型：' + (companion ? COMPANION_SERVE_RULES[serveType] || SERVE_RULES[serveType] : SERVE_RULES[serveType]))
   }
   // 脸色：脾气 + 大脑挑的那张。阴晴不定是故意的。
   const face = temperLine(input.temper)
   if (face) lines.push(face)
   // 人格卡和模式：他是谁、这一阵子怎么说话。空的部分 personaLines 不会硬凑。
-  for (const line of personaLines(input.persona, modeOr(input.mode))) lines.push(line)
+  if (companion) {
+    // 她的人设已经挂在这个会话的每一轮上（systemPrompt.context），这里只补模式。
+    if (modeOr(input.mode) === 'coach') {
+      lines.push('现在他开了严格模式：你可以更凶、更不依不饶、更会翻旧账，但还是你自己的样子，不变成老师。')
+    }
+  } else {
+    for (const line of personaLines(input.persona, modeOr(input.mode))) lines.push(line)
+  }
   // 手边的情况：现在开着什么、开了多久、今天刷了多久。手机没带就不写，绝不编。
   for (const line of phoneLines(input.phone)) lines.push(line)
   if (topic) {
@@ -139,7 +156,8 @@ export function buildPrompt(input) {
     lines.push('他刚才讲了一个站得住的理由，你答应先松一会儿（大约 20 分钟不锁）。别食言，也别假装没这回事。')
   }
   // 这一球之后他会回你。真聊天的关键在那一轮，所以这里提前说好。
-  lines.push(
+  if (companion) lines.push(COMPANION_REPLY_LINE)
+  else lines.push(
     '等他回你的时候：像朋友那样接着聊，不要出题、不要打分。他要是在解释为什么这样（为什么在玩、为什么不想做），' +
       '先把理由弄懂——用你自己的话复述一句你理解的理由，再表态：站得住就认，可以松一点；站不住就具体说哪里站不住。' +
       '别只重复你的立场，也别一被反驳就全盘让步。' +

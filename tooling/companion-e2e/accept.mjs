@@ -6,7 +6,7 @@ const W = process.env.E2E_WORK
 const H = W + '/home'
 let failed = 0
 function check(name, ok, detail) {
-  console.log((ok ? '  ✓ ' : '  ✗ ') + name + (ok ? '' : '  ← ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)).slice(0, 400)))
+  console.log((ok ? '  ✓ ' : '  ✗ ') + name + (ok ? '' : '  ← ' + String(typeof detail === 'string' ? detail : JSON.stringify(detail) ?? '').slice(0, 400)))
   if (!ok) failed += 1
 }
 async function waitFor(fn, ms = 15000) { const end = Date.now() + ms; while (Date.now() < end) { const v = fn(); if (v) return v; await sleep(200) } return null }
@@ -42,9 +42,9 @@ const game = (m) => app('com.tencent.tmgp.sgame', '王者荣耀', m, true)
 const wechat = () => app('com.tencent.mm', '微信', 1, false)
 
 // ---------------------------------------------------------------- A. 一球里到底带了什么
-console.log('【A. 发球内容】')
+console.log('【A. 发球内容（单人格）】')
 reset()
-let sid = await newSession()
+let sid = await newSession({ dual: false })
 {
   // 记忆：往记忆库钉一条事实（用记忆插件自己的表结构）
   const db = new DatabaseSync(H + '/fish-memory/fish-memory.sqlite')
@@ -69,6 +69,36 @@ check('有这一球的脸色', /这一球的脸色：/.test(p), '')
 check('约定回话那一轮先听懂理由', /先把理由弄懂/.test(p), '')
 check('做题默认关：不出题', !/思维题/.test(p) && s.accepted?.serveType !== 'drill', s.accepted)
 check('账本记下水位/脸色', Number.isFinite(s.accepted?.tide) && !!s.accepted?.face, s.accepted)
+
+// ---------------------------------------------------------------- A2. 姐妹双人格
+console.log('【A2. 姐妹双人格】')
+reset()
+{
+  const sis = (await rpc('session/create', { request: { cwd: W } })).body?.result?.value?.sessionId
+  const big = (await rpc('session/create', { request: { cwd: W } })).body?.result?.value?.sessionId
+  await route('POST', '/config', { sessionId: sis, strategistSessionId: big, dual: true, mode: 'partner', drills: false, muteUntil: 0, quietStart: 3, quietEnd: 3, minGapMs: 60_000 })
+  await sleep(300)
+  const s2 = await serve(bili(25), 'dual')
+  const bp = lastServePrompt()
+  check('主动发球由妹妹说（朋友，不是助手）', /你是小肥鱼——他的朋友，不是助手/.test(bp), bp.slice(0, 200))
+  check('妹妹发球不劝做事、不讲道理', /别劝他"该去做事了"/.test(bp) && !/思维教练/.test(bp), '')
+  check('妹妹也拿到手机现状', /哔哩哔哩，已经开了 25 分钟/.test(bp), '')
+  void s2
+  // 只看回这句话的那一次（引擎还会顺手调一次模型起会话标题，那次不带人设）
+  let said = ''
+  const sysOf = () => prompts().filter((x) => x.kind === 'chat' && x.text.includes(said) && !/session title|concise title/i.test(x.text)).pop()?.all || ''
+  said = '在吗，陪我聊会'
+  const a = await route('POST', '/say', { v: 1, requestId: 'say-sis-' + Date.now(), text: said })
+  await waitResult(a.body?.requestId)
+  check('跟妹妹聊：每轮带着她的人设', /你是小肥鱼/.test(sysOf()) && /不碰正事/.test(sysOf()), sysOf().slice(0, 200))
+  said = '我该考研还是工作'
+  const b = await route('POST', '/say', { v: 1, requestId: 'say-big-' + Date.now(), text: said, role: 'strategist' })
+  await waitResult(b.body?.requestId)
+  check('跟姐姐聊：每轮带着谋士人设（往前推两步）', /谋士/.test(sysOf()) && /往前推两步/.test(sysOf()), sysOf().slice(0, 200))
+  check('姐姐的人设并入了关系库底线', /不撒谎/.test(sysOf()), '')
+  // 测完换回 A 段的单人格会话，后面几段接着用它
+  await route('POST', '/config', { sessionId: sid, strategistSessionId: null, dual: false })
+}
 
 // ---------------------------------------------------------------- B. 一句话指令
 console.log('【B. 一句话指令】')

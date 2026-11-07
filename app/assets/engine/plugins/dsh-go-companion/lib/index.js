@@ -49,6 +49,7 @@ import {
 } from './garden.js'
 import { lastReplyClass, readCommitments, readCorePersona, readMood } from './context.js'
 import { cleanPhone, funToday, worthObserving } from './phone.js'
+import { companionChatText, roleNames, strategistChatText } from './roles.js'
 import { tide as tideOf, tideGap, tideHourly, vagueStreak } from './tide.js'
 import { FACES, stepTemper, temperLine } from './temper.js'
 import { drillLines, drillOf, pickDrill, scoldLines } from './drills.js'
@@ -87,6 +88,13 @@ const DEFAULTS = Object.freeze({
   control: true,
   // 人格卡进每一轮聊天（不只主动发球）：没有它，平时聊天里的大肥鱼就是一个普通助手。
   personaInChat: true,
+  // 姐妹双人格：陪伴（妹妹，sessionId）+ 谋士（姐姐，strategistSessionId）。关掉就回到单人格大肥鱼。
+  dual: true,
+  strategistSessionId: undefined,
+  companionName: '小肥鱼',
+  strategistName: '大肥鱼',
+  companionCard: '',
+  strategistCard: '',
   // 做题模式：默认关，主线是聊天。说"开始做题 / 做题模式"打开，"别出题了"关掉。
   drills: false,
   // 判球可以单独配一个更快的模型；没配就沿用会话自己的 provider/model。
@@ -573,6 +581,8 @@ export function apply(ctx) {
         persona: mergePersona(readCorePersona(home()), config.persona),
         mode,
         phone,
+        role: config.dual === false ? undefined : 'companion',
+        names: roleNames(config),
         temper: face,
         drill,
         scold,
@@ -581,7 +591,7 @@ export function apply(ctx) {
         grace: Number(brain.graceUntil) > now,
         morning: firstToday,
         owner: config.owner,
-        self: config.self,
+        self: config.dual === false ? config.self : roleNames(config).companion,
       })
       servedContext.set(String(req?.requestId || ''), { phone, band: water.band, face: faceId, drill: drill?.id })
       const extra = {
@@ -919,10 +929,8 @@ export function apply(ctx) {
   // 人格卡以前只在主动发球那一球里带给模型；他在 App 里或浮层里正常聊，模型拿不到，
   // 人格就只剩会话自带的设定（新装就是通用助手）。这里给目标会话挂一段固定的系统上下文，
   // 和记忆插件同一个机制（systemPrompt.context），每轮都带，不改历史、不破坏前缀缓存之外的东西。
-  const personaMount = { sid: '', agent: null, off: null }
-  function chatPersonaText() {
-    if (config.personaInChat === false) return ''
-    const mode = effectiveMode(config, Date.now())
+  /** 单人格时代的说法（dual 关掉时用）。 */
+  function singlePersonaText(mode) {
     const lines = ['你是' + String(config.self || '大肥鱼') + '，' + String(config.owner || '他') + '身边的伙伴，不是客服也不是工具。']
     for (const l of personaLines(mergePersona(readCorePersona(home()), config.persona), mode)) lines.push(l)
     lines.push(
@@ -932,25 +940,54 @@ export function apply(ctx) {
     lines.push('答应他的事要真的做到：要定时提醒就用提醒工具真的设好，并说清楚到点是怎么提醒的；做不到的（比如替他数着打了几把）就别答应。不要假装记得没发生过的事；不知道就说不知道。')
     return lines.join('\n')
   }
-  function mountPersona() {
-    const sid = config.sessionId || ''
+  function chatPersonaText(role) {
+    if (config.personaInChat === false) return ''
+    const mode = effectiveMode(config, Date.now())
+    if (config.dual === false) return singlePersonaText(mode)
+    if (role === 'strategist') {
+      // 关系库人物卡（价值观/底线/边界）是姐姐的底子。
+      const core = personaLines(mergePersona(readCorePersona(home()), {}), mode).filter((l) => !/^现在是(伙伴|教练)模式/.test(l))
+      return strategistChatText(config, core)
+    }
+    const extra = mode === 'coach' ? ['他现在开了严格模式：你可以更凶、更不依不饶，但还是你自己的样子。'] : []
+    return companionChatText(config, extra)
+  }
+  /** role -> {sid, agent, off}：两个会话各挂各的人设。 */
+  const personaMounts = new Map()
+  function mountOne(role, sid) {
+    const cur = personaMounts.get(role) || { sid: '', agent: null, off: null }
     const agent = sid ? liveAgent(ctx, sid) : null
-    if (personaMount.agent === agent && personaMount.sid === sid) return
+    if (cur.agent === (agent || null) && cur.sid === sid) return
     try {
-      personaMount.off?.()
+      cur.off?.()
     } catch {
       // ignore
     }
-    personaMount.sid = sid
-    personaMount.agent = agent || null
-    personaMount.off = null
+    const next = { sid, agent: agent || null, off: null }
+    personaMounts.set(role, next)
     if (!agent?.ctx?.systemPrompt?.context) return
     try {
-      const off = agent.ctx.systemPrompt.context({ name: 'dafeiyu-persona', order: 850, interpolate: false, text: chatPersonaText })
-      if (typeof off === 'function') personaMount.off = off
+      const off = agent.ctx.systemPrompt.context({
+        name: role === 'strategist' ? 'dafeiyu-strategist' : 'dafeiyu-persona',
+        order: 850,
+        interpolate: false,
+        text: () => chatPersonaText(role),
+      })
+      if (typeof off === 'function') next.off = off
     } catch (error) {
-      console.error('[companion] 人格挂不上：' + String((error && error.message) || error))
+      console.error('[companion] 人格挂不上（' + role + '）：' + String((error && error.message) || error))
     }
+  }
+  function mountPersona() {
+    mountOne('companion', config.sessionId || '')
+    const strat = config.dual === false ? '' : config.strategistSessionId || ''
+    // 两个角色指向同一个会话时，只挂陪伴那一份，别让模型同时拿到两套人设。
+    mountOne('strategist', strat && strat !== config.sessionId ? strat : '')
+  }
+  try {
+    mountPersona()
+  } catch {
+    // agents may not be up yet; the timer retries
   }
   const personaTimer = setInterval(() => {
     try {
@@ -1032,12 +1069,23 @@ export function apply(ctx) {
           if (!said) return send(res, 400, { v: 1, error: { code: 'empty', message: 'text' } })
           const id = typeof body.value?.requestId === 'string' && body.value.requestId ? body.value.requestId : 'say-' + randomUUID()
           startedAt.set(id, Date.now())
-          const r = await chat.request({ v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000 })
+          // role=strategist：这句话给姐姐（谋士会话）；默认给妹妹（陪伴会话）。
+          const toStrategist = body.value?.role === 'strategist' && config.dual !== false && config.strategistSessionId
+          const r = await chat.request({
+            v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000,
+            ...(toStrategist ? { sessionId: config.strategistSessionId } : {}),
+          })
           return send(res, r.status, r.body)
         }
         if (path === '/outcome') return send(res, 200, outcomeRoute(body.value))
         config = mergeConfig(config, body.value)
         writeConfig(config)
+        // 换了会话 / 名字 / 人设：马上重挂，不等下一次定时检查。
+        try {
+          mountPersona()
+        } catch {
+          // ignore
+        }
         return send(res, 200, { v: 1, sessionId: config.sessionId ?? null, config: publicConfig() })
       }
       if (req.method === 'GET' && path === '/result') {
@@ -1086,6 +1134,12 @@ export function apply(ctx) {
       control: config.control !== false,
       drills: config.drills === true,
       personaInChat: config.personaInChat !== false,
+      dual: config.dual !== false,
+      strategistSessionId: config.strategistSessionId ?? null,
+      companionName: roleNames(config).companion,
+      strategistName: roleNames(config).strategist,
+      companionCard: config.companionCard || '',
+      strategistCard: config.strategistCard || '',
       // 大脑现在对他的判断（会随证据改）和脾气的底色。
       beliefs: Object.values(loadBrain().beliefs || {}).map((b) => b.text),
       temper: readState(stateFile('temper.json'), null),
@@ -1265,6 +1319,11 @@ function mergeConfig(current, body) {
     if (typeof body.control === 'boolean') next.control = body.control
     if (typeof body.drills === 'boolean') next.drills = body.drills
     if (typeof body.personaInChat === 'boolean') next.personaInChat = body.personaInChat
+    if (typeof body.dual === 'boolean') next.dual = body.dual
+    if (body.strategistSessionId === null) next.strategistSessionId = undefined
+    else if (typeof body.strategistSessionId === 'string' && body.strategistSessionId.length <= 256) next.strategistSessionId = body.strategistSessionId || undefined
+    for (const k of ['companionName', 'strategistName']) if (typeof body[k] === 'string' && body[k].trim()) next[k] = body[k].trim().slice(0, 20)
+    for (const k of ['companionCard', 'strategistCard']) if (typeof body[k] === 'string') next[k] = body[k].slice(0, 4000)
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
     if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)

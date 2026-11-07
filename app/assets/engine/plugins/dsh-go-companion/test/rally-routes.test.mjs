@@ -70,12 +70,12 @@ function call(handler, method, path, body) {
   }))
 }
 
-function seed(home) {
+function seed(home, config = {}) {
   const memDir = join(home, 'fish-memory')
   mkdirSync(memDir, { recursive: true })
   const cfgDir = join(home, 'companion')
   mkdirSync(cfgDir, { recursive: true })
-  writeFileSync(join(cfgDir, 'config.json'), JSON.stringify({ sessionId: 'session-abc', quietStart: 12, quietEnd: 12, minGapMs: 0 }))
+  writeFileSync(join(cfgDir, 'config.json'), JSON.stringify({ sessionId: 'session-abc', quietStart: 12, quietEnd: 12, minGapMs: 0, ...config }))
   const db = new DatabaseSync(join(memDir, 'fish-memory.sqlite'))
   db.exec('CREATE TABLE topics (id TEXT PRIMARY KEY, scope TEXT, title TEXT, detail TEXT, status TEXT, priority INTEGER, opened_at INTEGER, updated_at INTEGER, last_touch_at INTEGER, next_ask_at INTEGER, attempts INTEGER, due_at INTEGER, closed_at INTEGER, reason TEXT)')
   db.exec('CREATE TABLE facts (id TEXT PRIMARY KEY, scope TEXT, text TEXT, importance INTEGER, pinned INTEGER, updated_at INTEGER, status TEXT)')
@@ -232,7 +232,7 @@ test('发球 prompt 要求先亮观点，并带上这一球的类型', async () 
   const oldHome = process.env.DSH_HOME
   process.env.DSH_HOME = home
   try {
-    seed(home)
+    seed(home, { dual: false })
     const sent = []
     const agent = {
       id: 'session-abc',

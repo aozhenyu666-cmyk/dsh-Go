@@ -126,6 +126,7 @@ object BuiltinPluginGuest {
                 "lib/drills.js",
                 "lib/brain.js",
                 "lib/force.js",
+                "lib/roles.js",
             ),
         ),
     )

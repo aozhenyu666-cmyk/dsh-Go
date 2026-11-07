@@ -89,6 +89,29 @@ class _ProactivePageState extends State<ProactivePage> {
     await _refresh();
   }
 
+  /// 选姐姐（谋士）的会话：和选陪伴会话同一个列表，写进插件的 strategistSessionId。
+  Future<void> _pickStrategist() async {
+    final sessions = await _channel.agentSessions();
+    if (!mounted) return;
+    setState(() => _sessions = sessions);
+    if (!sessions.ready) return;
+    final picked = await showAppSheet<String>(
+      context,
+      heightFactor: 0.6,
+      builder: (sheet) => _SessionList(sessions: sessions),
+    );
+    if (picked == null) return;
+    if (picked.isNotEmpty && picked == sessions.sessionId) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('姐姐和妹妹要用两个不同的会话：先在 DSH 里新建一个对话，再回来选')),
+        );
+      }
+      return;
+    }
+    await _companion({'strategistSessionId': picked.isEmpty ? null : picked});
+  }
+
   Future<void> _save(ProactiveConfig next) async {
     await _channel.setConfig(next);
     await _refresh();
@@ -395,6 +418,16 @@ class _ProactivePageState extends State<ProactivePage> {
               value: _sessions.sessionId == null && _sessions.ready ? l10n.proactiveSessionNone : null,
               onTap: () => unawaited(_pickSession()),
             ),
+            // 姐妹双人格：上面那个会话是妹妹（陪伴，主动找你的是她），这里选姐姐（谋士，正事找她）。
+            if (pluginOnline && _sessions.config['dual'] != false)
+              ListPageRow(
+                icon: AppIcons.chat,
+                title: '谋士会话（${_sessions.config['strategistName'] ?? '大肥鱼'}）',
+                subtitle: '正事找姐姐：规划、找工作、考试这些她来推演。上面那个会话是妹妹${_sessions.config['companionName'] ?? '小肥鱼'}，陪你玩、主动找你',
+                subtitleMaxLines: 3,
+                value: _sessions.config['strategistSessionId'] is String ? '已选' : '未选',
+                onTap: () => unawaited(_pickStrategist()),
+              ),
             ListPageRow(
               icon: AppIcons.send,
               title: '现在试一次',
