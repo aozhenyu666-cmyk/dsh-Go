@@ -55,7 +55,7 @@ import { FACES, stepTemper, temperLine } from './temper.js'
 import { drillLines, drillOf, pickDrill, scoldLines } from './drills.js'
 import { brainLines, chooseFace, cleanBrain, drillScorer, observe, onReply, onServe, onSilent, revise } from './brain.js'
 import { decideForce, forceLines, refuseSwitch } from './force.js'
-import { BUSY_CHECK_MS, applyGear, effectiveGear, gearLines, gearSwitch } from './gear.js'
+import { BUSY_CHECK_MS, aiTask, applyGear, effectiveGear, gearLines, gearSwitch } from './gear.js'
 import { GEMINI_PACKAGES, geminiBrief, geminiLines, geminiMode, geminiSteps, recapMarkdown, trackGemini } from './gemini.js'
 
 export const name = 'dsh-go-companion'
@@ -523,13 +523,14 @@ export function apply(ctx) {
       if (speakerOf(sessionId) === 'strategist') {
         // 姐姐主动找他：一次说清一件事（妹妹递的急话 / 晚上对账）。
         const why = strategistBallReason.get(String(req?.requestId || '')) || { reason: pendingHandoff(now) ? 'handoff' : 'review' }
-        const note = why.note || (why.reason === 'handoff' ? pendingHandoff(now) : null)
+        const note = why.reason === 'handoff' ? why.note || pendingHandoff(now) : null
         const candidates = loadCandidates(db, { sessionId, now })
         const prompt = buildPrompt({
           role: 'strategist',
           reason: why.reason,
-          note: note?.text,
+          note: why.reason === 'handoff' ? note?.text : why.note,
           busy: why.busy,
+          contact: contactLines(readLedger(home(), 400), now),
           gemini: why.gemini,
           phone: cleanPhone(req?.phone),
           commitments: readCommitments(home(), now, 3),
@@ -642,6 +643,7 @@ export function apply(ctx) {
         beliefs: brainLines(brain),
         force: forceLines(force, phone, { drill: Boolean(drill), gemini: config.proactiveTools !== false }),
         special,
+        contact: contactLines(entries, now),
         grace: Number(brain.graceUntil) > now,
         morning: firstToday,
         owner: config.owner,
@@ -774,6 +776,8 @@ export function apply(ctx) {
         const kind = event.data?.source?.kind
         if (kind && kind !== 'user') return
         lastHumanAt.set(String(session?.id || ''), Date.now())
+        // 落进账本：引擎重启也知道他刚说过话（阶梯不会把聊过的球当成没接，发球也知道他多久前说的话）。
+        record({ state: 'human', at: Date.now(), sessionId: String(session?.id || '') })
         // 他说"安静一小时""今天别找我"就照做：这是一句话就说清的事，不必占一次模型调用。
         const muteUntilAt = mutedUntil(text, Date.now(), { tz: config.timeZone })
         if (muteUntilAt) {
@@ -809,7 +813,10 @@ export function apply(ctx) {
         }
         // "忙时 90 分钟""我去做饭了""忙完了"：切档（忙时顺带开拒绝模式）。
         const gearSw = gearSwitch(text, Date.now())
-        if (gearSw) setGear(gearSw, 'phrase')
+        if (gearSw && gearSw.gear === 'free' && aiTask(config, Date.now())) {
+          // 她们立的任务：他自己喊收工不算，要验收（人设里告诉她们去验）。
+          record({ state: 'task-claim', at: Date.now(), text: String(text).slice(0, 100) })
+        } else if (gearSw) setGear(gearSw, 'phrase')
         // "开始做题 / 做题模式"打开做题，"别出题了"关掉。
         const drillSwitch = drillToggle(text)
         if (drillSwitch !== null) {
@@ -1116,7 +1123,9 @@ export function apply(ctx) {
   function markBall(why, now) {
     if (!why) return
     if (why.reason === 'checkin') saveGearState({ ...loadGearState(), lastCheckAt: now })
-    if (why.reason === 'busy-done') saveGearState({ ...loadGearState(), doneFor: Number(config.gearUntil) })
+    if (why.reason === 'busy-done' || why.reason === 'task-due') saveGearState({ ...loadGearState(), doneFor: Number(config.gearUntil) })
+    if (why.reason === 'defied') pendingDefiance = null
+    if (why.reason === 'patrol') saveGearState({ ...loadGearState(), patrolAt: now, ...(why.note?.slot ? { patrolSlot: why.note.slot } : {}) })
     if (why.mark) saveGemini({ ...loadGemini(), ...why.mark })
   }
   /** 拒绝到什么时候：拒绝模式（含忙时）和正在进行的 Gemini 连麦取更晚的。 */
@@ -1124,7 +1133,9 @@ export function apply(ctx) {
     const g = loadGemini()
     const session = g.session && Number(g.session.until) > now ? Number(g.session.until) : 0
     const r = Number(config.refuseUntil) > now ? Number(config.refuseUntil) : 0
-    return Math.max(r, session)
+    // 任务到点还没验收：继续锁（每次往后顺 10 分钟），直到姐姐 end_task_mode 或者兜底两小时。
+    const pending = aiTask(config, now) ? Math.max(Number(config.gearUntil) || 0, now + 10 * 60_000) : 0
+    return Math.max(r, session, pending)
   }
   const toolOutput = {
     schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } },
@@ -1157,9 +1168,11 @@ export function apply(ctx) {
           setGear({ gear: 'busy', until, what: String(args.what || '正事').slice(0, 20) }, 'tool')
           text = '已切到忙时（' + (args.what || '正事') + '），到 ' + hm(until) + '：不闲聊、定时报到、娱乐 App 一开就锁。'
         } else if (args.action === 'free') {
+          if (aiTask(config, now)) return { ok: false, text: '现在是任务模式（' + (config.taskGoal || '') + '），要验收合格后用 end_task_mode 结束。' }
           setGear({ gear: 'free' }, 'tool')
           text = '回到闲时了。'
         } else if (args.action === 'refuse' || args.action === 'refuse_off') {
+          if (args.action === 'refuse_off' && aiTask(config, now)) return { ok: false, text: '任务模式里关不了拒绝模式，验收合格用 end_task_mode。' }
           const until = args.action === 'refuse' ? now + (Number(args.minutes) ? mins : 120) * 60_000 : 0
           config = { ...config, refuseUntil: until, refuseBy: until ? 'tool' : undefined }
           text = until ? '拒绝模式开到 ' + hm(until) + '。' : '拒绝模式关了。'
@@ -1184,6 +1197,160 @@ export function apply(ctx) {
         return { ok: true, text }
       },
     }
+  }
+  /** 立任务：不用他同意。娱乐当场锁死，他自己解不开，验收合格才结束。 */
+  function startTaskTool(role) {
+    return {
+      name: 'start_task_mode',
+      description: '主动给他立一个任务（不需要他同意）：mode=task 任务模式（有目标，定时报到，娱乐全锁，验收合格才结束）；mode=refuse 只锁娱乐不立目标。' +
+        '他偏离计划、敷衍、沉迷娱乐、来回刷手机时用。立完告诉他做了什么、为什么、第一步是什么。',
+      parameters: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', enum: ['task', 'refuse'] },
+          minutes: { type: 'integer', minimum: 10, maximum: 180, description: '时长，默认 45' },
+          goal: { type: 'string', description: 'task：具体做什么、做到什么程度（例：周报写完第一部分 500 字）' },
+          reason: { type: 'string', description: '为什么现在立（看到了什么）' },
+        },
+        required: ['mode', 'reason'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const minutes = Math.max(10, Math.min(180, Math.round(Number(args.minutes) || 45)))
+        const until = now + minutes * 60_000
+        const reason = String(args.reason || '').trim().slice(0, 160)
+        const hm = new Date(until).toISOString().slice(11, 16) + ' UTC'
+        if (args.mode === 'refuse') {
+          config = { ...config, refuseUntil: Math.max(until, Number(config.refuseUntil) || 0), refuseBy: 'ai' }
+          try {
+            writeConfig(config)
+          } catch {
+            // 这一轮照样生效
+          }
+          record({ state: 'task-start', at: now, mode: 'refuse', minutes, by: role, reason })
+          return { ok: true, text: '拒绝模式开到 ' + hm + '，娱乐 App 一开就锁。' }
+        }
+        const goal = String(args.goal || '').trim().slice(0, 120)
+        if (!goal) return { ok: false, text: '任务要有具体目标（做什么、做到什么程度）。' }
+        setGear({ gear: 'busy', until, what: goal.slice(0, 20), task: { goal, by: role, reason } }, 'ai-' + role)
+        record({ state: 'task-start', at: now, mode: 'task', minutes, by: role, goal, reason })
+        return { ok: true, text: '任务模式立好了：' + goal + '，到 ' + hm + '。娱乐全锁，到点验收。' }
+      },
+    }
+  }
+  function endTaskTool(role) {
+    return {
+      name: 'end_task_mode',
+      description: '验收任务模式并结束（解锁娱乐）。只有确认他真的做到了才 passed=true：他讲清了做到哪、给你看了截图，或者你读屏核实过。没做到就别调用，或者用 start_task_mode 续。',
+      parameters: {
+        type: 'object',
+        properties: {
+          passed: { type: 'boolean' },
+          summary: { type: 'string', description: '验收结论：做到了什么 / 依据是什么' },
+        },
+        required: ['passed', 'summary'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const summary = String(args.summary || '').trim().slice(0, 300)
+        if (!aiTask(config, now) && !(config.refuseBy === 'ai' && Number(config.refuseUntil) > now)) return { ok: false, text: '现在没有你们立的任务。' }
+        if (args.passed !== true) {
+          record({ state: 'task-check', at: now, by: role, passed: false, summary })
+          return { ok: true, text: '记下了：没通过，任务继续。' }
+        }
+        const goal = config.taskGoal
+        setGear({ gear: 'free' }, 'ai-' + role)
+        if (config.refuseBy === 'ai') {
+          config = { ...config, refuseUntil: 0, refuseBy: undefined }
+          try {
+            writeConfig(config)
+          } catch {
+            // 这一轮照样生效
+          }
+        }
+        // 提前验收通过：到点那一下"任务到点"的验收就不用再来了。
+        saveGearState({ ...loadGearState(), doneFor: Number(config.gearUntil) })
+        record({ state: 'task-done', at: now, by: role, goal, summary })
+        return { ok: true, text: '验收通过，解锁了。' }
+      },
+    }
+  }
+  /**
+   * 手机报来的事：overlay-closed（他关掉了聊天窗，聊没聊过）、defied（关窗 30 秒后还在娱乐 App 里）。
+   * 违抗按规矩当场升级（不等模型）：开拒绝模式，并让姐姐马上来收尾。
+   */
+  let pendingDefiance = null
+  function eventRoute(body) {
+    const now = Date.now()
+    const type = String(body?.type || '')
+    if (type === 'overlay-closed') {
+      record({ state: 'overlay-closed', at: now, chatted: body?.chatted === true, muted: body?.muted === true, app: typeof body?.app === 'string' ? body.app.slice(0, 120) : undefined })
+      return { v: 1, ok: true }
+    }
+    if (type === 'defied') {
+      const app = typeof body?.app === 'string' ? body.app.slice(0, 120) : ''
+      const label = typeof body?.label === 'string' ? body.label.slice(0, 40) : app
+      const mins = effectiveMode(config, now) === 'coach' ? 60 : 30
+      const until = Math.max(now + mins * 60_000, Number(config.refuseUntil) || 0)
+      config = { ...config, refuseUntil: until, refuseBy: config.refuseBy || 'defied', muteUntil: 0 }
+      try {
+        writeConfig(config)
+      } catch {
+        // 这一轮照样生效
+      }
+      pendingDefiance = { app, label, at: now, until, source: String(body?.source || 'overlay').slice(0, 20) }
+      record({ state: 'defied', at: now, app, label, until, source: pendingDefiance.source })
+      return { v: 1, ok: true, refuse: { until }, force: { level: 4, app, why: '关掉提醒还在玩' + label + '，拒绝模式开了' } }
+    }
+    return { v: 1, ok: false, error: { code: 'unknown-event' } }
+  }
+  /** 最近的前台切换（巡逻用：来回刷手机）。 */
+  const fronts = []
+  function noteFront(phone, now) {
+    if (!phone?.app) return
+    if (!fronts.length || fronts[fronts.length - 1].app !== phone.app) fronts.push({ app: phone.app, fun: phone.fun === true, at: now })
+    while (fronts.length && now - fronts[0].at > 30 * 60_000) fronts.shift()
+  }
+  /** 该不该巡逻一次：来回刷（15 分钟里切了 8 次以上）、今天娱乐超过 90 分钟还在玩、或者到了巡逻时段。 */
+  function patrolSignal(phone, now, tz) {
+    const gs = loadGearState()
+    if (now - (Number(gs.patrolAt) || 0) < 90 * 60_000) return null
+    const recent = fronts.filter((f) => now - f.at <= 15 * 60_000)
+    if (recent.length >= 8) return { why: '他 15 分钟里在 ' + new Set(recent.map((f) => f.app)).size + ' 个 App 之间来回切了 ' + recent.length + ' 次，像是在无目的地刷' }
+    const fun = funToday(phone)
+    if (phone?.fun && fun >= 90) return { why: '他今天娱乐已经 ' + fun + ' 分钟了，现在还在' + (phone.label || phone.app) }
+    const hour = phone?.local ? Number(phone.local.slice(0, 2)) : Math.floor(zoneMinuteOfDay(now, tz) / 60)
+    const slots = Array.isArray(config.patrolHours) ? config.patrolHours.map(Number) : [10, 15, 20]
+    const day = new Date(now).toISOString().slice(0, 10)
+    const slotKey = day + ':' + hour
+    if (slots.includes(hour) && gs.patrolSlot !== slotKey && phone?.screenOn) return { why: '到了 ' + hour + ' 点的巡逻时段，看看他该干的事动了没有', slot: slotKey }
+    return null
+  }
+  /** 发球前的"互动时间线"：她们别再说"你一小时没理我"。 */
+  function contactLines(entries, now) {
+    let human = 0
+    let closed = null
+    let ball = 0
+    for (const e of entries) {
+      if (!e) continue
+      if ((e.state === 'human' || e.state === 'said') && Number(e.at) > human) human = Number(e.at)
+      if (e.state === 'overlay-closed' && (!closed || Number(e.at) > Number(closed.at))) closed = e
+      if (e.state === 'generated' && Number(e.at) > ball) ball = Number(e.at)
+    }
+    const ago = (at) => {
+      const m = Math.round((now - at) / 60_000)
+      return m < 1 ? '不到 1 分钟前' : m < 120 ? m + ' 分钟前' : Math.round(m / 60) + ' 小时前'
+    }
+    const lines = []
+    if (human) lines.push('他最后一次跟你们说话：' + ago(human) + '。')
+    if (closed && Number(closed.at) > ball - 60_000) lines.push('他' + ago(Number(closed.at)) + '自己关掉了聊天窗' + (closed.chatted ? '（聊了几句之后）' : '（没回就关了）') + (closed.muted ? '，还点了"别烦我"' : '') + '。')
+    if (ball) lines.push('上一次你们主动找他：' + ago(ball) + '。')
+    if (lines.length) lines.push('按这条时间线说话：他刚聊过就别说"好久没理我"；他刚关窗就别装没发生。')
+    return lines
   }
   /** 去：给 Gemini 的背景 + 怎么送过去。 */
   function geminiLiveTool(role) {
@@ -1355,7 +1522,7 @@ export function apply(ctx) {
     // 传话工具按会话注册：这样工具知道是谁递给谁。
     if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function') {
       const offs = []
-      const common = [notesTool(), controlTool(), geminiLiveTool(role), geminiLogTool(role)]
+      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), geminiLiveTool(role), geminiLogTool(role)]
       for (const tool of config.dual !== false ? [sisterTool(role), ...common] : common) {
         try {
           const off = agent.ctx.tools.register(tool)
@@ -1437,7 +1604,7 @@ export function apply(ctx) {
     const url = new URL(req.url, 'http://local')
     const path = url.pathname.slice(PREFIX.length)
     try {
-      if (req.method === 'POST' && (path === '/request' || path === '/cancel' || path === '/config' || path === '/plan' || path === '/outcome' || path === '/say')) {
+      if (req.method === 'POST' && (path === '/request' || path === '/cancel' || path === '/config' || path === '/plan' || path === '/outcome' || path === '/say' || path === '/event')) {
         const body = await readJson(req)
         if (body.error) {
           return send(res, body.error, {
@@ -1493,6 +1660,7 @@ export function apply(ctx) {
           return send(res, r.status, r.body)
         }
         if (path === '/outcome') return send(res, 200, outcomeRoute(body.value))
+        if (path === '/event') return send(res, 200, eventRoute(body.value))
         config = mergeConfig(config, body.value)
         writeConfig(config)
         // 换了会话 / 名字 / 人设：马上重挂，不等下一次定时检查。
@@ -1645,8 +1813,13 @@ export function apply(ctx) {
     const canTalk = out.reason !== 'muted' && out.reason !== 'quiet' && out.reason !== 'disabled'
     const thinker = config.dual !== false && config.strategistSessionId ? 'strategist' : 'companion'
     let hold = null
-    if (canTalk && !gem.inside) {
+    noteFront(phone, now)
+    // 违抗：不管安静时段和"别烦我"（他刚点了别烦我还接着玩，就是违抗）。
+    if (pendingDefiance && now - pendingDefiance.at < 10 * 60_000) {
+      nextSpeaker = { role: thinker, reason: 'defied', at: now, note: pendingDefiance, mark: null }
+    } else if (canTalk && !gem.inside) {
       const gs = loadGearState()
+      const patrol = gearNow === 'free' && config.proactiveTools !== false ? patrolSignal(phone, now, tz) : null
       if (gem.recap && config.proactiveTools !== false) {
         nextSpeaker = { role: thinker, reason: 'gemini-recap', at: now, mark: { recappedFor: Number(gem.state.inSince) },
           gemini: { minutes: Math.round((Number(gem.state.lastInAt) - Number(gem.state.inSince)) / 60_000), topic: gem.state.session?.topic } }
@@ -1659,8 +1832,13 @@ export function apply(ctx) {
         else hold = last + BUSY_CHECK_MS
       } else if (config.gear === 'busy' && Number(config.gearUntil) <= now && now - Number(config.gearUntil) < 2 * 3_600_000 &&
         Number(gs.doneFor) !== Number(config.gearUntil)) {
-        nextSpeaker = { role: 'companion', reason: 'busy-done', at: now, what: config.gearWhat,
-          minutes: Math.round((Number(config.gearUntil) - Number(config.gearSince || config.gearUntil)) / 60_000) }
+        // 她们立的任务到点：姐姐来验收（不自动算完成）；他自己定的忙时到点：妹妹来迎接。
+        nextSpeaker = config.taskBy
+          ? { role: thinker, reason: 'task-due', at: now, busy: { goal: config.taskGoal, what: config.gearWhat } }
+          : { role: 'companion', reason: 'busy-done', at: now, what: config.gearWhat,
+            minutes: Math.round((Number(config.gearUntil) - Number(config.gearSince || config.gearUntil)) / 60_000) }
+      } else if (patrol) {
+        nextSpeaker = { role: thinker, reason: 'patrol', at: now, note: patrol }
       }
     }
     if (nextSpeaker) Object.assign(out, { speak: true, reason: nextSpeaker.reason, nextCheckAt: now + 60_000 })

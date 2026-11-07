@@ -315,7 +315,7 @@ object ProactiveOverlay {
             }
             actions.addView(textAction(AppStrings.get(app, R.string.proactive_overlay_mute)) {
                 ProactiveRuntime.muteFor(60 * 60_000L)
-                close(SurfaceReport.Dismissed)
+                close(SurfaceReport.Dismissed, muted = true)
             })
             actions.addView(textAction(AppStrings.get(app, R.string.proactive_overlay_collapse)) {
                 close(SurfaceReport.Dismissed)
@@ -533,9 +533,12 @@ object ProactiveOverlay {
         }
 
         /** 收起 / 别烦我: the person closed it on purpose. */
-        private fun close(what: SurfaceReport) {
+        private fun close(what: SurfaceReport, muted: Boolean = false) {
             report(what)
             destroy()
+            // Tell the companion he closed it (and whether he had talked), then check 30 s later
+            // whether he went straight back into a game: that is defiance, not "didn't see it".
+            ProactiveRuntime.onOverlayClosed(chatted = talked, muted = muted)
         }
 
         private fun report(what: SurfaceReport) {

@@ -175,7 +175,8 @@ test('手机现状进 prompt：只写事实，不写包名，不让它说"我看
   assert.match(prompt, /今天娱乐类累计 72 分钟/)
   assert.match(prompt, /21:40/)
   assert.doesNotMatch(prompt, /tv\.danmaku/)
-  assert.doesNotMatch(prompt, /微信 30/, '非娱乐类不进累计')
+  assert.doesNotMatch(prompt, /娱乐类累计[^\n]*微信/, '非娱乐类不进累计')
+  assert.match(prompt, /今天手机用得最多：.*微信 30 分钟/, '整体用在哪另起一行（巡逻要看）')
   assert.equal(phoneLines(null).length, 0, '没带就一个字都不写')
 })
 

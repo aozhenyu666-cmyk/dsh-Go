@@ -51,6 +51,10 @@ export function applyGear(config, sw, now = Date.now()) {
     c.gearUntil = sw.until
     c.gearSince = at
     c.gearWhat = sw.what || '正事'
+    // 任务模式 = 她们立的忙时：有目标、要验收，他自己说"忙完了"解不开。
+    c.taskGoal = sw.task ? String(sw.task.goal || c.gearWhat).slice(0, 120) : undefined
+    c.taskBy = sw.task ? String(sw.task.by || 'ai') : undefined
+    c.taskReason = sw.task ? String(sw.task.reason || '').slice(0, 160) || undefined : undefined
     if (!(Number(c.refuseUntil) > sw.until)) {
       c.refuseUntil = sw.until
       c.refuseBy = 'gear'
@@ -58,6 +62,9 @@ export function applyGear(config, sw, now = Date.now()) {
   } else {
     if (c.gear === 'busy' && Number(c.gearUntil) > at) c.gearUntil = at
     c.gear = 'free'
+    c.taskGoal = undefined
+    c.taskBy = undefined
+    c.taskReason = undefined
     if (c.refuseBy === 'gear') {
       c.refuseUntil = 0
       c.refuseBy = undefined
@@ -66,9 +73,26 @@ export function applyGear(config, sw, now = Date.now()) {
   return c
 }
 
+/** 她们立的任务还在：他自己说"忙完了"不算数。 */
+export const TASK_VERIFY_MS = 2 * 3_600_000
+
+/**
+ * 她们立的任务还没验收：到点前，以及到点后两小时内（等姐姐验收；两小时是兜底，别把人锁死）。
+ * 这段时间他说"忙完了"不算数，娱乐继续锁。
+ */
+export function aiTask(config, now = Date.now()) {
+  const c = config || {}
+  return c.gear === 'busy' && Boolean(c.taskBy) && Number(now) - Number(c.gearUntil) < TASK_VERIFY_MS
+}
+
 /** 拼进两人的聊天人设。 */
 export function gearLines(config, now = Date.now()) {
   if (effectiveGear(config, now) !== 'busy') return []
   const left = Math.max(1, Math.round((Number(config.gearUntil) - Number(now)) / 60_000))
+  if (config.taskBy) {
+    return ['任务模式（' + (config.taskBy === 'strategist' ? '鲸澜' : config.taskBy === 'companion' ? '鱼丸' : '你们') + '立的）：' + (config.taskGoal || config.gearWhat) +
+      '，还剩约 ' + left + ' 分钟' + (config.taskReason ? '；立的理由：' + config.taskReason : '') + '。娱乐全锁。' +
+      '他说做完了：要证据（讲清做到哪 / 截图 / 你读屏看），姐姐验收合格才 end_task_mode；他求情、讲条件都不松。']
+  }
   return ['他现在在忙：' + (config.gearWhat || '正事') + '，还剩约 ' + left + ' 分钟（他自己定的）。他来找你闲扯就短回一句、催他回去；正事照常聊。娱乐 App 现在一开就会被锁。']
 }

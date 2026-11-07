@@ -184,7 +184,7 @@ test('晚上 20–22 点（当地）姐姐对一次账，一天一次', async ()
     const phone = { app: 'com.tencent.mm', minutes: 1, screenOn: true, local: '21:10' }
     const plan = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone })
     assert.equal(plan.body.reason, 'strategist-review', JSON.stringify(plan.body))
-    const day = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: { ...phone, local: '15:00' } })
+    const day = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: { ...phone, local: '16:00' } })
     assert.notEqual(day.body.speaker, 'strategist', '白天不对账')
   })
 })

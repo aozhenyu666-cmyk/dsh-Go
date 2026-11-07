@@ -193,7 +193,12 @@ object InterceptRuntime {
     fun onReleased(eventId: String, how: String): Boolean =
         guard?.onReleased(eventId, how, System.currentTimeMillis()) == true
 
-    fun onExited(eventId: String): Boolean = guard?.onExited(eventId, System.currentTimeMillis()) == true
+    fun onExited(eventId: String): Boolean {
+        val ok = guard?.onExited(eventId, System.currentTimeMillis()) == true
+        // Left the lock page by its exit: if he is back in the game 30 s later, that is defiance.
+        if (ok) runCatching { io.github.ccch1mneyyy.dsh_app.loop.proactive.ProactiveRuntime.watchDefiance("lock-exit") }
+        return ok
+    }
 
     fun onPaused(eventId: String?): Boolean =
         guard?.onPaused(eventId, InterceptGuard.DEFAULT_PAUSE_MS, System.currentTimeMillis()) == true

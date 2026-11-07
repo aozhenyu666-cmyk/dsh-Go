@@ -129,6 +129,9 @@ export function phoneLines(phone) {
     const list = fun.slice(0, 3).map((t) => t.label + ' ' + t.minutes + ' 分钟').join('、')
     facts.push('今天娱乐类累计 ' + funToday(phone) + ' 分钟（' + list + '）')
   }
+  // 今天整体用在哪（巡逻时判断他是不是在晃）：前 5 个，不只娱乐类。
+  const top = [...phone.today].sort((a, b) => b.minutes - a.minutes).slice(0, 5).filter((t) => t.minutes > 0)
+  if (top.length) facts.push('今天手机用得最多：' + top.map((t) => t.label + ' ' + t.minutes + ' 分钟').join('、'))
   if (phone.charging) facts.push('手机正在充电')
   if (phone.local) facts.push('他那边现在 ' + phone.local)
   if (!facts.length) return []

@@ -151,6 +151,35 @@ export function strategistBallFrame(owner, names, { reason, note, allowTools = f
     lines.push('这一次不要上网查资料。')
     return lines
   }
+  if (reason === 'defied') {
+    const d = note || {}
+    lines.push('他刚刚把提醒窗口关掉（或者敷衍一句就走），30 秒后还赖在' + (d.label || d.app || '娱乐 App') + '里——这是当面违抗。' +
+      '手机已经按规矩开了拒绝模式' + (d.until ? '（到 ' + new Date(d.until).toISOString().slice(11, 16) + ' UTC）' : '') + '，' + (d.label || '那个 App') + '一开就锁。')
+    lines.push('你来收尾：一两句，冷、短、不商量，告诉他你看见了、已经锁了、现在该干什么。' +
+      (allowTools ? '觉得该加码就直接调用 start_task_mode 立个任务（目标要具体、时长 30–90 分钟），立了再告诉他；不用问他同不同意。' : ''))
+    lines.push('别说教、别长篇；不要上网查资料。')
+    return lines
+  }
+  if (reason === 'patrol') {
+    const p = note || {}
+    lines.push('这是你的一次巡逻：' + (p.why || '到点看一眼他在干嘛') + '。')
+    lines.push((allowTools
+      ? '先看清局面：他今天的手机使用（下面有）、他答应过的事、笔记库里的待办（有笔记库就 grep 一下今天/本周的待办）。'
+      : '先看清局面：他今天的手机使用（下面有）、他答应过的事。') +
+      '然后自己裁决——')
+    lines.push('· 他明显该干正事却在晃（来回切 App、刷了很久、待办没动）：' + (allowTools ? '直接调用 start_task_mode 立任务（目标写具体：哪件事、做到什么程度；时长 30–90 分钟），娱乐当场锁死；' : '') +
+      '然后告诉他你做了什么、为什么、先做哪一步。不问"要不要"，你有这个权。')
+    lines.push('· 他在正常休息 / 吃饭 / 真有事：一句话就够，别打扰太多。')
+    lines.push('这一次不要上网查资料。')
+    return lines
+  }
+  if (reason === 'task-due') {
+    const t = busy || {}
+    lines.push('你给他立的任务「' + (t.goal || t.what || '正事') + '」到点了。现在验收：要他交代做到哪了，要具体（能截图/读屏就让他给你看，或者你用 mcp__phone__screen 自己看）。')
+    lines.push('合格就调用 end_task_mode（passed=true）解锁并夸一句具体的；不合格就 start_task_mode 再续一段（说清还差什么），不解锁。')
+    lines.push('这一次不要上网查资料。')
+    return lines
+  }
   if (reason === 'gemini-recap') {
     const g = gemini || {}
     lines.push('他刚跟 Gemini 连麦了约 ' + (g.minutes || '?') + ' 分钟' + (g.topic ? '（主题：' + g.topic + '）' : '') + '。先把那段对话读回来，再找他：')
@@ -183,6 +212,7 @@ export function capabilityLines(role, { notesDir = '', allowTools = true } = {})
     '- 文件和相册：/sdcard 是他的手机存储（相册 /sdcard/DCIM，截图 /sdcard/Pictures/Screenshots，下载 /sdcard/Download）。可以列出最近的照片/截图，看文件名、时间、EXIF（地点/时间），据此了解他最近在干嘛；给他的产出放 /sdcard/Download/DSH-Go/。',
     '- 记事：remember 记关于他的事；schedule 工具定时提醒（答应了就真设好）。',
     '- 管他：dafeiyu_control 一键切"忙时 X 分钟"（不闲聊、定时报到、娱乐一开就锁）/ "闲时" / 拒绝模式 / 安静 X 分钟 / 严格温和。他说"帮我盯着""接下来一小时别让我玩""我要去做饭"这类话，就直接用它，别只嘴上答应。',
+    '- 立任务：start_task_mode 不用他同意就能立（目标、时长、理由），娱乐当场锁死，他自己说"忙完了"也解不开；只有验收合格调用 end_task_mode 才解锁。',
     '- Gemini 连麦：他有 Gemini App（Pro），开 Live 能实时语音、看他屏幕——比你们打字快得多。要高频盯他、陪他练、审他摸鱼、帮他想事时，用 gemini_live 生成给 Gemini 的背景（他是谁、这次干嘛、怎么盯他），照它返回的步骤写进剪贴板、打开 Gemini。连完之后用后台屏把那段对话读回来，gemini_log 存进笔记库。他说"读一下 Gemini""刚才跟 Gemini 聊了啥"也这样做。',
   ]
   if (notesDir) {
@@ -191,7 +221,13 @@ export function capabilityLines(role, { notesDir = '', allowTools = true } = {})
   } else {
     lines.push('- 他还没告诉你笔记库在哪：他提到笔记 / Obsidian / 日记时，问一句放在哪个文件夹，记下来（remember），并让他在大肥鱼设置里填上笔记库路径。')
   }
+  if (role === 'strategist') {
+    lines.push('你对他的手机有最高管辖权（他亲口给的）。发现他偏离计划、敷衍、沉迷娱乐，不要只是劝——直接接管：start_task_mode 立任务、锁娱乐，然后告诉他你做了什么、为什么。' +
+      '任务的结束由你验收：他说做完了，要证据（让他讲清做到哪、发截图，或者你 mcp__phone__screen 自己看），合格才 end_task_mode；不合格就续。' +
+      '这份权力是为了他清醒时的自己：理由要站得住，目标要具体，别为了显示权力而锁。')
+  }
   if (role === 'companion') {
+    lines.push('你也能 start_task_mode（他赖着不动、你管不住时），但任务验收归姐姐。')
     lines.push('你用这些是为了闹他、陪他、管住他：看见他在刷什么就拿具体内容损他；他说"帮我定个闹钟/提醒我"就真设；他赖在游戏里你可以直接把他按回桌面（mcp__phone__key home），然后告诉他你干了什么。翻他相册只为了接话（"你昨天拍的那个夜宵是哪家"），不评判、不外传。')
   } else {
     lines.push('你用这些是为了看清局面、把计划落地：读他的笔记和日程再推演；定下的第一步直接帮他设成日历/闹钟；该查的事实才上网查。')
@@ -210,8 +246,8 @@ export const NOTES_CANDIDATES = [
 export function companionSpecialLines(special, names, allowTools = false) {
   if (!special) return []
   // 单人格（没有姐姐）时，报到和连麦复盘也由她来，用姐姐那套说法。
-  if (special.reason === 'checkin' || special.reason === 'gemini-recap') {
-    return strategistBallFrame('他', names, { reason: special.reason, allowTools, busy: special.busy, gemini: special.gemini }).slice(2)
+  if (['checkin', 'gemini-recap', 'defied', 'patrol', 'task-due'].includes(special.reason)) {
+    return strategistBallFrame('他', names, { reason: special.reason, allowTools, busy: special.busy, gemini: special.gemini, note: special.note }).slice(2)
   }
   if (special.reason === 'busy-done') {
     return ['他刚忙完「' + (special.what || '正事') + '」' + (special.minutes ? '（忙了 ' + special.minutes + ' 分钟）' : '') + '。像朋友那样迎他：问一句搞定没、累不累，可以邀功（你一直憋着没吵他），然后正常闹他。']

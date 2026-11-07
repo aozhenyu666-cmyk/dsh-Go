@@ -61,6 +61,7 @@ export function buildPrompt(input) {
   if (input.role === 'strategist') {
     for (const l of strategistBallFrame(owner, names, { reason: input.reason, note: input.note, allowTools: input.allowTools === true, busy: input.busy, gemini: input.gemini })) lines.push(l)
     for (const l of phoneLines(input.phone)) lines.push(l)
+    for (const l of Array.isArray(input.contact) ? input.contact : []) lines.push(l)
     if (commitments.length) {
       lines.push('他还没完成的约定：')
       for (const c of commitments) lines.push('- ' + String(c.statement || '').slice(0, 160) + (c.dueAt ? '（' + String(c.dueAt).slice(0, 16) + '）' : ''))
@@ -91,6 +92,8 @@ export function buildPrompt(input) {
       '就换一种说法重写一遍再说出口，别把填空当发球。',
   )
   }
+  // 互动时间线：他多久前说过话、是不是刚关了窗口——别再说"你一小时没理我"。
+  for (const l of Array.isArray(input.contact) ? input.contact : []) lines.push(l)
   // /plan 定的特殊开场（忙完了 / 连麦中途跑了 / 单人格时的报到和连麦复盘）。
   for (const l of companionSpecialLines(input.special, names, input.allowTools === true)) lines.push(l)
   if (input.stockHit) {

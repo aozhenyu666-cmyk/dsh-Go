@@ -460,6 +460,53 @@ object ProactiveRuntime {
         if (f.app == packageName && now < f.until && !f.refuse) enforce(f)
     }
 
+    /** How long after a closed reminder we look again (still in the game = defiance). */
+    private const val DEFIANCE_CHECK_MS = 30_000L
+    private val defianceCheck = Runnable { checkDefiance() }
+    private var defianceSource = "overlay"
+
+    /** The chat overlay was closed by him (收起 / 别烦我). */
+    fun onOverlayClosed(chatted: Boolean, muted: Boolean) {
+        if (!::app.isInitialized) return
+        val front = NowFeed.snapshot(SystemClock.elapsedRealtime()).app
+        fetchPluginRoute(routeCallback { }, "POST", "/event", linkedMapOf(
+            "type" to "overlay-closed", "chatted" to chatted, "muted" to muted, "app" to front,
+        ))
+        watchDefiance("overlay")
+    }
+
+    /**
+     * Look again in 30 s: if he is in a listed (entertainment) app by then, he closed the reminder
+     * and went on playing. Also called when he leaves the lock page by its exit.
+     */
+    fun watchDefiance(source: String) {
+        if (!::app.isInitialized) return
+        defianceSource = source
+        main.removeCallbacks(defianceCheck)
+        main.postDelayed(defianceCheck, DEFIANCE_CHECK_MS)
+    }
+
+    private fun checkDefiance() {
+        if (!proactiveEnabled()) return
+        val front = NowFeed.snapshot(SystemClock.elapsedRealtime()).app ?: return
+        if (!listed(front)) return
+        val label = runCatching { InterceptRuntime.config().targets.firstOrNull { it.packageName == front }?.label }.getOrNull() ?: front
+        Log.i(TAG, "defiance: still in $front ${DEFIANCE_CHECK_MS / 1000}s after the reminder was closed ($defianceSource)")
+        fetchPluginRoute(routeCallback { m ->
+            // The plugin escalates by rule (拒绝模式 on) and answers with it: lock now, don't wait for /plan.
+            ((m["refuse"] as? Map<*, *>)?.get("until") as? Number)?.toLong()?.let { setRefuseUntil(it) }
+            val f = m["force"] as? Map<*, *>
+            val level = (f?.get("level") as? Number)?.toInt() ?: 0
+            if (level >= 3) {
+                val fx = Force(level, front, f?.get("why") as? String, System.currentTimeMillis() + FORCE_HOLD_MS, refuse = true)
+                force = fx
+                enforce(fx)
+            }
+            // 鲸澜 comes in right away (the plugin queued her).
+            consultPlanSoon(minGapMs = 0L)
+        }, "POST", "/event", linkedMapOf("type" to "defied", "app" to front, "label" to label, "source" to defianceSource))
+    }
+
     /** 说到做到: 赶 = back to the launcher first; then 锁 the app behind a drill. */
     private fun enforce(f: Force, fresh: Boolean = false) {
         if (!proactiveEnabled()) return

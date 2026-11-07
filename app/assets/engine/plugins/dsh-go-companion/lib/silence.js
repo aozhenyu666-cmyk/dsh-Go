@@ -32,7 +32,7 @@ export const REST_MS = 3 * 3_600_000
 export const LIGHTER_TYPES = ['challenge', 'chat']
 
 /** 这一球有没有被接：同一 requestId 后来出现过 replied。 */
-function answered(entries, requestId) {
+function answeredBy(entries, requestId) {
   for (const e of entries) if (e && e.requestId === requestId && e.state === 'replied') return true
   return false
 }
@@ -74,6 +74,15 @@ export function silenceState(entries, { sessionId, now, ladder = LADDER, limit =
   const all = Array.isArray(entries) ? entries : []
   const list = serves(all, sessionId)
   if (!list.length) return { stage: 'none', sinceMs: 0, noTake: 0, serveType: '' }
+  // 他在这一球之后说过话（浮层、App 里、跟另一位）就不算没接：以前只认判球配上的 replied，
+  // 引擎一重启配对就丢，他刚聊完她就说"你一小时没理我"。
+  let human = 0
+  for (const e of all) if (e && (e.state === 'human' || e.state === 'said') && Number(e.at) > human) human = Number(e.at)
+  const answered = (entries, requestId) => {
+    if (answeredBy(entries, requestId)) return true
+    const s = list.find((x) => x.requestId === requestId)
+    return Boolean(s) && human > Number(s.at)
+  }
 
   const last = list[0]
   const serveType = String(last.serveType || '')
