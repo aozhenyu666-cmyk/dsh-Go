@@ -138,12 +138,28 @@ export const COMPANION_REPLY_LINE =
  * 姐姐主动找他：只在两种时候——妹妹递了急话（handoff），或者晚上的一次对账（review）。
  * 不是她的高频陪聊，所以一次说清一件事。
  */
-export function strategistBallFrame(owner, names, { reason, note, allowTools = false } = {}) {
+export function strategistBallFrame(owner, names, { reason, note, allowTools = false, busy = null, gemini = null } = {}) {
   const lines = [
     '（这不是' + owner + '说的话，是手机端让你主动去找他的一次机会。你是' + names.strategist + '，他的谋士。' +
       '不要提到"事件""系统""主动""提醒"这些字眼。）',
     toolsLine(allowTools),
   ]
+  if (reason === 'checkin') {
+    const left = busy ? Math.max(1, Math.round((busy.until - Date.now()) / 60_000)) : null
+    lines.push('他在忙「' + (busy?.what || '正事') + '」' + (left ? '（还剩约 ' + left + ' 分钟，他自己定的）' : '') + '，这是一次报到：一句话问进度——做到哪了、卡没卡。' +
+      '他上次报到说过的（记忆里有）就对一下。不闲聊、不推演、不鼓励，30 字以内。')
+    lines.push('这一次不要上网查资料。')
+    return lines
+  }
+  if (reason === 'gemini-recap') {
+    const g = gemini || {}
+    lines.push('他刚跟 Gemini 连麦了约 ' + (g.minutes || '?') + ' 分钟' + (g.topic ? '（主题：' + g.topic + '）' : '') + '。先把那段对话读回来，再找他：')
+    lines.push('1. mcp__phone__open app=Gemini background=true（后台屏，不打扰他；后台屏没开通就用前台，读完马上 mcp__phone__key back 退回去）。')
+    lines.push('2. mcp__phone__screen background=true 读最近那段对话，太长用 mcp__phone__collect；重点找【复盘】那一段。读不到就如实说读不到，绝不编。')
+    lines.push('3. 调用 gemini_log 存下来（做了什么 / 卡在哪 / 下一步 / 他说过的一两句关键原话）；关于他的新事实用 remember（share: true）。')
+    lines.push('4. 最后对他说一两句：你从那段对话里看到的一个具体的点，加上下一步。别复述全文，别说"我读了你的 Gemini 记录"这种汇报腔。')
+    return lines
+  }
   if (reason === 'handoff' && note) {
     lines.push('妹妹' + names.companion + '刚跟你递话："' + String(note).slice(0, 200) + '"。你主动去找他，就这件事说一两句：先接住他，再给一个最小的下一步或者一个关键问题。不用说是妹妹告诉你的，除非自然。')
   } else {
@@ -166,6 +182,8 @@ export function capabilityLines(role, { notesDir = '', allowTools = true } = {})
     '- 动手：mcp__phone__open 打开 App；mcp__phone__intent 设闹钟 / 计时器 / 日历、导航、打开设置页；mcp__phone__key 按返回 / 回桌面；mcp__phone__notify 给他发条通知。',
     '- 文件和相册：/sdcard 是他的手机存储（相册 /sdcard/DCIM，截图 /sdcard/Pictures/Screenshots，下载 /sdcard/Download）。可以列出最近的照片/截图，看文件名、时间、EXIF（地点/时间），据此了解他最近在干嘛；给他的产出放 /sdcard/Download/DSH-Go/。',
     '- 记事：remember 记关于他的事；schedule 工具定时提醒（答应了就真设好）。',
+    '- 管他：dafeiyu_control 一键切"忙时 X 分钟"（不闲聊、定时报到、娱乐一开就锁）/ "闲时" / 拒绝模式 / 安静 X 分钟 / 严格温和。他说"帮我盯着""接下来一小时别让我玩""我要去做饭"这类话，就直接用它，别只嘴上答应。',
+    '- Gemini 连麦：他有 Gemini App（Pro），开 Live 能实时语音、看他屏幕——比你们打字快得多。要高频盯他、陪他练、审他摸鱼、帮他想事时，用 gemini_live 生成给 Gemini 的背景（他是谁、这次干嘛、怎么盯他），照它返回的步骤写进剪贴板、打开 Gemini。连完之后用后台屏把那段对话读回来，gemini_log 存进笔记库。他说"读一下 Gemini""刚才跟 Gemini 聊了啥"也这样做。',
   ]
   if (notesDir) {
     lines.push('- 他的笔记库在 ' + notesDir + '：想了解他的计划、想法、日记就去搜（grep / 读 md），别一上来全读。' +
@@ -187,3 +205,20 @@ export const NOTES_CANDIDATES = [
   '/sdcard/Documents/Obsidian', '/sdcard/Obsidian', '/sdcard/Documents/obsidian',
   '/sdcard/Documents/Notes', '/sdcard/Documents/笔记', '/sdcard/Notes', '/sdcard/笔记',
 ]
+
+/** 妹妹的几种特殊开场（/plan 定的理由）。 */
+export function companionSpecialLines(special, names, allowTools = false) {
+  if (!special) return []
+  // 单人格（没有姐姐）时，报到和连麦复盘也由她来，用姐姐那套说法。
+  if (special.reason === 'checkin' || special.reason === 'gemini-recap') {
+    return strategistBallFrame('他', names, { reason: special.reason, allowTools, busy: special.busy, gemini: special.gemini }).slice(2)
+  }
+  if (special.reason === 'busy-done') {
+    return ['他刚忙完「' + (special.what || '正事') + '」' + (special.minutes ? '（忙了 ' + special.minutes + ' 分钟）' : '') + '。像朋友那样迎他：问一句搞定没、累不累，可以邀功（你一直憋着没吵他），然后正常闹他。']
+  }
+  if (special.reason === 'gemini-left') {
+    return ['他跟 Gemini 连麦（' + (special.topic || '没说主题') + (special.left ? '，还剩约 ' + special.left + ' 分钟' : '') + '）连到一半跑去' + (special.app || '别的地方') + '了。' +
+      '一两句把他叫回去：损他、激他、跟他打赌，叫他回去接着连。' + (allowTools ? '可以直接 mcp__phone__open app=Gemini 把 Gemini 给他打开，然后告诉他你开好了。' : '')]
+  }
+  return []
+}

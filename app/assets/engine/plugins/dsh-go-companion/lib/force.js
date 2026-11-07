@@ -52,15 +52,16 @@ export function decideForce({ phone, tide, mode, noTake = 0, control = true, fun
  * 拼进 prompt：锁 / 赶之前那一球是宣布。做题模式开着就丢一道题；没开就问他为什么还在这里——
  * 他讲得通（真有理由），会松一会儿；讲不通就锁着。
  */
-export function forceLines(f, phone, { drill = false } = {}) {
+export function forceLines(f, phone, { drill = false, gemini = false } = {}) {
   if (!f || f.level < 3) return []
   const app = phone?.label || '这个 App'
   if (f.refuse) return ['拒绝模式开着：他一打开' + app + '就被你退回桌面锁住了（手机已经在执行）。这一球是通知：一句话说清楚，语气带着你的性子。他求情、讲理由都不松——除非他亲口说"关掉拒绝模式"。']
   const then = drill
     ? '再丢一道题，答过线才放行。'
     : '然后直接问他：为什么现在还在这里？让他说清楚。理由站得住你可以松一会儿，站不住就锁着。'
-  if (f.level === 4) return ['你已经决定把他从' + app + '里赶出去（手机马上会退回桌面并锁住它）。这一球是通知，不是商量：说清楚为什么，' + then]
-  return ['你已经决定把' + app + '锁住（手机马上会锁）。这一球是通知，不是商量：一句话说清楚为什么，' + then]
+  const live = gemini ? '能动手的话，可以顺手用 gemini_live（mode=interrogate）开一场审讯连麦，把他交给 Gemini 盯着。' : ''
+  if (f.level === 4) return ['你已经决定把他从' + app + '里赶出去（手机马上会退回桌面并锁住它）。这一球是通知，不是商量：说清楚为什么，' + then + live]
+  return ['你已经决定把' + app + '锁住（手机马上会锁）。这一球是通知，不是商量：一句话说清楚为什么，' + then + live]
 }
 
 /** 拒绝模式默认开多久。 */

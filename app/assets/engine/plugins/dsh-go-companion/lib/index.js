@@ -12,7 +12,7 @@
 // 复用：fish-memory.sqlite（只读话题/事实/经历）、relation 存在性、原生展示层。
 // 不新建记忆库；不读屏幕内容；所有 SQL 参数绑定。
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, statSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -55,6 +55,8 @@ import { FACES, stepTemper, temperLine } from './temper.js'
 import { drillLines, drillOf, pickDrill, scoldLines } from './drills.js'
 import { brainLines, chooseFace, cleanBrain, drillScorer, observe, onReply, onServe, onSilent, revise } from './brain.js'
 import { decideForce, forceLines, refuseSwitch } from './force.js'
+import { BUSY_CHECK_MS, applyGear, effectiveGear, gearLines, gearSwitch } from './gear.js'
+import { GEMINI_PACKAGES, geminiBrief, geminiLines, geminiMode, geminiSteps, recapMarkdown, trackGemini } from './gemini.js'
 
 export const name = 'dsh-go-companion'
 // Without this, `ctx.tools` below throws "cannot get property tools without inject"
@@ -68,12 +70,13 @@ const DEFAULTS = Object.freeze({
   sessionId: undefined,
   quietStart: 1,
   quietEnd: 8,
-  dailyMax: 6,
+  // 整体高频（闲时档）：最短 18 分钟一次、每小时 4、每天 40，骰子 85 基本都开口。设置页可改。
+  dailyMax: 40,
   // 每小时上限：阶梯换法子时 minGap 会被压过，靠它兜住"别连着砸"。
-  hourlyMax: 3,
+  hourlyMax: 4,
   // 温和模式的最短间隔（设置页可调）。原来是 30 分钟再乘 1.5，现在直接写 45。
-  minGapMs: 45 * 60_000,
-  diceThreshold: 60,
+  minGapMs: 18 * 60_000,
+  diceThreshold: 85,
   cooldownMs: 24 * 60 * 60_000,
   allowColdSession: true,
   owner: '主人',
@@ -99,6 +102,10 @@ const DEFAULTS = Object.freeze({
   strategistCard: '',
   // 做题模式：默认关，主线是聊天。说"开始做题 / 做题模式"打开，"别出题了"关掉。
   drills: false,
+  // 档位：free（闲时，默认高频）/ busy（忙时，gearUntil 到点回闲时）。
+  gear: 'free',
+  // Gemini 的包名（Gemini App / Google App 里的 Gemini）。
+  geminiPackages: GEMINI_PACKAGES,
   // 判球可以单独配一个更快的模型；没配就沿用会话自己的 provider/model。
   judgeProvider: undefined,
   judgeModel: undefined,
@@ -124,6 +131,10 @@ function readConfig() {
   if (merged.companionName === '小肥鱼' && merged.strategistName === '大肥鱼') {
     merged.companionName = DEFAULTS.companionName
     merged.strategistName = DEFAULTS.strategistName
+  }
+  // 上一版的默认频率（每天 6、每小时 3、45 分钟、骰子 60）也会随 /config 写进配置：没改过就升到现在的高频默认。
+  if (merged.dailyMax === 6 && merged.hourlyMax === 3 && merged.minGapMs === 45 * 60_000 && merged.diceThreshold === 60) {
+    Object.assign(merged, { dailyMax: DEFAULTS.dailyMax, hourlyMax: DEFAULTS.hourlyMax, minGapMs: DEFAULTS.minGapMs, diceThreshold: DEFAULTS.diceThreshold })
   }
   // 旧 dsh-go-proactive 设置过目标会话：迁过来，避免升级后“开了但不说话”。
   if (!merged.sessionId) {
@@ -518,6 +529,8 @@ export function apply(ctx) {
           role: 'strategist',
           reason: why.reason,
           note: note?.text,
+          busy: why.busy,
+          gemini: why.gemini,
           phone: cleanPhone(req?.phone),
           commitments: readCommitments(home(), now, 3),
           facts: backgroundFacts(candidates, BACKGROUND_LIMIT),
@@ -526,6 +539,7 @@ export function apply(ctx) {
           allowTools: config.proactiveTools !== false,
         })
         if (note) markDelivered(note)
+        markBall(why, now)
         const entries = readLedger(home(), 400)
         const rally = nextShot(entries, { sessionId, now })
         return {
@@ -533,6 +547,9 @@ export function apply(ctx) {
           silence: { stage: 'none' }, extra: { speaker: 'strategist', reason: why.reason },
         }
       }
+      // /plan 定的特殊开场（忙完迎接 / 连麦中途跑了 / 单人格的报到和连麦复盘）。
+      const special = strategistBallReason.get(String(req?.requestId || '')) || null
+      if (special) markBall(special, now)
       const candidates = loadCandidates(db, { sessionId, now })
       const entries = readLedger(home(), 400)
       const recent = summarize(entries, startOfDay(now, config.timeZone))
@@ -580,7 +597,7 @@ export function apply(ctx) {
       const force = decideForce({
         phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
         grace: Number(brain.graceUntil) > now,
-        refuse: Number(config.refuseUntil) > now,
+        refuse: refuseUntilAt(now) > now,
       })
       // 上一题没回 / 答糊弄了：这一球必须是说他 + 同一类题重问。
       const drillsOn = config.drills === true
@@ -623,7 +640,8 @@ export function apply(ctx) {
         drill,
         scold,
         beliefs: brainLines(brain),
-        force: forceLines(force, phone, { drill: Boolean(drill) }),
+        force: forceLines(force, phone, { drill: Boolean(drill), gemini: config.proactiveTools !== false }),
+        special,
         grace: Number(brain.graceUntil) > now,
         morning: firstToday,
         owner: config.owner,
@@ -789,6 +807,9 @@ export function apply(ctx) {
           }
           record({ state: 'refuse', at: Date.now(), until: config.refuseUntil || undefined, on: !refuse.off })
         }
+        // "忙时 90 分钟""我去做饭了""忙完了"：切档（忙时顺带开拒绝模式）。
+        const gearSw = gearSwitch(text, Date.now())
+        if (gearSw) setGear(gearSw, 'phrase')
         // "开始做题 / 做题模式"打开做题，"别出题了"关掉。
         const drillSwitch = drillToggle(text)
         if (drillSwitch !== null) {
@@ -1076,6 +1097,193 @@ export function apply(ctx) {
       },
     }
   }
+  // ---------------------------------------------------------------- 档位 / Gemini / 控制
+  const loadGemini = () => readState(stateFile('gemini.json'), {}) || {}
+  const saveGemini = (g) => writeJson(stateFile('gemini.json'), g)
+  const loadGearState = () => readState(stateFile('gear.json'), {}) || {}
+  const saveGearState = (g) => writeJson(stateFile('gear.json'), g)
+  const geminiPackages = () => (Array.isArray(config.geminiPackages) && config.geminiPackages.length ? config.geminiPackages.map(String) : GEMINI_PACKAGES)
+  function setGear(sw, by) {
+    config = applyGear(config, sw, Date.now())
+    try {
+      writeConfig(config)
+    } catch {
+      // 这一轮照样生效
+    }
+    record({ state: 'gear', at: Date.now(), gear: sw.gear, until: sw.until || undefined, what: sw.what || undefined, by })
+  }
+  /** 这一球真的要发了：把"报到过 / 迎接过 / 叫回去过 / 读回过"记下，免得下一问又来一遍。 */
+  function markBall(why, now) {
+    if (!why) return
+    if (why.reason === 'checkin') saveGearState({ ...loadGearState(), lastCheckAt: now })
+    if (why.reason === 'busy-done') saveGearState({ ...loadGearState(), doneFor: Number(config.gearUntil) })
+    if (why.mark) saveGemini({ ...loadGemini(), ...why.mark })
+  }
+  /** 拒绝到什么时候：拒绝模式（含忙时）和正在进行的 Gemini 连麦取更晚的。 */
+  function refuseUntilAt(now) {
+    const g = loadGemini()
+    const session = g.session && Number(g.session.until) > now ? Number(g.session.until) : 0
+    const r = Number(config.refuseUntil) > now ? Number(config.refuseUntil) : 0
+    return Math.max(r, session)
+  }
+  const toolOutput = {
+    schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } },
+    render: (_a, v) => [{ type: 'text', text: String((v && v.text) || '') }],
+  }
+  /** 聊天和控制不再分开：他在聊天里说"帮我盯着""一小时别让我玩"，她们直接切。 */
+  function controlTool() {
+    return {
+      name: 'dafeiyu_control',
+      description: '切换对他的管法：busy=忙时（不闲聊、每 25 分钟报到、娱乐 App 一开就锁，minutes 后自动回闲时）；free=回到闲时（高频陪聊）；' +
+        'refuse=拒绝模式 minutes 分钟（娱乐 App 一开就锁）；refuse_off=关拒绝模式；mute=安静 minutes 分钟；strict / gentle=严格 / 温和。他亲口要求或明确同意时才用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['busy', 'free', 'refuse', 'refuse_off', 'mute', 'strict', 'gentle'] },
+          minutes: { type: 'integer', minimum: 5, maximum: 480, description: 'busy / refuse / mute 的时长（分钟）' },
+          what: { type: 'string', description: 'busy：他在忙什么（学习、做饭、写报告…）' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const mins = Math.max(5, Math.min(480, Math.round(Number(args.minutes) || 0)))
+        const hm = (at) => new Date(at).toISOString().slice(11, 16) + ' UTC'
+        let text = ''
+        if (args.action === 'busy') {
+          const until = now + (Number(args.minutes) ? mins : 60) * 60_000
+          setGear({ gear: 'busy', until, what: String(args.what || '正事').slice(0, 20) }, 'tool')
+          text = '已切到忙时（' + (args.what || '正事') + '），到 ' + hm(until) + '：不闲聊、定时报到、娱乐 App 一开就锁。'
+        } else if (args.action === 'free') {
+          setGear({ gear: 'free' }, 'tool')
+          text = '回到闲时了。'
+        } else if (args.action === 'refuse' || args.action === 'refuse_off') {
+          const until = args.action === 'refuse' ? now + (Number(args.minutes) ? mins : 120) * 60_000 : 0
+          config = { ...config, refuseUntil: until, refuseBy: until ? 'tool' : undefined }
+          text = until ? '拒绝模式开到 ' + hm(until) + '。' : '拒绝模式关了。'
+        } else if (args.action === 'mute') {
+          const until = now + (Number(args.minutes) ? mins : 60) * 60_000
+          config = { ...config, muteUntil: until }
+          text = '安静到 ' + hm(until) + '。'
+        } else if (args.action === 'strict' || args.action === 'gentle') {
+          config = { ...config, mode: args.action === 'strict' ? 'coach' : 'partner', modeUntil: 0 }
+          text = args.action === 'strict' ? '切到严格了。' : '切到温和了。'
+        } else {
+          return { ok: false, text: '不认识的动作。' }
+        }
+        if (args.action !== 'busy' && args.action !== 'free') {
+          try {
+            writeConfig(config)
+          } catch {
+            // 这一轮照样生效
+          }
+          record({ state: 'control', at: now, action: args.action, minutes: args.minutes || undefined })
+        }
+        return { ok: true, text }
+      },
+    }
+  }
+  /** 去：给 Gemini 的背景 + 怎么送过去。 */
+  function geminiLiveTool(role) {
+    return {
+      name: 'gemini_live',
+      description: '把他送去跟 Gemini 连麦（他有 Gemini App，Live 能实时语音、看屏幕）。生成一段给 Gemini 的背景（他是谁、这次干嘛、怎么盯他、结束怎么复盘），' +
+        '返回背景全文和送过去的步骤（写剪贴板、打开 Gemini）。mode：study 学习陪练 / think 共脑想事 / interrogate 审讯摸鱼。连麦期间他跑去娱乐 App 会被锁。',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: '这次要做什么（越具体越好）' },
+          minutes: { type: 'integer', minimum: 5, maximum: 180, description: '连多久，默认 30' },
+          mode: { type: 'string', enum: ['study', 'think', 'interrogate'] },
+        },
+        required: ['topic'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const minutes = Math.max(5, Math.min(180, Math.round(Number(args.minutes) || 30)))
+        const mode = geminiMode(args.mode)
+        const topic = String(args.topic || '').trim().slice(0, 120)
+        const effMode = effectiveMode(config, now)
+        let about = personaLines(mergePersona(readCorePersona(home()), config.persona), effMode).filter((l) => !/^现在是(伙伴|教练)模式/.test(l))
+        const db = openMemoryDb(memoryPath())
+        try {
+          about = [...about, ...backgroundFacts(loadCandidates(db, { sessionId: config.sessionId, now }), 5)]
+        } catch {
+          // 记忆读不到就少几条背景
+        } finally {
+          try {
+            db?.close?.()
+          } catch {
+            // ignore
+          }
+        }
+        const g = loadGemini()
+        const recaps = Array.isArray(g.recaps) ? g.recaps : []
+        const brief = geminiBrief({
+          owner: String(config.owner || '他'), topic, minutes, mode, about,
+          commitments: readCommitments(home(), now, 3).map((c) => c.statement),
+          recap: recaps[recaps.length - 1] || null,
+          gear: effectiveGear(config, now) === 'busy' ? config.gearWhat : null,
+        })
+        saveGemini({ ...g, session: { topic, mode, minutes, startedAt: now, until: now + minutes * 60_000, by: role } })
+        record({ state: 'gemini-start', at: now, topic, mode, minutes, by: role })
+        return { ok: true, text: '背景：\n' + brief + '\n\n下一步：\n' + geminiSteps(), brief }
+      },
+    }
+  }
+  /** 回：连麦读回来之后存进笔记库，两姐妹都看得到。 */
+  function geminiLogTool(role) {
+    return {
+      name: 'gemini_log',
+      description: '存下一场 Gemini 连麦的复盘（读回对话之后调用）：做了什么、卡在哪、下一步、他的一两句关键原话。写进笔记库 Gemini/日期.md，两姐妹之后每一轮都看得到。只写真读到的，读不到别编。',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: '做了什么（一两句）' },
+          stuck: { type: 'string', description: '卡在哪' },
+          next: { type: 'string', description: '下一步' },
+          quotes: { type: 'array', items: { type: 'string' }, description: '他说过的关键原话，最多 3 句' },
+          topic: { type: 'string' },
+        },
+        required: ['summary'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const summary = String(args.summary || '').trim().slice(0, 400)
+        if (!summary) return { ok: false, text: '复盘是空的。' }
+        const g = loadGemini()
+        const r = {
+          at: now, by: role, summary,
+          stuck: String(args.stuck || '').trim().slice(0, 200) || undefined,
+          next: String(args.next || '').trim().slice(0, 200) || undefined,
+          quotes: (Array.isArray(args.quotes) ? args.quotes : []).map((q) => String(q).slice(0, 200)).slice(0, 3),
+          topic: String(args.topic || g.session?.topic || '').slice(0, 120) || undefined,
+        }
+        const day = new Date(now).toISOString().slice(0, 10)
+        const dir = notesDir() ? join(notesDir(), 'Gemini') : join(home(), 'companion', 'gemini')
+        const file = join(dir, day + '.md')
+        let wrote = ''
+        try {
+          mkdirSync(dir, { recursive: true })
+          if (!existsSync(file)) writeFileSync(file, '# ' + day + ' · Gemini 连麦\n', 'utf8')
+          appendFileSync(file, recapMarkdown(r, now), 'utf8')
+          wrote = file
+        } catch (error) {
+          console.error('[companion] Gemini 复盘写不进 ' + file + '：' + String((error && error.message) || error))
+        }
+        const recaps = [...(Array.isArray(g.recaps) ? g.recaps : []), { ...r, file: wrote || undefined }].slice(-5)
+        saveGemini({ ...g, recaps, session: null, recappedFor: Number(g.inSince) || g.recappedFor })
+        record({ state: 'gemini-recap', at: now, by: role, file: wrote || undefined })
+        return { ok: true, text: wrote ? '存好了：' + wrote : '记下了（笔记文件没写进去，复盘还在，两姐妹都看得到）。' }
+      },
+    }
+  }
   /** 姐姐还没去找他的那条急话（2 小时内）。 */
   function pendingHandoff(now) {
     return loadNotes().filter((n) => n.to === 'strategist' && n.urgent && !n.delivered && now - Number(n.at) < 2 * 3_600_000).pop() || null
@@ -1114,16 +1322,17 @@ export function apply(ctx) {
     const refuseLines = refuseAt > Date.now()
       ? ['拒绝模式开着（到 ' + new Date(refuseAt).toISOString().slice(11, 16) + ' UTC）：他一打开娱乐 App 手机就会把他赶回桌面锁住。他求你放行，不松；要关只能他自己说"关掉拒绝模式"。']
       : []
+    const stateLines = [...gearLines(config, Date.now()), ...geminiLines(loadGemini(), Date.now())]
     const notes = notesFor(role).map((n) => (n.from === 'companion' ? names.companion : names.strategist) + '刚跟你递话（' +
       new Date(Number(n.at)).toISOString().slice(11, 16) + ' UTC）："' + n.text + '"')
     const noteLines = notes.length ? ['姐妹之间的悄悄话（他看不到，自然地用上就行）：', ...notes.map((t) => '- ' + t)] : []
     if (role === 'strategist') {
       // 关系库人物卡（价值观/底线/边界）是姐姐的底子。
       const core = personaLines(mergePersona(readCorePersona(home()), {}), mode).filter((l) => !/^现在是(伙伴|教练)模式/.test(l))
-      return strategistChatText(config, core, [...refuseLines, capabilityLines('strategist', { notesDir: notesDir() }), ...noteLines])
+      return strategistChatText(config, core, [...refuseLines, ...stateLines, capabilityLines('strategist', { notesDir: notesDir() }), ...noteLines])
     }
     const extra = mode === 'coach' ? ['他现在开了严格模式：你可以更凶、更不依不饶，但还是你自己的样子。'] : []
-    return companionChatText(config, [...extra, ...refuseLines, capabilityLines('companion', { notesDir: notesDir() }), ...noteLines])
+    return companionChatText(config, [...extra, ...refuseLines, ...stateLines, capabilityLines('companion', { notesDir: notesDir() }), ...noteLines])
   }
   /** role -> {sid, agent, off}：两个会话各挂各的人设。 */
   const personaMounts = new Map()
@@ -1146,7 +1355,8 @@ export function apply(ctx) {
     // 传话工具按会话注册：这样工具知道是谁递给谁。
     if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function') {
       const offs = []
-      for (const tool of config.dual !== false ? [sisterTool(role), notesTool()] : [notesTool()]) {
+      const common = [notesTool(), controlTool(), geminiLiveTool(role), geminiLogTool(role)]
+      for (const tool of config.dual !== false ? [sisterTool(role), ...common] : common) {
         try {
           const off = agent.ctx.tools.register(tool)
           if (typeof off === 'function') offs.push(off)
@@ -1240,8 +1450,8 @@ export function apply(ctx) {
         }
         if (path === '/request' && body.value && typeof body.value === 'object') {
           // /plan 刚决定"下一球是姐姐"：把这一球送进姐姐的会话。
-          if (nextSpeaker && Date.now() - nextSpeaker.at < 5 * 60_000 && config.strategistSessionId && !body.value.sessionId) {
-            body.value.sessionId = config.strategistSessionId
+          if (nextSpeaker && Date.now() - nextSpeaker.at < 5 * 60_000 && !body.value.sessionId) {
+            if (nextSpeaker.role === 'strategist' && config.strategistSessionId) body.value.sessionId = config.strategistSessionId
             strategistBallReason.set(String(body.value.requestId || ''), nextSpeaker)
             nextSpeaker = null
           }
@@ -1389,7 +1599,7 @@ export function apply(ctx) {
     const force = decideForce({
       phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
       grace: Number(mind.brain.graceUntil) > now,
-      refuse: Number(config.refuseUntil) > now,
+      refuse: refuseUntilAt(now) > now,
     })
     seedFromMemory(garden, candidates, now)
     seedFromCommitments(garden, readCommitments(home(), now, 3), now)
@@ -1428,7 +1638,34 @@ export function apply(ctx) {
     // 姐姐什么时候主动开口：妹妹递了急话，或者晚上 20–22 点（当地）一天一次对账。
     // 安静时段 / 他说了别烦我 时都不说；其余时候不受妹妹的阶梯和骰子影响（她们是两个人）。
     nextSpeaker = null
-    if (config.dual !== false && config.strategistSessionId && out.reason !== 'muted' && out.reason !== 'quiet') {
+    // 档位和 Gemini 连麦：报到、忙完迎接、连麦中途跑了叫回去、连完读回来——这些比平时的发球优先。
+    const gearNow = effectiveGear(config, now)
+    const gem = trackGemini(loadGemini(), phone, now, geminiPackages())
+    saveGemini(gem.state)
+    const canTalk = out.reason !== 'muted' && out.reason !== 'quiet' && out.reason !== 'disabled'
+    const thinker = config.dual !== false && config.strategistSessionId ? 'strategist' : 'companion'
+    let hold = null
+    if (canTalk && !gem.inside) {
+      const gs = loadGearState()
+      if (gem.recap && config.proactiveTools !== false) {
+        nextSpeaker = { role: thinker, reason: 'gemini-recap', at: now, mark: { recappedFor: Number(gem.state.inSince) },
+          gemini: { minutes: Math.round((Number(gem.state.lastInAt) - Number(gem.state.inSince)) / 60_000), topic: gem.state.session?.topic } }
+      } else if (gem.left) {
+        nextSpeaker = { role: 'companion', reason: 'gemini-left', at: now, mark: { nagAt: now },
+          topic: gem.session.topic, left: Math.max(1, Math.round((gem.session.until - now) / 60_000)), app: phone?.label || phone?.app }
+      } else if (gearNow === 'busy') {
+        const last = Math.max(Number(config.gearSince) || 0, Number(gs.lastCheckAt) || 0)
+        if (now - last >= BUSY_CHECK_MS) nextSpeaker = { role: thinker, reason: 'checkin', at: now, busy: { what: config.gearWhat, until: Number(config.gearUntil) } }
+        else hold = last + BUSY_CHECK_MS
+      } else if (config.gear === 'busy' && Number(config.gearUntil) <= now && now - Number(config.gearUntil) < 2 * 3_600_000 &&
+        Number(gs.doneFor) !== Number(config.gearUntil)) {
+        nextSpeaker = { role: 'companion', reason: 'busy-done', at: now, what: config.gearWhat,
+          minutes: Math.round((Number(config.gearUntil) - Number(config.gearSince || config.gearUntil)) / 60_000) }
+      }
+    }
+    if (nextSpeaker) Object.assign(out, { speak: true, reason: nextSpeaker.reason, nextCheckAt: now + 60_000 })
+    else if (hold) Object.assign(out, { speak: false, reason: 'busy', nextCheckAt: Math.min(hold, Number(config.gearUntil) || hold) })
+    if (!nextSpeaker && !hold && config.dual !== false && config.strategistSessionId && canTalk) {
       const handoff = pendingHandoff(now)
       const hour = phone?.local ? Number(phone.local.slice(0, 2)) : Math.floor(zoneMinuteOfDay(now, tz) / 60)
       const todayStart = startOfDay(now, tz)
@@ -1436,6 +1673,11 @@ export function apply(ctx) {
       if (handoff) nextSpeaker = { role: 'strategist', reason: 'handoff', note: handoff, at: now }
       else if (hour >= 20 && hour < 22 && !reviewedToday) nextSpeaker = { role: 'strategist', reason: 'review', at: now }
       if (nextSpeaker) Object.assign(out, { speak: true, reason: 'strategist-' + nextSpeaker.reason, nextCheckAt: now })
+    }
+    // 他在 Gemini 里连麦：谁都不插嘴；两分钟看一次，好知道他什么时候出来（出来了要读回那段对话）。
+    if (gem.inside) {
+      nextSpeaker = null
+      Object.assign(out, { speak: false, reason: 'in-gemini', nextCheckAt: now + 2 * 60_000 })
     }
     // 有一球正在路上（接下了、还没生成完）：再说开口就会连发两球（手机每次切 App 都会问一次）。
     desk.sweep()
@@ -1446,21 +1688,22 @@ export function apply(ctx) {
       Object.assign(out, { speak: false, reason: 'in-conversation', nextCheckAt: now + IN_CONVERSATION_MS })
     }
     // 一早第一球：今天还没开过口、屏幕亮着——不等骰子和间隔，先开球定今天的锚。
-    if (!out.speak && (out.reason === 'dice' || out.reason === 'cooldown') && recent.counts.generated === 0 && phone?.screenOn && !inConversation(sessionId, now)) {
+    if (!out.speak && (out.reason === 'dice' || out.reason === 'cooldown') && recent.counts.generated === 0 && phone?.screenOn && !inConversation(sessionId, now) && gearNow !== 'busy') {
       Object.assign(out, { speak: true, reason: 'morning', nextCheckAt: now })
     }
     // 力度到了"锁 / 赶"：不管这一球说不说，手机都要执行（说到做到）。
     if (force.level >= 3) out.nextCheckAt = Math.min(Number(out.nextCheckAt) || now, now + 60_000)
     if (!out.speak) nextSpeaker = null
     return {
-      v: 1, ...out, silence, sessionId, speaker: nextSpeaker ? 'strategist' : 'companion',
+      v: 1, ...out, silence, sessionId, speaker: nextSpeaker?.role === 'strategist' ? 'strategist' : 'companion',
       tide: { level: water.level, band: water.band, why: water.why },
       // release：只有他讲通了（宽限期内）才放行大肥鱼加的锁。力度掉到 3 以下不等于放行——
       // 锁屏页一弹，前台就是 DSH 自己；赶回桌面后前台是桌面，这时力度本来就是 0。
       force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined,
         release: !force.refuse && Number(mind.brain.graceUntil) > now },
       // 拒绝模式：手机记住到期时间，自己在每次切到娱乐 App 的那一刻就锁，不等这一问。
-      refuse: Number(config.refuseUntil) > now ? { until: Number(config.refuseUntil) } : null,
+      refuse: refuseUntilAt(now) > now ? { until: refuseUntilAt(now) } : null,
+      gear: effectiveGear(config, now),
     }
   }
 

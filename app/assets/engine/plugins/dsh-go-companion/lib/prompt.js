@@ -8,7 +8,7 @@ import { modeOr, personaLines } from './persona.js'
 import { phoneLines } from './phone.js'
 import { temperLine } from './temper.js'
 import { drillLines } from './drills.js'
-import { COMPANION_REPLY_LINE, COMPANION_SERVE_RULES, companionBallFrame, strategistBallFrame } from './roles.js'
+import { COMPANION_REPLY_LINE, COMPANION_SERVE_RULES, companionBallFrame, companionSpecialLines, strategistBallFrame } from './roles.js'
 
 const KIND_RULES = {
   continue:
@@ -59,7 +59,7 @@ export function buildPrompt(input) {
   const names = input.names || { companion: '鱼丸', strategist: '鲸澜' }
   // 姐姐主动找他（妹妹递了急话 / 晚上对账）：一次说清一件事，不走妹妹那套发球玩法。
   if (input.role === 'strategist') {
-    for (const l of strategistBallFrame(owner, names, { reason: input.reason, note: input.note, allowTools: input.allowTools === true })) lines.push(l)
+    for (const l of strategistBallFrame(owner, names, { reason: input.reason, note: input.note, allowTools: input.allowTools === true, busy: input.busy, gemini: input.gemini })) lines.push(l)
     for (const l of phoneLines(input.phone)) lines.push(l)
     if (commitments.length) {
       lines.push('他还没完成的约定：')
@@ -91,6 +91,8 @@ export function buildPrompt(input) {
       '就换一种说法重写一遍再说出口，别把填空当发球。',
   )
   }
+  // /plan 定的特殊开场（忙完了 / 连麦中途跑了 / 单人格时的报到和连麦复盘）。
+  for (const l of companionSpecialLines(input.special, names, input.allowTools === true)) lines.push(l)
   if (input.stockHit) {
     // 上一球被判成套话：照着原句打回，换说法，不要换个模板继续填空。
     lines.push(
