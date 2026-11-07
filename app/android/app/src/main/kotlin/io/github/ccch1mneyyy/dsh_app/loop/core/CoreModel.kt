@@ -20,7 +20,7 @@ enum class Stage { QUEUED, AWAITING_AGENT, READY, PRESENTING, DELIVERED, SHOWN, 
 /** Where the content shown to the person came from. */
 enum class ContentSource { LOCAL, AGENT, FALLBACK }
 
-enum class Surface { ACTIVITY, NOTIFICATION }
+enum class Surface { ACTIVITY, NOTIFICATION, SPEECH }
 
 /** How an event ended. Set once. */
 enum class Outcome {
@@ -190,6 +190,11 @@ data class Gate(
     /** DSH's accessibility service is bound: the only way to start a page from the background. */
     val a11yConnected: Boolean = true,
     val notificationsAllowed: Boolean = true,
+    /**
+     * 这一球要念出来而不是显示出来：他开了语音，且 companion 说到了 15 分钟换渠道那一级
+     * （`/plan` 的 `channel: "speech"`）。
+     */
+    val speech: Boolean = false,
 ) {
     /** DSH needs the screen or the person is answering DSH: proactive surfaces must give way. */
     val dshNeedsScreen: Boolean get() = dshTaskActive || dshPromptOpen || protectedForeground
@@ -207,6 +212,9 @@ data class Gate(
 
     /** Where a page could appear now; null when none can. */
     fun surface(): Surface? = when {
+        // 换渠道那一级：念出来，不等屏幕。锁着、灭屏也一样能到耳朵里 —— 这正是
+        // 「被漠视 15 分钟之后换个法子」的意义。DSH 自己在用屏幕还是得让开。
+        speech && featureEnabled && !dshNeedsScreen -> Surface.SPEECH
         holdReason() != null -> null
         a11yConnected -> Surface.ACTIVITY
         notificationsAllowed -> Surface.NOTIFICATION

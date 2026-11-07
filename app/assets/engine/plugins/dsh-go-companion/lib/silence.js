@@ -2,8 +2,9 @@
 //
 // 同一个发球不允许原样再发。没接球时按阶梯换打法，每一级都换内容、换角度：
 //   5 分钟   换一个更轻、更具体的球（观点挑衅 → 小挑战 / 闲聊）
-//   15 分钟  换渠道（浮层、语音念出来）。渠道是手机侧执行的，这里只把
-//            stage='channel' 写进账本当意图；P4 接浮层/语音时读它。
+//   15 分钟  换渠道（浮层、语音念出来）。渠道是手机侧执行的：这里只把
+//            stage='channel' 写进账本，plan.js 再按 voice 开关给出 channel='speech'，
+//            手机读到它就用系统 TTS 念出来（Surface.SPEECH）。
 //            插件不假装自己换了渠道。
 //   连续 2 次没接  本轮停下，把"几点、哪类球被漠视了"记进账本，下次拿它当素材。
 //
@@ -128,4 +129,27 @@ export function mutedUntil(text, now, { tz } = {}) {
   const at = Number(now) || Date.now()
   if (re === MUTE_DAY) return startOfDay(at, tz) + 86_400_000
   return at + 3_600_000
+}
+
+const VOICE_ON = /开(一下|上)?语音|用语音|念(出来|给我听)/
+const VOICE_OFF = /关(掉|了)?语音|别念了|不用念|别出声/
+
+/**
+ * 他说"开语音 / 别念了"就照做。返回 true 开、false 关、null 没说。
+ *
+ * shortcut: 和 mutedUntil 一样用正则直接判，不花模型、不占工具；只认这几个说法。
+ * 说法要更多就往 VOICE_ON / VOICE_OFF 里加。
+ */
+export function voiceSwitch(text) {
+  const s = String(text == null ? '' : text).replace(PUNCT, '')
+  if (!s || s.length > 24) return null
+  // 和安静指令同一条规矩：去掉命令本身，剩下的只能是语气词。
+  // "我打开了语音助手"不算在喊它念。
+  for (const [re, on] of [[VOICE_OFF, false], [VOICE_ON, true]]) {
+    const m = re.exec(s)
+    if (!m) continue
+    if (s.length - m[0].length > 3) continue
+    return on
+  }
+  return null
 }

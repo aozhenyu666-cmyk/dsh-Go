@@ -165,7 +165,8 @@ class Coordinator(
         }
         when (report) {
             SurfaceReport.Posted -> active = when (a.surface) {
-                Surface.NOTIFICATION -> a.copy(
+                // 念出来和通知一样：交出去就算送达，没有「看到」这回事，等同一个回应窗口。
+                Surface.NOTIFICATION, Surface.SPEECH -> a.copy(
                     stage = Stage.DELIVERED, presentedAt = a.presentedAt ?: now, deliveredAt = now,
                     interactionDeadline = now + config.notificationTimeoutMs,
                 )
@@ -335,8 +336,13 @@ class Coordinator(
                     stale -> { close(a, Outcome.EXPIRED, "stale_reply", now, out); return true }
                     c == null -> { close(a, Outcome.FAILED, "no_content", now, out); return true }
                 }
-                val surface = gate.surface()?.let { if (it == Surface.ACTIVITY && a.avoidActivity) notificationOrNull() else it }
-                    ?: return false
+                // 换渠道只对调度器那一球生效：走进某个 App 触发的球照旧显示，
+                // 不能因为"刚念过一球"就把别的来源也改成念。
+                val g = if (a.request.source == Switches.SOURCE_SCHEDULER) gate else gate.copy(speech = false)
+                // 上一次那个渠道（浮层 / 念）没成：退回通知，不再死磕。
+                val surface = g.surface()?.let {
+                    if (a.avoidActivity && it != Surface.NOTIFICATION) notificationOrNull() else it
+                } ?: return false
                 val token = ids()
                 active = a.copy(
                     stage = Stage.PRESENTING, surface = surface, token = token, presentDeadline = now + config.presentAckMs,
@@ -363,7 +369,7 @@ class Coordinator(
         return false
     }
 
-    private fun interactionFor(s: Surface) = if (s == Surface.NOTIFICATION) config.notificationTimeoutMs else config.interactionTimeoutMs
+    private fun interactionFor(s: Surface) = if (s == Surface.ACTIVITY) config.interactionTimeoutMs else config.notificationTimeoutMs
 
     private fun notificationOrNull(): Surface? = if (gate.notificationsAllowed) Surface.NOTIFICATION else null
 
@@ -401,7 +407,8 @@ class Coordinator(
     private fun surfaceFailed(a: ProactiveEvent, code: String, now: Long, out: Out, withdrawn: Boolean = false) {
         retire(a)
         if (!withdrawn && a.token != null && a.surface != null) out.commands += Command.Withdraw(a.eventId, a.token, a.surface, code)
-        if (a.surface == Surface.ACTIVITY && !a.avoidActivity && gate.notificationsAllowed) {
+        // 浮层和「念」都可能失灵（无障碍没连、没装语音引擎）：下一把退回通知，别浪费这一球。
+        if (a.surface != Surface.NOTIFICATION && gate.notificationsAllowed) {
             active = a.copy(stage = Stage.READY, token = null, surface = null, avoidActivity = true, reason = code)
             out.dirty = true
         } else {

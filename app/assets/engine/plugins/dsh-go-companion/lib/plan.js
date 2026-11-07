@@ -31,8 +31,8 @@ function nextDayAt(now, tz) {
 
 /**
  * @param {{config: object, now: number, topic: object|null, sentToday: number, sentLastHour?: number,
- *          lastAt: number, roll: number, silence?: {stage: string}, mutedUntil?: number}} input
- * @returns {{speak: boolean, reason: string, topic: object|null, nextCheckAt?: number, stage?: string}}
+ *          lastAt: number, roll: number, silence?: {stage: string}, mutedUntil?: number, voice?: boolean}} input
+ * @returns {{speak: boolean, reason: string, topic: object|null, nextCheckAt?: number, stage?: string, channel?: string}}
  */
 export function plan(input) {
   const c = input.config || {}
@@ -67,7 +67,16 @@ export function plan(input) {
   // 阶梯：没接球时换更轻的球 / 换渠道。它压过 minGap —— 5 分钟就是 5 分钟，
   // 否则 minGap（默认 30 分钟）一卡，阶梯根本走不到。
   if (stage === 'lighter' || stage === 'channel') {
-    return { speak: true, reason: 'ladder-' + stage, topic: input.topic, nextCheckAt: now + 5 * 60_000, stage }
+    return {
+      speak: true,
+      reason: 'ladder-' + stage,
+      topic: input.topic,
+      nextCheckAt: now + 5 * 60_000,
+      stage,
+      // 15 分钟那一级换渠道：开了语音就念出来，由手机侧执行（Surface.SPEECH）。
+      // 没开语音就留空，照旧靠屏幕 —— 浮层本来就已经是手机侧的首选渠道。
+      channel: stage === 'channel' && input.voice === true ? 'speech' : '',
+    }
   }
   if (minGap > 0 && Number(input.lastAt) > 0 && now - Number(input.lastAt) < minGap) {
     return { speak: false, reason: 'cooldown', topic: null, nextCheckAt: Number(input.lastAt) + minGap }

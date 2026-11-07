@@ -27,7 +27,7 @@ import { gardenClass, judgeReply } from './judge.js'
 import { isStock } from './stock.js'
 import { nextShot, rallyStats } from './rally.js'
 import { pickServeType } from './serve.js'
-import { LIGHTER_TYPES, mutedUntil, serveWeights, silenceState } from './silence.js'
+import { LIGHTER_TYPES, mutedUntil, serveWeights, silenceState, voiceSwitch } from './silence.js'
 import { cleanPersona, effectiveMode, modeGap, modeOr, modeServeOrder, modeSwitch } from './persona.js'
 import {
   MAX_ATTEMPTS,
@@ -74,6 +74,8 @@ const DEFAULTS = Object.freeze({
   // 人格卡（口吻、口头禅、兴趣、关系、能说多狠、不碰的话题）和两种模式。
   persona: {},
   mode: 'partner',
+  // 语音渠道：开了就是"用人设的口吻念出来"（手机侧系统 TTS）。默认关，他要了才开。
+  voice: false,
 })
 
 function home() {
@@ -479,6 +481,17 @@ export function apply(ctx) {
           }
           record({ state: 'mode', at: Date.now(), mode: sw.mode, until: config.modeUntil || undefined })
         }
+        // 他说"开语音""别念了"就照做：15 分钟换渠道那一级这时会念出来。
+        const voice = voiceSwitch(text)
+        if (voice !== null && voice !== (config.voice === true)) {
+          config = { ...config, voice }
+          try {
+            writeConfig(config)
+          } catch {
+            // 写不进去也不影响这一轮
+          }
+          record({ state: 'voice', at: Date.now(), voice, answer: String(text).slice(0, 100) })
+        }
         const pending = takePending(session?.id)
         if (pending) {
           // 这一球由大肥鱼自己判（6 秒超时或连不上就退回规则），不再按字数。
@@ -727,6 +740,8 @@ export function apply(ctx) {
       persona: cleanPersona(config.persona),
       mode: modeOr(config.mode),
       modeUntil: Number(config.modeUntil) || 0,
+      // 语音渠道开关：手机读到 plan.channel === 'speech' 才会念。
+      voice: config.voice === true,
     }
   }
 
@@ -772,6 +787,8 @@ export function apply(ctx) {
       silence,
       mutedUntil: Number(config.muteUntil) || 0,
       nextTopicAt: nextTopicAt(garden, now),
+      // 15 分钟换渠道：开了语音，plan 会返回 channel='speech'，手机就把这一球念出来。
+      voice: config.voice === true,
     })
     return { v: 1, ...out, silence, sessionId }
   }
@@ -849,6 +866,7 @@ function mergeConfig(current, body) {
     if (Number.isFinite(Number(body.minGapMs))) next.minGapMs = Math.max(60_000, Math.min(24 * 3_600_000, Number(body.minGapMs)))
     if (Number.isFinite(Number(body.diceThreshold))) next.diceThreshold = Math.max(0, Math.min(100, Number(body.diceThreshold)))
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession
+    if (typeof body.voice === 'boolean') next.voice = body.voice
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
     if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)

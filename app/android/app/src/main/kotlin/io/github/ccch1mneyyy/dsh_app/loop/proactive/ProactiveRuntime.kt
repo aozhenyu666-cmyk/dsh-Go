@@ -85,6 +85,11 @@ object ProactiveRuntime {
     private var ledger: ProactiveLedgerBook? = null
     @Volatile var agentPort: AgentPort? = null
     @Volatile var notificationPort: NotificationPort? = null
+    /** 系统 TTS：只在 15 分钟换渠道那一级用（companion 的 `/plan` 说 channel=speech）。 */
+    private var speaker: TextSpeaker? = null
+    /** 这一球该念出来到什么时候（毫秒时间戳，0 = 照旧显示）。 */
+    private var speechUntil = 0L
+    private const val SPEECH_WINDOW_MS = 10 * 60_000L
     private val deadlineTick = Runnable { tick("deadline") }
     private val taskListener: (PhoneTasks.Snapshot) -> Unit = { main.post { refreshGate("dsh_task") } }
     private var listening: PhoneTasks? = null
@@ -131,6 +136,8 @@ object ProactiveRuntime {
         applySwitches()
         watchTasks()
         arm()
+        // 先把 TTS 引擎起起来：第一球到来时不该等那几百毫秒的初始化。
+        runCatching { speaker().prepare() }
         return c
     }
 
@@ -171,7 +178,12 @@ object ProactiveRuntime {
         applySwitches()
         dispatch(c.setGate(gate()))
         when (val d = s.evaluate(clocks(), force)) {
-            is ProactiveScheduler.Decision.Fire -> submit(d.request, fromScheduler = true)
+            is ProactiveScheduler.Decision.Fire -> {
+                // 这一球发出去之前先问一次渠道：阶梯到 15 分钟了就该念出来，
+                // 而不是等屏幕亮起来（那正是「被漠视之后换个法子」要避免的）。
+                consultPlanSoon(force = true)
+                submit(d.request, fromScheduler = true)
+            }
             is ProactiveScheduler.Decision.Wait -> {
                 arm()
                 // 让 companion 的 nextEligibleAt 决定下一次检查；仍复用这一个 scheduler/alarm。
@@ -262,10 +274,10 @@ object ProactiveRuntime {
      * Ask the companion when the next topic is eligible and move the single scheduler alarm there.
      * This is the only bridge between garden.nextEligibleAt and AlarmManager; no second timer.
      */
-    private fun consultPlanSoon() {
+    private fun consultPlanSoon(force: Boolean = false) {
         if (agentPort == null) return
         val now = System.currentTimeMillis()
-        if (now - lastPlanConsult < 60_000) return
+        if (!force && now - lastPlanConsult < 60_000) return
         lastPlanConsult = now
         // The engine runs on TZ=GMT; quiet hours and the daily reset are the phone's wall clock,
         // so the phone's own zone goes with the request. The plugin falls back to Asia/Shanghai.
@@ -279,6 +291,10 @@ object ProactiveRuntime {
 
     private fun applyPlan(raw: Any?) {
         val map = raw as? Map<*, *> ?: return
+        // 15 分钟换渠道：插件说这一球该念出来（他开了语音），就换成念，不再等屏幕。
+        // 渠道跟着这一球走，不是全局开关：下一次 /plan 没给 speech 就自动回到显示。
+        speechUntil = if (map["channel"] == "speech") System.currentTimeMillis() + SPEECH_WINDOW_MS else 0
+        refreshGate("plan")
         val at = (map["nextCheckAt"] as? Number)?.toLong() ?: return
         if (at <= 0) return
         scheduler?.setNextDueAt(at, clocks())
@@ -404,6 +420,14 @@ object ProactiveRuntime {
                     val ok = notificationPort?.post(cmd.token, cmd.content.text, cmd.deadline) == true
                     dispatch(c.onSurface(cmd.token, if (ok) SurfaceReport.Posted else SurfaceReport.Failed("no_notification")))
                 }
+                // 换渠道那一级：念出来。念不成如实报失败，内核退回通知，不假装念过。
+                Surface.SPEECH -> {
+                    val ok = speaker().speak(cmd.content.text)
+                    // 一球只念一次：把渠道还给屏幕，别让下一球也跟着开口。
+                    speechUntil = 0
+                    dispatch(c.onSurface(cmd.token, if (ok) SurfaceReport.Posted else SurfaceReport.Failed("no_tts")))
+                    refreshGate("spoken")
+                }
             }
             is Command.Withdraw -> when (cmd.surface) {
                 Surface.ACTIVITY -> {
@@ -411,11 +435,13 @@ object ProactiveRuntime {
                     VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, cmd.token)
                 }
                 Surface.NOTIFICATION -> notificationPort?.cancel(cmd.token)
+                Surface.SPEECH -> speaker().stop()
             }
             Command.ClearLeftovers -> {
                 ProactivePageActivity.withdrawAll()
                 VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, null)
                 notificationPort?.cancelAll()
+                speaker().stop()
             }
         }
     }
@@ -486,8 +512,12 @@ object ProactiveRuntime {
             unlocked = keyguard?.isKeyguardLocked != true,
             a11yConnected = PhoneA11yService.isConnected(),
             notificationsAllowed = nm?.areNotificationsEnabled() == true && notificationPort != null,
+            // 15 分钟换渠道：companion 说这一球该念（他开了语音）才有声音渠道。
+            speech = speechUntil > System.currentTimeMillis(),
         )
     }
+
+    private fun speaker(): TextSpeaker = speaker ?: TextSpeaker(app).also { speaker = it }
 
     private fun watchTasks() {
         PhoneControl.peek()?.prompts?.onBusyChanged = { refreshGate("dsh_prompt") }
