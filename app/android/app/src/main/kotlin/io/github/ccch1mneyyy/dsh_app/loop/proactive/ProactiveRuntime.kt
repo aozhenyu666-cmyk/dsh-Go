@@ -238,16 +238,23 @@ object ProactiveRuntime {
         }
         // Fire once. Clearing first also covers a coordinator rejection: the next /plan decides.
         companionPlan = null
+        if (ballInFlight()) return
         val at = clocks()
         val request = EventRequest(
             eventId = java.util.UUID.randomUUID().toString(),
-            source = "SCHEDULER", kind = "random_chat", dedupeKey = "companion:plan:${plan.receivedAt}",
+            source = "SCHEDULER", kind = "random_chat", dedupeKey = "companion:plan",
             priority = schedulerConfig().priority, createdAt = at.wall, ttlMs = schedulerConfig().eventTtlMs,
             needsAgent = true,
             payload = mapOf("plan" to plan.reason),
         )
         submit(request, fromScheduler = true)
         Log.i(TAG, "companion plan fired ($reason, ${plan.reason})")
+    }
+
+    /** A scheduler ball is already queued or on its way: a second /plan "speak" must not add another. */
+    private fun ballInFlight(): Boolean {
+        val c = coordinator ?: return false
+        return c.active()?.request?.source == "SCHEDULER" || c.queued().any { it.request.source == "SCHEDULER" }
     }
 
     /** The plugin is reachable and this answer is still the current one (not a stale minute-old one). */
@@ -399,7 +406,9 @@ object ProactiveRuntime {
             planResult,
             "POST",
             "/plan",
-            linkedMapOf<String, Any?>("roll" to 100, "timeZone" to TimeZone.getDefault().id)
+            // 不带 roll：骰子由插件自己掷。以前带 roll=100（只拿 /plan 定时间时的写法），
+            // 在"插件说开口才开口"之后等于永远掷不中，大肥鱼就不主动说话了。
+            linkedMapOf<String, Any?>("timeZone" to TimeZone.getDefault().id)
                 .also { body -> phoneContext()?.let { body["phone"] = it } },
         )
     }
@@ -457,7 +466,9 @@ object ProactiveRuntime {
         val target = f?.get("app") as? String
         val why = f?.get("why") as? String
         force = if (level >= 3 && !target.isNullOrBlank()) Force(level, target, why, System.currentTimeMillis() + FORCE_HOLD_MS) else null
-        if (level < 3) releaseCompanionLock()
+        // 只在插件明说"讲通了，放行"时解锁。力度低于 3 不算：锁屏页弹出后前台是 DSH 自己、
+        // 赶回桌面后前台是桌面，插件看到的力度本来就是 0——那时解锁等于锁几秒就自己打开游戏。
+        if (level < 3 && f?.get("release") == true) releaseCompanionLock()
         force?.let { enforce(it) }
         val at = (map["nextCheckAt"] as? Number)?.toLong() ?: 0L
         val speak = map["speak"] == true
@@ -465,11 +476,11 @@ object ProactiveRuntime {
         if (at <= 0) return
         // P2: the plugin decides, the phone executes. speak=true means this ball now; nextCheckAt is
         // when to look again afterwards. speak=false means only move the single alarm.
-        if (speak) {
+        if (speak && !ballInFlight()) {
             val now = clocks()
             val request = EventRequest(
                 eventId = UUID.randomUUID().toString(),
-                source = "SCHEDULER", kind = "random_chat", dedupeKey = "companion:plan:${now.wall}",
+                source = "SCHEDULER", kind = "random_chat", dedupeKey = "companion:plan",
                 priority = schedulerConfig().priority, createdAt = now.wall, ttlMs = schedulerConfig().eventTtlMs,
                 needsAgent = true, payload = mapOf("plan" to reason),
             )

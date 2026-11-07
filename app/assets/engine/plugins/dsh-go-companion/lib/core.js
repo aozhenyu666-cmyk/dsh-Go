@@ -333,6 +333,12 @@ export class Desk {
     this.wake(requestId)
   }
 
+  /** 有一球已经接下、还没出结果（accepted / claimed）。 */
+  inFlight() {
+    for (const r of this.records.values()) if (!TERMINAL.has(r.state)) return true
+    return false
+  }
+
   sweep() {
     const now = this.now()
     for (const r of this.records.values()) {

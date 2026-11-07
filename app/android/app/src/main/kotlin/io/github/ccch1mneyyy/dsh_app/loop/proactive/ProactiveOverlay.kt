@@ -1,5 +1,9 @@
 package io.github.ccch1mneyyy.dsh_app.loop.proactive
 
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
@@ -145,7 +149,7 @@ object ProactiveOverlay {
         fun attach(text: String, why: String?) {
             lastText = text.take(MAX_TEXT)
             lastWhy = why
-            val view = expanded(lastText, why)
+            val view = backAware(expanded(lastText, why))
             val p = windowParams()
             root = view
             params = p
@@ -239,6 +243,11 @@ object ProactiveOverlay {
                 setOnEditorActionListener { _, action, _ ->
                     if (action == EditorInfo.IME_ACTION_SEND) { sendNow(); true } else false
                 }
+                // 窗口平时不可聚焦，点进输入框这一下才切成可聚焦并弹键盘。
+                setOnTouchListener { _, ev ->
+                    if (ev.action == MotionEvent.ACTION_DOWN && !typing) setTyping(true)
+                    false
+                }
                 addTextChangedListener(object : TextWatcher {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -325,7 +334,9 @@ object ProactiveOverlay {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            // 默认不抢焦点：返回键、游戏里的按键照常给下面的 App。点输入框才拿焦点（setTyping）。
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
@@ -339,6 +350,40 @@ object ProactiveOverlay {
             val maxW = (context.resources.displayMetrics.widthPixels * 0.92f).toInt()
             width = minOf(maxW, context.dp(420f))
         }
+
+        // ---- focus ------------------------------------------------------------------------------
+
+        /** 正在打字：窗口可聚焦、键盘在。否则窗口不可聚焦，按键全归下面的 App。 */
+        private var typing = false
+
+        private fun setTyping(on: Boolean) {
+            val v = root ?: return
+            val p = params ?: return
+            typing = on
+            p.flags = if (on) p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+            else p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            runCatching { wm?.updateViewLayout(v, p) }
+            val imm = context.getSystemService(InputMethodManager::class.java)
+            val box = input ?: return
+            if (on) {
+                box.requestFocus()
+                box.post { imm?.showSoftInput(box, InputMethodManager.SHOW_IMPLICIT) }
+            } else {
+                imm?.hideSoftInputFromWindow(box.windowToken, 0)
+                box.clearFocus()
+            }
+        }
+
+        /** 打字时按返回：收起键盘、把焦点还给下面的 App，卡片留着。 */
+        private fun backAware(content: View): View = object : FrameLayout(context) {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                    if (event.action == KeyEvent.ACTION_UP) setTyping(false)
+                    return true
+                }
+                return super.dispatchKeyEvent(event)
+            }
+        }.apply { addView(content) }
 
         // ---- conversation ----------------------------------------------------------------------
 
@@ -415,7 +460,9 @@ object ProactiveOverlay {
             bubble = pill
             val p = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, type,
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                // 气泡可能挂很久：永远不抢焦点，否则这段时间里返回键都给了它。
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.BOTTOM or Gravity.END
@@ -430,10 +477,11 @@ object ProactiveOverlay {
             runCatching { wm?.removeView(pill) }
             bubble = null
             collapsed = false
-            val view = expanded(lastText, lastWhy)
+            val view = backAware(expanded(lastText, lastWhy))
             val p = windowParams()
             root = view
             params = p
+            typing = false
             runCatching { wm?.addView(view, p) }.onFailure { destroy() }
             // Reopened from the bubble: give it the same answer window again.
             main.postDelayed(shrink, COLLAPSE_AFTER_MS)

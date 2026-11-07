@@ -1101,6 +1101,11 @@ export function apply(ctx) {
       free: true,
     })
     // 他正在跟大肥鱼聊：不发主动球（发了也只会撞上"正忙"）。力度照常给手机——在游戏里边玩边聊也得锁。
+    // 有一球正在路上（接下了、还没生成完）：再说开口就会连发两球（手机每次切 App 都会问一次）。
+    desk.sweep()
+    if (out.speak && desk.inFlight()) {
+      Object.assign(out, { speak: false, reason: 'in-flight', nextCheckAt: now + 60_000 })
+    }
     if (out.speak && inConversation(sessionId, now)) {
       Object.assign(out, { speak: false, reason: 'in-conversation', nextCheckAt: now + IN_CONVERSATION_MS })
     }
@@ -1113,7 +1118,10 @@ export function apply(ctx) {
     return {
       v: 1, ...out, silence, sessionId,
       tide: { level: water.level, band: water.band, why: water.why },
-      force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined },
+      // release：只有他讲通了（宽限期内）才放行大肥鱼加的锁。力度掉到 3 以下不等于放行——
+      // 锁屏页一弹，前台就是 DSH 自己；赶回桌面后前台是桌面，这时力度本来就是 0。
+      force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined,
+        release: Number(mind.brain.graceUntil) > now },
     }
   }
 

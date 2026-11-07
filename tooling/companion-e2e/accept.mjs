@@ -155,6 +155,9 @@ sid = await newSession({ mode: 'coach', minGapMs: 30 * 60_000 })
 const pClear = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: wechat() })
 const pTrap = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(70) })
 check('打游戏 70 分钟（严格）→ 赶出去', pTrap.body.force?.name === 'home', pTrap.body.force)
+// 锁屏页弹出后前台是 DSH 自己 / 赶回桌面后前台是桌面：力度为 0，但绝不能叫手机放行
+const pLauncher = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: app('com.miui.home', '桌面', 0, false) })
+check('被锁 / 被赶回桌面后，力度为 0 也不放行', pLauncher.body.force?.release === false, pLauncher.body.force)
 check('陷住时一分钟内再看', pTrap.body.nextCheckAt <= Date.now() + 61_000, pTrap.body)
 check('在微信里 → 力度"说"、水位清醒', pClear.body.force?.name === 'talk' && pClear.body.tide?.band === 'clear', pClear.body)
 await route('POST', '/config', { mode: 'partner' })
@@ -173,6 +176,27 @@ pl = await route('POST', '/plan', { roll: 0, timeZone: 'Asia/Shanghai', phone: w
 check('按手机时区（上海 ' + shHour + ' 点）算安静时段', pl.body.reason === 'quiet', pl.body)
 pl = await route('POST', '/plan', { roll: 0, timeZone: 'America/New_York', phone: wechat() })
 check('换个时区就不在安静时段', pl.body.reason !== 'quiet', pl.body)
+
+// ---------------------------------------------------------------- G2. 手机真实的请求体
+console.log('【G2. 手机真实请求体】')
+reset()
+sid = await newSession({ mode: 'coach', minGapMs: 60_000 })
+{
+  // 手机（ProactiveRuntime.consultPlanSoon）发的就是这个形状：不带 roll，由插件自己掷骰子。
+  // 以前手机带 roll:100，在"插件说开口才开口"之后等于永远不开口。
+  let spoke = 0
+  for (let i = 0; i < 12; i++) {
+    const r = await route('POST', '/plan', { timeZone: 'Asia/Shanghai', phone: bili(12) })
+    if (r.body.speak) spoke += 1
+  }
+  check('按手机真实请求体问 12 次 /plan，至少有一次说开口', spoke > 0, { spoke })
+  // 有一球正在生成时，再问 /plan 不能又说开口（否则切 App 时会连发两球）
+  const id = 'req-inflight-' + Date.now()
+  await route('POST', '/request', { v: 1, requestId: id, eventId: 'evt-' + id, kind: 'random_chat', payload: {}, deadlineMs: 45000, phone: bili(12) })
+  const during = await route('POST', '/plan', { roll: 0, timeZone: 'Asia/Shanghai', phone: bili(12) })
+  check('一球正在生成时 /plan 不再说开口', during.body.speak === false && ['in-flight', 'in-conversation'].includes(during.body.reason), during.body)
+  await waitResult(id)
+}
 
 // ---------------------------------------------------------------- H. 设置页要的数据
 console.log('【H. /status】')

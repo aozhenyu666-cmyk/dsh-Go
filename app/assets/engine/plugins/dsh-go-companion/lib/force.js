@@ -37,7 +37,8 @@ export function decideForce({ phone, tide, mode, noTake = 0, control = true, fun
   if (dwell >= t.lock || total >= t.lockToday || (tide?.band === 'trap' && noTake >= 2)) {
     return pick(3, phone.label + ' 连续 ' + dwell + ' 分钟' + (noTake >= 2 ? '，连着 ' + noTake + ' 球没接' : ''))
   }
-  if (dwell >= t.screen || tide?.band === 'sink' || tide?.band === 'trap') return pick(2, '水位' + (tide?.band || ''))
+  if (dwell >= t.screen) return pick(2, phone.label + ' 连续 ' + dwell + ' 分钟')
+  if (tide?.band === 'sink' || tide?.band === 'trap') return pick(2, '水位' + (tide.label || '在沉'))
   if (tide?.band === 'slide') return pick(1, '在滑')
   return pick(0, '')
 }

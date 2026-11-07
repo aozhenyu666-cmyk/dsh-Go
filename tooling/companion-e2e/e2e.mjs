@@ -49,6 +49,7 @@ if (phase === 'warm') {
   await sleep(1500)
   const plan2 = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(45) })
   check('松的这段时间不锁', plan2.body.force?.level <= 1, plan2.body.force)
+  check('讲通了 → 告诉手机放行大肥鱼加的锁', plan2.body.force?.release === true, plan2.body.force)
 
   // 3. 浮层里直接聊
   const say = await route('POST', '/say', { v: 1, requestId: 'say-' + Date.now(), text: '那你说我打完这局去干嘛' })

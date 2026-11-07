@@ -117,10 +117,10 @@ test('路由：request → status → 回执账本', async () => {
     assert.equal(status.body.counters.accepted, 1)
     assert.equal(status.body.memory.exists, true)
 
-    const plan = await call(handler, 'POST', '/dsh-go-companion/v1/plan', { roll: 0 })
-    assert.equal(plan.status, 200)
-    assert.equal(plan.body.speak, true)
-    assert.equal(plan.body.topic.id, 'topic:t1')
+    // 那一球还在路上（接下了、没生成完）：不能又说开口，否则手机切 App 时会连发两球。
+    const busy = await call(handler, 'POST', '/dsh-go-companion/v1/plan', { roll: 0 })
+    assert.equal(busy.body.speak, false)
+    assert.equal(busy.body.reason, 'in-flight')
 
     // Simulate the agent turn and the person's substantive reply.
     const sid = 'session-abc'
@@ -131,6 +131,10 @@ test('路由：request → status → 回执账本', async () => {
     await fire({ type: 'user/message', data: { id: sent[0].id } })
     await fire({ type: 'assistant/message', data: { turn: 7, message: { content: [{ type: 'text', text: '面试结果出了吗？' }] } } })
     await fire({ type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } })
+    // 这一球生成完了，不在路上了：/plan 可以照常回答（minGap 为 0、roll 0）。
+    const plan = await call(handler, 'POST', '/dsh-go-companion/v1/plan', { roll: 0 })
+    assert.equal(plan.status, 200)
+    assert.notEqual(plan.body.reason, 'in-flight')
     await fire({ type: 'user/message', data: { id: 'user-reply', content: [{ type: 'text', text: '因为周五才出，我还在等' }] } })
     const after = await call(handler, 'GET', '/dsh-go-companion/v1/result?requestId=req-00000001&waitMs=0')
     assert.equal(after.body.state, 'generated')
