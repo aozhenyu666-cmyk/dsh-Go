@@ -6,16 +6,19 @@ import '../../l10n/l10n.dart';
 import '../../proactive/proactive_state.dart';
 import '../common/app_sheet.dart';
 import '../common/list_page_row.dart';
+import '../common/segmented_pill.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'action_log_page.dart' show formatLogTime;
 import 'loop_test_page.dart' show loopClock;
 
-/// 璁剧疆 鈫?鎵嬫満鎿嶆帶 鈫?涓诲姩鎼瘽: the proactive kernel's own page.
+/// 设置 → 手机操控 → 主动搭话: the proactive kernel’s own page.
 ///
 /// Everything it shows comes from `dsh/proactive` `status` and `receipts`; nothing is computed
-/// here. Two things it deliberately says out loud, because both are true on a locked-down phone:
+/// here. Three tiers, because "what is it doing now" and "the knobs" answer different
+/// questions: 现在 is this moment, 回顾 is today’s rounds, 设置 is everything you can change.
+/// Two things it deliberately says out loud, because both are true on a locked-down phone:
 /// when the system forbids background wakeups (`wakeMode == OPPORTUNISTIC`), and when the kernel is
 /// holding back because DSH is using the phone.
 class ProactivePage extends StatefulWidget {
@@ -44,6 +47,7 @@ class _ProactivePageState extends State<ProactivePage> {
   List<ProactiveReceipt> _receipts = const [];
   ProactiveAgentSessions _sessions = const ProactiveAgentSessions();
   Timer? _poll;
+  _Tier _tier = _Tier.now;
 
   @override
   void initState() {
@@ -172,175 +176,212 @@ class _ProactivePageState extends State<ProactivePage> {
         GlassIconButton(icon: AppIcons.refresh, tooltip: l10n.loopRefresh, onPressed: () => unawaited(_refresh())),
       ],
       children: [
-        ListPageCard(
-          children: [
-            MergeSemantics(
-              child: ListPageRow(
-                icon: AppIcons.notificationsOff,
-                title: l10n.proactiveEnabled,
-                subtitle: l10n.proactiveEnabledHint,
-                subtitleMaxLines: 3,
-                onTap: status == null ? null : () => unawaited(_setEnabled(!config.enabled)),
-                trailing: Switch(
-                  value: config.enabled,
-                  onChanged: status == null ? null : (v) => unawaited(_setEnabled(v)),
-                ),
-              ),
-            ),
-            ListPageRow(
-              icon: AppIcons.commandTimeout,
-              title: l10n.proactiveGap,
-              subtitle: l10n.proactiveGapHint,
-              value: l10n.proactiveGapValue(config.minIntervalMs ~/ 60000, config.maxIntervalMs ~/ 60000),
-              onTap: status == null
-                  ? null
-                  : () => unawaited(_editMinutes(
-                      title: l10n.proactiveGap,
-                      currentMinutes: config.minIntervalMs ~/ 60000,
-                      config: config,
-                      isMin: true,
-                    )),
-            ),
-            ListPageRow(
-              icon: AppIcons.commandTimeout,
-              title: l10n.proactiveGapMax,
-              subtitle: l10n.proactiveGapMaxHint,
-              value: l10n.proactiveMinutes(config.maxIntervalMs ~/ 60000),
-              onTap: status == null
-                  ? null
-                  : () => unawaited(_editMinutes(
-                      title: l10n.proactiveGapMax,
-                      currentMinutes: config.maxIntervalMs ~/ 60000,
-                      config: config,
-                      isMin: false,
-                    )),
-            ),
-            ListPageRow(
-              icon: AppIcons.notificationsOff,
-              title: l10n.proactiveQuiet,
-              subtitle: l10n.proactiveQuietHint,
-              value: config.quietSet
-                  ? l10n.proactiveQuietValue(loopClock(config.quietStartMinute), loopClock(config.quietEndMinute))
-                  : l10n.loopQuietHoursOff,
-              onTap: status == null ? null : () => unawaited(_cycleQuiet(config)),
-            ),
-            ListPageRow(
-              icon: AppIcons.today,
-              title: l10n.proactiveDaily,
-              subtitle: l10n.proactiveDailyHint,
-              value: config.dailyMax <= 0 ? l10n.loopDailyCapOff : l10n.proactiveDailyValue(config.dailyMax),
-              onTap: status == null ? null : () => unawaited(_cycleDaily(config)),
-            ),
-            ListPageRow(
-              icon: AppIcons.chat,
-              title: l10n.proactiveSession,
-              subtitle: sessionsSubtitle(l10n, _sessions),
-              subtitleMaxLines: 2,
-              value: _sessions.sessionId == null && _sessions.ready ? l10n.proactiveSessionNone : null,
-              onTap: () => unawaited(_pickSession()),
-            ),
-            ListPageRow(
-              icon: AppIcons.send,
-              title: '现在试一次',
-              subtitle: '跳过间隔/安静/日上限，立即走一次计划 → 回合；仍受忙闲与在途请求限制',
-              subtitleMaxLines: 2,
-              onTap: status == null ? null : () => unawaited(_tryNow()),
-            ),
-          ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: SegmentedPill<_Tier>(
+            segments: const [
+              PillSegment(_Tier.now, '现在'),
+              PillSegment(_Tier.review, '回顾'),
+              PillSegment(_Tier.settings, '设置'),
+            ],
+            selected: _tier,
+            onChanged: (t) => setState(() => _tier = t),
+          ),
         ),
-        const SizedBox(height: 24),
-        ListPageCard(
-          title: '伙伴今日',
-          children: [
-            ListPageRow(
-              icon: AppIcons.chart,
-              title: '主动链路',
-              subtitle:
-                  '尝试 ${_sessions.today['accepted'] ?? 0} · 生成 ${_sessions.today['generated'] ?? 0} · '
-                  '回应 ${_sessions.today['replied'] ?? 0} · 实质 ${_sessions.today['substantive'] ?? 0} · '
-                  '未回 ${_sessions.today['none'] ?? 0}',
-              subtitleMaxLines: 2,
-            ),
-            ListPageRow(
-              icon: AppIcons.bookmark,
-              title: '最近聊过的话题',
-              subtitle: _sessions.lastTopicId ?? '还没有（记忆里没有未完成话题）',
-              subtitleMaxLines: 2,
-            ),
-            ListPageRow(
-              icon: AppIcons.folder,
-              title: '本地记忆库',
-              subtitle: _sessions.memoryExists ? '已连接' : '未找到：先让它记住一条，再来试',
-              subtitleMaxLines: 2,
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        ListPageCard(
-          title: l10n.proactiveState,
-          children: [
-            ListPageRow(
-              icon: status?.holdReason == null ? AppIcons.allowed : AppIcons.stopped,
-              iconColor: status?.holdReason == null ? colors.success : colors.warning,
-              title: status?.holdReason == null ? l10n.proactiveGateFree : l10n.proactiveGateHold(proactiveHoldLabel(l10n, status!.holdReason!)),
-              titleMaxLines: 3,
-              subtitle: status?.activeStage == null ? null : l10n.proactiveActiveStage(status!.activeStage!),
-              subtitleMaxLines: 2,
-            ),
-            // The honest warning: on a phone that forbids background wakeups there is no alarm at
-            // all, and a message only happens while DSH is open or the screen changes.
-            if (status != null && status.wakeRestricted)
+        // 现在：这一会儿它在干什么。刚发出去的那一球放最上面，因为它就是"现在"。
+        if (_tier == _Tier.now) ...[
+          ListPageCard(
+            children: [
               ListPageRow(
-                icon: AppIcons.warning,
-                iconColor: colors.warning,
-                title: l10n.proactiveWakeRestricted,
-                titleMaxLines: 4,
+                icon: AppIcons.send,
+                title: '现在试一次',
+                subtitle: '跳过间隔/安静/日上限，立即走一次计划 → 回合；仍受忙闲与在途请求限制',
+                subtitleMaxLines: 2,
+                onTap: status == null ? null : () => unawaited(_tryNow()),
               ),
-            if (status != null && status.wakeMode != 'OPPORTUNISTIC')
               ListPageRow(
-                icon: AppIcons.alarmClock,
-                title: l10n.proactiveWakeMode(status.wakeMode),
-                subtitle: status.alarmError,
+                icon: status?.holdReason == null ? AppIcons.allowed : AppIcons.stopped,
+                iconColor: status?.holdReason == null ? colors.success : colors.warning,
+                title: status?.holdReason == null ? l10n.proactiveGateFree : l10n.proactiveGateHold(proactiveHoldLabel(l10n, status!.holdReason!)),
+                titleMaxLines: 3,
+                subtitle: status?.activeStage == null ? null : l10n.proactiveActiveStage(status!.activeStage!),
                 subtitleMaxLines: 2,
               ),
-            ListPageRow(
-              icon: status?.transport ?? false ? AppIcons.allowed : AppIcons.error,
-              iconColor: status?.transport ?? false ? colors.success : colors.warning,
-              title: status?.transport ?? false ? l10n.proactiveTransportReady : l10n.proactiveTransportMissing,
-              titleMaxLines: 2,
-              subtitle: l10n.proactiveQueued(status?.queued ?? 0),
+            ],
+          ),
+          if (_receipts.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            ListPageCard(
+              title: '刚发的球',
+              children: [_ReceiptRow(_receipts.first)],
             ),
-            if (status?.storageError != null)
-              ListPageRow(
-                icon: AppIcons.error,
-                iconColor: colors.danger,
-                title: l10n.loopStorageError(status!.storageError!),
-                titleMaxLines: 3,
-              ),
-            if (status?.recoveryIssue != null)
-              ListPageRow(
-                icon: AppIcons.warning,
-                iconColor: colors.warning,
-                title: l10n.proactiveRecoveryIssue(status!.recoveryIssue!),
-                titleMaxLines: 3,
-              ),
           ],
-        ),
-        const SizedBox(height: 24),
-        ListPageCard(
-          title: l10n.proactiveReceipts,
-          children: [
-            if (_receipts.isEmpty)
-              ListPageRow(icon: AppIcons.history, iconColor: colors.textTertiary, title: l10n.proactiveReceiptsEmpty)
-            else
-              for (final r in _receipts) _ReceiptRow(r),
-          ],
-        ),
+        ],
+        if (_tier == _Tier.settings)
+          ListPageCard(
+            children: [
+              MergeSemantics(
+                child: ListPageRow(
+                  icon: AppIcons.notificationsOff,
+                  title: l10n.proactiveEnabled,
+                  subtitle: l10n.proactiveEnabledHint,
+                  subtitleMaxLines: 3,
+                  onTap: status == null ? null : () => unawaited(_setEnabled(!config.enabled)),
+                  trailing: Switch(
+                    value: config.enabled,
+                    onChanged: status == null ? null : (v) => unawaited(_setEnabled(v)),
+                  ),
+                ),
+              ),
+              ListPageRow(
+                icon: AppIcons.commandTimeout,
+                title: l10n.proactiveGap,
+                subtitle: l10n.proactiveGapHint,
+                value: l10n.proactiveGapValue(config.minIntervalMs ~/ 60000, config.maxIntervalMs ~/ 60000),
+                onTap: status == null
+                    ? null
+                    : () => unawaited(_editMinutes(
+                        title: l10n.proactiveGap,
+                        currentMinutes: config.minIntervalMs ~/ 60000,
+                        config: config,
+                        isMin: true,
+                      )),
+              ),
+              ListPageRow(
+                icon: AppIcons.commandTimeout,
+                title: l10n.proactiveGapMax,
+                subtitle: l10n.proactiveGapMaxHint,
+                value: l10n.proactiveMinutes(config.maxIntervalMs ~/ 60000),
+                onTap: status == null
+                    ? null
+                    : () => unawaited(_editMinutes(
+                        title: l10n.proactiveGapMax,
+                        currentMinutes: config.maxIntervalMs ~/ 60000,
+                        config: config,
+                        isMin: false,
+                      )),
+              ),
+              ListPageRow(
+                icon: AppIcons.notificationsOff,
+                title: l10n.proactiveQuiet,
+                subtitle: l10n.proactiveQuietHint,
+                value: config.quietSet
+                    ? l10n.proactiveQuietValue(loopClock(config.quietStartMinute), loopClock(config.quietEndMinute))
+                    : l10n.loopQuietHoursOff,
+                onTap: status == null ? null : () => unawaited(_cycleQuiet(config)),
+              ),
+              ListPageRow(
+                icon: AppIcons.today,
+                title: l10n.proactiveDaily,
+                subtitle: l10n.proactiveDailyHint,
+                value: config.dailyMax <= 0 ? l10n.loopDailyCapOff : l10n.proactiveDailyValue(config.dailyMax),
+                onTap: status == null ? null : () => unawaited(_cycleDaily(config)),
+              ),
+              ListPageRow(
+                icon: AppIcons.chat,
+                title: l10n.proactiveSession,
+                subtitle: sessionsSubtitle(l10n, _sessions),
+                subtitleMaxLines: 2,
+                value: _sessions.sessionId == null && _sessions.ready ? l10n.proactiveSessionNone : null,
+                onTap: () => unawaited(_pickSession()),
+              ),
+            ],
+          ),
+        if (_tier == _Tier.review) ...[
+          const SizedBox(height: 24),
+          ListPageCard(
+            title: '伙伴今日',
+            children: [
+              ListPageRow(
+                icon: AppIcons.chart,
+                title: '主动链路',
+                subtitle:
+                    '尝试 ${_sessions.today['accepted'] ?? 0} · 生成 ${_sessions.today['generated'] ?? 0} · '
+                    '回应 ${_sessions.today['replied'] ?? 0} · 实质 ${_sessions.today['substantive'] ?? 0} · '
+                    '未回 ${_sessions.today['none'] ?? 0}',
+                subtitleMaxLines: 2,
+              ),
+              ListPageRow(
+                icon: AppIcons.bookmark,
+                title: '最近聊过的话题',
+                subtitle: _sessions.lastTopicId ?? '还没有（记忆里没有未完成话题）',
+                subtitleMaxLines: 2,
+              ),
+              ListPageRow(
+                icon: AppIcons.folder,
+                title: '本地记忆库',
+                subtitle: _sessions.memoryExists ? '已连接' : '未找到：先让它记住一条，再来试',
+                subtitleMaxLines: 2,
+              ),
+            ],
+          ),
+        ],
+        if (_tier == _Tier.settings) ...[
+          const SizedBox(height: 24),
+          ListPageCard(
+            title: l10n.proactiveState,
+            children: [
+              // The honest warning: on a phone that forbids background wakeups there is no alarm at
+              // all, and a message only happens while DSH is open or the screen changes.
+              if (status != null && status.wakeRestricted)
+                ListPageRow(
+                  icon: AppIcons.warning,
+                  iconColor: colors.warning,
+                  title: l10n.proactiveWakeRestricted,
+                  titleMaxLines: 4,
+                ),
+              if (status != null && status.wakeMode != 'OPPORTUNISTIC')
+                ListPageRow(
+                  icon: AppIcons.alarmClock,
+                  title: l10n.proactiveWakeMode(status.wakeMode),
+                  subtitle: status.alarmError,
+                  subtitleMaxLines: 2,
+                ),
+              ListPageRow(
+                icon: status?.transport ?? false ? AppIcons.allowed : AppIcons.error,
+                iconColor: status?.transport ?? false ? colors.success : colors.warning,
+                title: status?.transport ?? false ? l10n.proactiveTransportReady : l10n.proactiveTransportMissing,
+                titleMaxLines: 2,
+                subtitle: l10n.proactiveQueued(status?.queued ?? 0),
+              ),
+              if (status?.storageError != null)
+                ListPageRow(
+                  icon: AppIcons.error,
+                  iconColor: colors.danger,
+                  title: l10n.loopStorageError(status!.storageError!),
+                  titleMaxLines: 3,
+                ),
+              if (status?.recoveryIssue != null)
+                ListPageRow(
+                  icon: AppIcons.warning,
+                  iconColor: colors.warning,
+                  title: l10n.proactiveRecoveryIssue(status!.recoveryIssue!),
+                  titleMaxLines: 3,
+                ),
+            ],
+          ),
+        ],
+        // 回顾：今天这些回合。被漠视的球也在里面，标成「没接」。
+        if (_tier == _Tier.review) ...[
+          const SizedBox(height: 24),
+          ListPageCard(
+            title: l10n.proactiveReceipts,
+            children: [
+              if (_receipts.isEmpty)
+                ListPageRow(icon: AppIcons.history, iconColor: colors.textTertiary, title: l10n.proactiveReceiptsEmpty)
+              else
+                for (final r in _receipts) _ReceiptRow(r),
+            ],
+          ),
+        ],
         const SizedBox(height: 24),
       ],
     );
   }
 }
+
+/// The page's three tiers: this moment, today's rounds, the knobs.
+enum _Tier { now, review, settings }
 
 /// Why the kernel is holding back, in the person's words.
 String proactiveHoldLabel(L10n l10n, String reason) => switch (reason) {
@@ -501,11 +542,14 @@ class _ReceiptRow extends StatelessWidget {
       if (receipt.shownAt != null) l10n.proactiveMarkShown,
       if (receipt.respondedAt != null) l10n.proactiveMarkResponded,
     ];
-    final surface = switch (receipt.surface) {
-      'notification' => l10n.loopSurfaceNotification,
+    // Kotlin sends the enum name (`NOTIFICATION`), older fixtures send lowercase; both must land.
+    // SPEECH is the 15-minute tier: it was read out, not shown.
+    final surface = switch (receipt.surface?.toUpperCase()) {
+      'NOTIFICATION' => l10n.loopSurfaceNotification,
+      'SPEECH' => '语音念出',
       _ => null,
     };
-    final detail = [?surface, if (marks.isNotEmpty) marks.join(' 鈫?'), ?receipt.reason].join(' 路 ');
+    final detail = [?surface, if (marks.isNotEmpty) marks.join(' → '), ?receipt.reason].join(' · ');
     return ListPageRow(
       icon: icon,
       iconColor: color,

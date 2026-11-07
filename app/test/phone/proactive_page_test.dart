@@ -112,6 +112,12 @@ Map<String, Object?> receipt({
   'closedAt': DateTime(2026, 10, 30, 9, 5).millisecondsSinceEpoch,
 };
 
+/// The three tiers are drawers of one page: switch before asserting on a row.
+Future<void> openTier(WidgetTester tester, String label) async {
+  await tester.tap(find.text(label));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -152,16 +158,19 @@ void main() {
       await pumpPhone(tester, const ProactivePage());
       expect(find.text('主动搭话'), findsWidgets);
       // The hold line reads "正在让路：DSH 正在操作手机"; the hint above it says the same words, so
-      // match the composed line rather than the fragment.
+      // match the composed line rather than the fragment. It belongs to 现在: that is the moment.
       expect(find.textContaining('正在让路：DSH 正在操作手机'), findsOneWidget);
-      expect(find.textContaining('限制了后台唤醒'), findsOneWidget);
+      await openTier(tester, '回顾');
       expect(find.text('你回应了'), findsWidgets);
+      await openTier(tester, '设置');
+      expect(find.textContaining('限制了后台唤醒'), findsOneWidget);
       expect(find.textContaining('排队中：2 条'), findsOneWidget);
     });
 
     testWidgets('the switch, gaps, quiet hours and daily limit write config', (tester) async {
       final native = FakeProactiveNative()..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
 
       await tester.tap(find.byType(Switch));
       await tester.pumpAndSettle();
@@ -197,6 +206,7 @@ void main() {
     testWidgets('a typed gap outside the range is refused, not sent', (tester) async {
       final native = FakeProactiveNative()..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       await tester.tap(find.text('最短间隔'));
       await tester.pumpAndSettle();
 
@@ -223,6 +233,7 @@ void main() {
         }
         ..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       // Raising the minimum past the maximum lifts the maximum with it.
       await tester.tap(find.text('最短间隔'));
       await tester.pumpAndSettle();
@@ -239,12 +250,14 @@ void main() {
         ..transport = false
         ..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       expect(find.textContaining('还没连上引擎'), findsOneWidget);
     });
 
     testWidgets('the target session can be picked from the live ones', (tester) async {
       final native = FakeProactiveNative()..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       // Nothing chosen yet: the row says so instead of showing a fake target.
       expect(find.text('不指定'), findsWidgets);
 
@@ -266,6 +279,7 @@ void main() {
         ..sessionId = 'session-a'
         ..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       expect(find.textContaining('发到 session-a'), findsOneWidget);
 
       await tester.tap(find.text('目标会话'));
@@ -280,6 +294,7 @@ void main() {
         ..sessionsError = 'no_transport'
         ..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       expect(find.textContaining('读不到会话列表'), findsOneWidget);
       expect(find.textContaining('no_transport'), findsOneWidget);
     });
@@ -289,6 +304,7 @@ void main() {
         ..agents = []
         ..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       await tester.tap(find.text('目标会话'));
       await tester.pumpAndSettle();
       expect(find.textContaining('没有活着的会话'), findsOneWidget);
@@ -300,6 +316,7 @@ void main() {
         ..storageError = 'IOException: disk full'
         ..install();
       await pumpPhone(tester, const ProactivePage());
+      await openTier(tester, '设置');
       expect(find.textContaining('上次的状态读不出来'), findsOneWidget);
       expect(find.textContaining('回执保存失败'), findsOneWidget);
     });
