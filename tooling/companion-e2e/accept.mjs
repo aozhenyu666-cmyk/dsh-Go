@@ -40,6 +40,18 @@ const app = (pkg, label, minutes, fun, extra = {}) => ({ app: pkg, label, minute
 const bili = (m) => app('tv.danmaku.bili', '哔哩哔哩', m, true)
 const game = (m) => app('com.tencent.tmgp.sgame', '王者荣耀', m, true)
 const wechat = () => app('com.tencent.mm', '微信', 1, false)
+/**
+ * 第 8 节的作息会盖过力度：0:30–7:00 娱乐锁死、5:00–10:00 早上开门。
+ * 测力度 / 阶梯时挑一个现在正好是 11–20 点的时区，免得 CI 跑到半夜就挂。
+ */
+function dayZone() {
+  for (let off = -12; off <= 14; off += 1) {
+    const name = off === 0 ? 'UTC' : off > 0 ? 'Etc/GMT-' + off : 'Etc/GMT+' + (-off)
+    const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: name, hour: 'numeric', hourCycle: 'h23' }).format(new Date()))
+    if (hour >= 11 && hour < 20) return name
+  }
+  return 'UTC'
+}
 
 // ---------------------------------------------------------------- A. 一球里到底带了什么
 console.log('【A. 发球内容（单人格）】')
@@ -173,7 +185,7 @@ reset()
 sid = await newSession({ mode: 'partner' })
 inject([{ requestId: sid + '-a', at: Date.now() - 16 * 60_000 }, { requestId: sid + '-b', at: Date.now() - 11 * 60_000, silence: 'lighter' }])
 pl = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: wechat() })
-check('第一球后 15 分钟还没接 → 换渠道', pl.body.reason === 'ladder-channel', pl.body)
+check('第一球后 15 分钟还没接 → 鲸澜接手追问', pl.body.reason === 'ignored', pl.body)
 inject([{ requestId: sid + '-c', at: Date.now() - 60_000, silence: 'channel' }])
 pl = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: wechat() })
 check('三球都没接 → 停下，3 小时后再看', pl.body.reason === 'no-take' && pl.body.nextCheckAt > Date.now() + 2.9 * 3_600_000, pl.body)
@@ -181,20 +193,21 @@ check('三球都没接 → 停下，3 小时后再看', pl.body.reason === 'no-t
 // ---------------------------------------------------------------- F. 水位、节奏、力度
 console.log('【F. 水位与力度】')
 reset()
+const tzF = dayZone()
 sid = await newSession({ mode: 'coach', minGapMs: 30 * 60_000 })
-const pClear = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: wechat() })
-const pTrap = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(70) })
+const pClear = await route('POST', '/plan', { roll: 100, timeZone: tzF, phone: wechat() })
+const pTrap = await route('POST', '/plan', { roll: 100, timeZone: tzF, phone: game(70) })
 check('打游戏 70 分钟（严格）→ 赶出去', pTrap.body.force?.name === 'home', pTrap.body.force)
 // 锁屏页弹出后前台是 DSH 自己 / 赶回桌面后前台是桌面：力度为 0，但绝不能叫手机放行
-const pLauncher = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: app('com.miui.home', '桌面', 0, false) })
+const pLauncher = await route('POST', '/plan', { roll: 100, timeZone: tzF, phone: app('com.miui.home', '桌面', 0, false) })
 check('被锁 / 被赶回桌面后，力度为 0 也不放行', pLauncher.body.force?.release === false, pLauncher.body.force)
 check('陷住时一分钟内再看', pTrap.body.nextCheckAt <= Date.now() + 61_000, pTrap.body)
 check('在微信里 → 力度"说"、水位清醒', pClear.body.force?.name === 'talk' && pClear.body.tide?.band === 'clear', pClear.body)
 await route('POST', '/config', { mode: 'partner' })
-const pWarm = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(35) })
+const pWarm = await route('POST', '/plan', { roll: 100, timeZone: tzF, phone: game(35) })
 check('温和模式 35 分钟 → 还不锁（屏）', pWarm.body.force?.name === 'screen', pWarm.body.force)
 await route('POST', '/config', { control: false, mode: 'coach' })
-const pNoCtl = await route('POST', '/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: game(70) })
+const pNoCtl = await route('POST', '/plan', { roll: 100, timeZone: tzF, phone: game(70) })
 check('关掉控机权限 → 最多到浮层', pNoCtl.body.force?.name === 'screen', pNoCtl.body.force)
 await route('POST', '/config', { control: true })
 
