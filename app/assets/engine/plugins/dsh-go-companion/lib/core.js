@@ -149,7 +149,8 @@ export class Desk {
     }
     for (const r of this.records.values()) {
       if (r.eventId === req.eventId && !TERMINAL.has(r.state)) return this.refuse(409, 'event-in-flight')
-      if (!TERMINAL.has(r.state)) return this.refuse(409, 'desk-busy')
+      // 主动发球同一时间只走一球；直接聊（allowBusy）可以排队，一句卡住不该把后面的话都挡掉。
+      if (!TERMINAL.has(r.state) && !this.deps.allowBusy) return this.refuse(409, 'desk-busy')
     }
     const sessionId = req.sessionId ?? this.deps.defaultSession()
     if (!sessionId) return this.refuse(409, 'no-session')

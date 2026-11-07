@@ -349,7 +349,7 @@ object ProactiveRuntime {
         fetchPluginRoute(routeCallback { m ->
             val error = ((m["error"] as? Map<*, *>)?.get("code") as? String)
             if (error != null) done(null, error) else pollSay(id, deadline, done)
-        }, "POST", "/say", linkedMapOf("v" to 1, "requestId" to id, "text" to text))
+        }, "POST", "/say", linkedMapOf("v" to 1, "requestId" to id, "text" to text, "timeZone" to TimeZone.getDefault().id))
     }
 
     private fun pollSay(id: String, deadline: Long, done: (String?, String?) -> Unit) {

@@ -28,7 +28,7 @@ import { isStock } from './stock.js'
 import { capCount, nextShot, rallyStats } from './rally.js'
 import { pickServeType } from './serve.js'
 import { LIGHTER_TYPES, mutedUntil, serveWeights, silenceState } from './silence.js'
-import { COACH_LIMITS, cleanPersona, effectiveMode, mergePersona, modeLimits, modeOr, modeServeOrder, modeSwitch } from './persona.js'
+import { COACH_LIMITS, cleanPersona, effectiveMode, mergePersona, modeLimits, modeOr, modeServeOrder, modeSwitch, personaLines } from './persona.js'
 import {
   MAX_ATTEMPTS,
   addTopic,
@@ -85,6 +85,8 @@ const DEFAULTS = Object.freeze({
   ...COACH_LIMITS,
   // 控机权限：水位到了就锁娱乐 App / 退回桌面（手机执行）。关掉就最多到浮层。
   control: true,
+  // 人格卡进每一轮聊天（不只主动发球）：没有它，平时聊天里的大肥鱼就是一个普通助手。
+  personaInChat: true,
   // 做题模式：默认关，主线是聊天。说"开始做题 / 做题模式"打开，"别出题了"关掉。
   drills: false,
   // 判球可以单独配一个更快的模型；没配就沿用会话自己的 provider/model。
@@ -596,6 +598,9 @@ export function apply(ctx) {
     }
   }
 
+  /** 最近一次 /say 带来的手机时区（没带就用配置里的）。 */
+  let sayZone = ''
+
   // ---------------------------------------------------------------- 直接聊（/say）
   // 浮层里打的字原样作为他的话进大肥鱼的会话（不带插件来源，就是他本人说的），大肥鱼照常回，
   // 工具也不拦——跟在 App 里聊一模一样。回复从 /result 取。判球、安静、换模式这些照常认这句话。
@@ -604,9 +609,11 @@ export function apply(ctx) {
     compose: async (req) => ({ text: req.payload.text, prompt: req.payload.text }),
     // 来源必须带：引擎的会话控制器默认每条消息都有 source，没有就抛异常、这一轮根本不开（真机测出来的）。
     // 他本人打的字，就照 App 里打字的格式标成 user；rpcId 加前缀，不会和 App 的提交撞上。
+    // 带上手机时区：引擎只从 user 来源的 clientTimeZone 读当地时间；不带就按引擎的 GMT，
+    // 大肥鱼会在中午说"四点了快去睡"（人格测试测出来的）。
     makeMessage: (text) => ({
       id: randomUUID(), role: 'user', content: [{ type: 'text', text }],
-      source: { kind: 'user', rpcId: 'dsh-go-companion-say-' + randomUUID() },
+      source: { kind: 'user', rpcId: 'dsh-go-companion-say-' + randomUUID(), clientTimeZone: zoneOr(sayZone || config.timeZone) },
     }),
     isArchived: (id) => isArchived(ctx, id),
     defaultSession: () => config.sessionId,
@@ -908,6 +915,53 @@ export function apply(ctx) {
     }
   }
 
+  // ---------------------------------------------------------------- 人格进每一轮聊天
+  // 人格卡以前只在主动发球那一球里带给模型；他在 App 里或浮层里正常聊，模型拿不到，
+  // 人格就只剩会话自带的设定（新装就是通用助手）。这里给目标会话挂一段固定的系统上下文，
+  // 和记忆插件同一个机制（systemPrompt.context），每轮都带，不改历史、不破坏前缀缓存之外的东西。
+  const personaMount = { sid: '', agent: null, off: null }
+  function chatPersonaText() {
+    if (config.personaInChat === false) return ''
+    const mode = effectiveMode(config, Date.now())
+    const lines = ['你是' + String(config.self || '大肥鱼') + '，' + String(config.owner || '他') + '身边的伙伴，不是客服也不是工具。']
+    for (const l of personaLines(mergePersona(readCorePersona(home()), config.persona), mode)) lines.push(l)
+    lines.push(
+      '聊天时：像朋友那样说话，短、直接、有自己的判断；他在解释为什么这样，先用自己的话复述你理解的理由，再表态——' +
+        '站得住就认，站不住就具体说哪里站不住；别只重复立场，也别一被反驳就全盘让步。',
+    )
+    lines.push('答应他的事要真的做到：要定时提醒就用提醒工具真的设好，并说清楚到点是怎么提醒的；做不到的（比如替他数着打了几把）就别答应。不要假装记得没发生过的事；不知道就说不知道。')
+    return lines.join('\n')
+  }
+  function mountPersona() {
+    const sid = config.sessionId || ''
+    const agent = sid ? liveAgent(ctx, sid) : null
+    if (personaMount.agent === agent && personaMount.sid === sid) return
+    try {
+      personaMount.off?.()
+    } catch {
+      // ignore
+    }
+    personaMount.sid = sid
+    personaMount.agent = agent || null
+    personaMount.off = null
+    if (!agent?.ctx?.systemPrompt?.context) return
+    try {
+      const off = agent.ctx.systemPrompt.context({ name: 'dafeiyu-persona', order: 850, interpolate: false, text: chatPersonaText })
+      if (typeof off === 'function') personaMount.off = off
+    } catch (error) {
+      console.error('[companion] 人格挂不上：' + String((error && error.message) || error))
+    }
+  }
+  const personaTimer = setInterval(() => {
+    try {
+      mountPersona()
+    } catch {
+      // never break the engine
+    }
+  }, 2_000)
+  personaTimer.unref?.()
+  ctx.effect?.(() => () => clearInterval(personaTimer))
+
   const sweeper = setInterval(() => {
     desk.sweep()
     const now = Date.now()
@@ -974,6 +1028,7 @@ export function apply(ctx) {
         if (path === '/plan') return send(res, 200, planRoute(body.value))
         if (path === '/say') {
           const said = String(body.value?.text ?? '').trim()
+          if (typeof body.value?.timeZone === 'string' && body.value.timeZone) sayZone = body.value.timeZone
           if (!said) return send(res, 400, { v: 1, error: { code: 'empty', message: 'text' } })
           const id = typeof body.value?.requestId === 'string' && body.value.requestId ? body.value.requestId : 'say-' + randomUUID()
           startedAt.set(id, Date.now())
@@ -1030,6 +1085,7 @@ export function apply(ctx) {
       timings: readTimings(),
       control: config.control !== false,
       drills: config.drills === true,
+      personaInChat: config.personaInChat !== false,
       // 大脑现在对他的判断（会随证据改）和脾气的底色。
       beliefs: Object.values(loadBrain().beliefs || {}).map((b) => b.text),
       temper: readState(stateFile('temper.json'), null),
@@ -1208,6 +1264,7 @@ function mergeConfig(current, body) {
     if (typeof body.allowColdSession === 'boolean') next.allowColdSession = body.allowColdSession
     if (typeof body.control === 'boolean') next.control = body.control
     if (typeof body.drills === 'boolean') next.drills = body.drills
+    if (typeof body.personaInChat === 'boolean') next.personaInChat = body.personaInChat
     if (typeof body.owner === 'string' && body.owner.trim()) next.owner = body.owner.trim().slice(0, 40)
     if (typeof body.self === 'string' && body.self.trim()) next.self = body.self.trim().slice(0, 40)
     if (typeof body.timeZone === 'string' && body.timeZone.trim()) next.timeZone = zoneOr(body.timeZone)
