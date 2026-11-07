@@ -121,7 +121,7 @@ export function companionBallFrame(owner, names, allowTools = false) {
 
 /** 妹妹版本的发球类型（同一套类型，换成她的打法）。 */
 export const COMPANION_SERVE_RULES = {
-  observe: '拿你知道的他手边的情况说事（在刷什么、刷了多久、几点了），用你的方式：吐槽、吃醋、阴阳怪气、或者凑过去问他在看什么好玩的。',
+  observe: '拿你知道的他手边的情况说事（在刷什么、刷了多久、几点了），用你的方式：吐槽、吃醋、阴阳怪气、或者凑过去问他在看什么好玩的。能动手时可以先用 mcp__phone__screen 瞄一眼他屏幕上具体是什么，拿具体内容说事（"你在看的那个 xx 也太土了吧"）。',
   memory: '拿你们之间真发生过的事起头，翻旧账、接着上次的梗、或者问后来怎么样了——带着你的情绪。',
   provoke: '跟他抬杠：挑一个他说过的话，说你不服，理由可以很歪，逗他来跟你吵。',
   challenge: '跟他打个赌或者出个小游戏（比如"赌你这把输""三十秒内回我算你赢"），输了要干嘛说清楚。',
@@ -152,3 +152,38 @@ export function strategistBallFrame(owner, names, { reason, note, allowTools = f
   lines.push('这一次不要上网查资料，也不要长篇推演；他回你之后再展开。')
   return lines
 }
+
+/**
+ * 她们手里的能力（写给模型看）。都是 DSH 会话本来就有的工具：手机操控（mcp__phone__*，要他在
+ * DSH Go 里开了"手机操控"）、手机文件（/sdcard，要开了"访问手机文件"）、定时任务、记忆。
+ * 以前人设里一句没提，她们就当自己只会说话。
+ * notesDir：他的笔记库目录（/config 的 notesPath，或自动找到的 Obsidian 库）。
+ */
+export function capabilityLines(role, { notesDir = '', allowTools = true } = {}) {
+  const lines = [
+    '你不只是会说话，手里有真家伙（工具调不通就说一句"这个权限你没给我"，别装作做了）：',
+    '- 看他在干嘛：mcp__phone__now（前台是什么 App、待了多久）；mcp__phone__screen 读他当前屏幕上的字（只读，看完就用，不复述隐私）。',
+    '- 动手：mcp__phone__open 打开 App；mcp__phone__intent 设闹钟 / 计时器 / 日历、导航、打开设置页；mcp__phone__key 按返回 / 回桌面；mcp__phone__notify 给他发条通知。',
+    '- 文件和相册：/sdcard 是他的手机存储（相册 /sdcard/DCIM，截图 /sdcard/Pictures/Screenshots，下载 /sdcard/Download）。可以列出最近的照片/截图，看文件名、时间、EXIF（地点/时间），据此了解他最近在干嘛；给他的产出放 /sdcard/Download/DSH-Go/。',
+    '- 记事：remember 记关于他的事；schedule 工具定时提醒（答应了就真设好）。',
+  ]
+  if (notesDir) {
+    lines.push('- 他的笔记库在 ' + notesDir + '：想了解他的计划、想法、日记就去搜（grep / 读 md），别一上来全读。' +
+      (role === 'strategist' ? '你给他定的计划、决策点可以写成一页 md 放进 ' + notesDir + '/鲸澜/（先说一声）。' : '别改他的笔记。'))
+  } else {
+    lines.push('- 他还没告诉你笔记库在哪：他提到笔记 / Obsidian / 日记时，问一句放在哪个文件夹，记下来（remember），并让他在大肥鱼设置里填上笔记库路径。')
+  }
+  if (role === 'companion') {
+    lines.push('你用这些是为了闹他、陪他、管住他：看见他在刷什么就拿具体内容损他；他说"帮我定个闹钟/提醒我"就真设；他赖在游戏里你可以直接把他按回桌面（mcp__phone__key home），然后告诉他你干了什么。翻他相册只为了接话（"你昨天拍的那个夜宵是哪家"），不评判、不外传。')
+  } else {
+    lines.push('你用这些是为了看清局面、把计划落地：读他的笔记和日程再推演；定下的第一步直接帮他设成日历/闹钟；该查的事实才上网查。')
+  }
+  if (!allowTools) lines.push('（这一次是主动找他：不要调用工具。）')
+  return lines.join('\n')
+}
+
+/** 常见的笔记库位置（Obsidian 默认、手动放的）。 */
+export const NOTES_CANDIDATES = [
+  '/sdcard/Documents/Obsidian', '/sdcard/Obsidian', '/sdcard/Documents/obsidian',
+  '/sdcard/Documents/Notes', '/sdcard/Documents/笔记', '/sdcard/Notes', '/sdcard/笔记',
+]

@@ -12,7 +12,7 @@
 // 复用：fish-memory.sqlite（只读话题/事实/经历）、relation 存在性、原生展示层。
 // 不新建记忆库；不读屏幕内容；所有 SQL 参数绑定。
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -49,12 +49,12 @@ import {
 } from './garden.js'
 import { lastReplyClass, readCommitments, readCorePersona, readMood } from './context.js'
 import { cleanPhone, funToday, worthObserving } from './phone.js'
-import { companionChatText, roleNames, strategistChatText } from './roles.js'
+import { NOTES_CANDIDATES, capabilityLines, companionChatText, roleNames, strategistChatText } from './roles.js'
 import { tide as tideOf, tideGap, tideHourly, vagueStreak } from './tide.js'
 import { FACES, stepTemper, temperLine } from './temper.js'
 import { drillLines, drillOf, pickDrill, scoldLines } from './drills.js'
 import { brainLines, chooseFace, cleanBrain, drillScorer, observe, onReply, onServe, onSilent, revise } from './brain.js'
-import { decideForce, forceLines } from './force.js'
+import { decideForce, forceLines, refuseSwitch } from './force.js'
 
 export const name = 'dsh-go-companion'
 // Without this, `ctx.tools` below throws "cannot get property tools without inject"
@@ -397,6 +397,9 @@ export function apply(ctx) {
     for (const id of sessionIds(sessionId)) {
       if (now - (lastHumanAt.get(id) || 0) < IN_CONVERSATION_MS) return true
     }
+    // 浮层里那句话还在等回复，也算正在聊。
+    chat.sweep()
+    if (chat.inFlight()) return true
     return liveAgent(ctx, sessionId)?.status === 'running'
   }
 
@@ -577,6 +580,7 @@ export function apply(ctx) {
       const force = decideForce({
         phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
         grace: Number(brain.graceUntil) > now,
+        refuse: Number(config.refuseUntil) > now,
       })
       // 上一题没回 / 答糊弄了：这一球必须是说他 + 同一类题重问。
       const drillsOn = config.drills === true
@@ -773,6 +777,17 @@ export function apply(ctx) {
             // 写不进去也不影响这一轮
           }
           record({ state: 'mode', at: Date.now(), mode: sw.mode, until: config.modeUntil || undefined })
+        }
+        // "拒绝模式 / 拒绝模式 3 小时"：娱乐 App 一打开就赶回桌面锁住；"关掉拒绝模式"解除。
+        const refuse = refuseSwitch(text, Date.now())
+        if (refuse) {
+          config = { ...config, refuseUntil: refuse.off ? 0 : refuse.until }
+          try {
+            writeConfig(config)
+          } catch {
+            // 写不进去也不影响这一轮
+          }
+          record({ state: 'refuse', at: Date.now(), until: config.refuseUntil || undefined, on: !refuse.off })
         }
         // "开始做题 / 做题模式"打开做题，"别出题了"关掉。
         const drillSwitch = drillToggle(text)
@@ -1014,6 +1029,53 @@ export function apply(ctx) {
       },
     }
   }
+  /** 他的笔记库：设置里填的优先，否则找常见的 Obsidian / 笔记目录（10 分钟查一次）。 */
+  let notesCache = { at: 0, dir: '' }
+  const isDir = (p) => {
+    try {
+      return statSync(p).isDirectory()
+    } catch {
+      return false
+    }
+  }
+  function notesDir() {
+    const now = Date.now()
+    if (now - notesCache.at < 10 * 60_000) return notesCache.dir
+    const set = typeof config.notesPath === 'string' ? config.notesPath.trim() : ''
+    const dir = set && isDir(set) ? set : NOTES_CANDIDATES.find(isDir) || ''
+    notesCache = { at: now, dir }
+    return dir
+  }
+  /** 他说"我的笔记在 xxx"：她们自己记下笔记库在哪，不用他去翻设置。 */
+  function notesTool() {
+    return {
+      name: 'notes_vault',
+      description: '记下他的笔记库（Obsidian / Markdown 笔记文件夹）在哪，之后两姐妹都能去读。他告诉你路径时用；路径是手机里的绝对路径，比如 /sdcard/Documents/Obsidian/我的库。',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: '笔记库文件夹的绝对路径' } },
+        required: ['path'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } },
+        render: (_a, v) => [{ type: 'text', text: String((v && v.text) || '') }],
+      },
+      execute: (args = {}) => {
+        const path = String(args.path || '').trim().replace(/\/+$/, '')
+        if (!path.startsWith('/')) return { ok: false, text: '要手机里的绝对路径，比如 /sdcard/Documents/Obsidian/我的库。' }
+        if (!isDir(path)) return { ok: false, text: '这个文件夹我看不到：要么路径不对，要么没在 DSH Go 里打开"访问手机文件"。' }
+        config = { ...config, notesPath: path.slice(0, 300) }
+        try {
+          writeConfig(config)
+        } catch {
+          // 这一轮照样能用
+        }
+        notesCache = { at: 0, dir: '' }
+        return { ok: true, text: '记住了，笔记库在 ' + path + '。' }
+      },
+    }
+  }
   /** 姐姐还没去找他的那条急话（2 小时内）。 */
   function pendingHandoff(now) {
     return loadNotes().filter((n) => n.to === 'strategist' && n.urgent && !n.delivered && now - Number(n.at) < 2 * 3_600_000).pop() || null
@@ -1048,16 +1110,20 @@ export function apply(ctx) {
     const mode = effectiveMode(config, Date.now())
     if (config.dual === false) return singlePersonaText(mode)
     const names = roleNames(config)
+    const refuseAt = Number(config.refuseUntil) || 0
+    const refuseLines = refuseAt > Date.now()
+      ? ['拒绝模式开着（到 ' + new Date(refuseAt).toISOString().slice(11, 16) + ' UTC）：他一打开娱乐 App 手机就会把他赶回桌面锁住。他求你放行，不松；要关只能他自己说"关掉拒绝模式"。']
+      : []
     const notes = notesFor(role).map((n) => (n.from === 'companion' ? names.companion : names.strategist) + '刚跟你递话（' +
       new Date(Number(n.at)).toISOString().slice(11, 16) + ' UTC）："' + n.text + '"')
     const noteLines = notes.length ? ['姐妹之间的悄悄话（他看不到，自然地用上就行）：', ...notes.map((t) => '- ' + t)] : []
     if (role === 'strategist') {
       // 关系库人物卡（价值观/底线/边界）是姐姐的底子。
       const core = personaLines(mergePersona(readCorePersona(home()), {}), mode).filter((l) => !/^现在是(伙伴|教练)模式/.test(l))
-      return strategistChatText(config, core, noteLines)
+      return strategistChatText(config, core, [...refuseLines, capabilityLines('strategist', { notesDir: notesDir() }), ...noteLines])
     }
     const extra = mode === 'coach' ? ['他现在开了严格模式：你可以更凶、更不依不饶，但还是你自己的样子。'] : []
-    return companionChatText(config, [...extra, ...noteLines])
+    return companionChatText(config, [...extra, ...refuseLines, capabilityLines('companion', { notesDir: notesDir() }), ...noteLines])
   }
   /** role -> {sid, agent, off}：两个会话各挂各的人设。 */
   const personaMounts = new Map()
@@ -1078,13 +1144,17 @@ export function apply(ctx) {
     }
     personaMounts.set(role, next)
     // 传话工具按会话注册：这样工具知道是谁递给谁。
-    if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function' && config.dual !== false) {
-      try {
-        const off = agent.ctx.tools.register(sisterTool(role))
-        if (typeof off === 'function') next.toolOff = off
-      } catch (error) {
-        console.error('[companion] 传话工具挂不上（' + role + '）：' + String((error && error.message) || error))
+    if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function') {
+      const offs = []
+      for (const tool of config.dual !== false ? [sisterTool(role), notesTool()] : [notesTool()]) {
+        try {
+          const off = agent.ctx.tools.register(tool)
+          if (typeof off === 'function') offs.push(off)
+        } catch (error) {
+          console.error('[companion] 工具 ' + tool.name + ' 挂不上（' + role + '）：' + String((error && error.message) || error))
+        }
       }
+      if (offs.length) next.toolOff = () => offs.forEach((f) => f())
     }
     if (!agent?.ctx?.systemPrompt?.context) return
     try {
@@ -1202,6 +1272,10 @@ export function apply(ctx) {
           // 没指定就回给刚才主动找他的那位（30 分钟内）：姐姐来找他，他在浮层里回的就是姐姐。
           const wanted = body.value?.role || (lastBall.role === 'strategist' && Date.now() - lastBall.at < 30 * 60_000 ? 'strategist' : 'companion')
           const toStrategist = wanted === 'strategist' && config.dual !== false && config.strategistSessionId
+          // 先记"他在聊"，再进会话：手机在他发第一句时会马上问一次 /plan，那一问可能比这句话的
+          // user/message 事件先到；不先记上就会再发一球，把浮层里正在聊的窗口顶掉。
+          const target = toStrategist ? config.strategistSessionId : config.sessionId
+          if (target) lastHumanAt.set(String(target), Date.now())
           const r = await chat.request({
             v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000,
             ...(toStrategist ? { sessionId: config.strategistSessionId } : {}),
@@ -1242,6 +1316,7 @@ export function apply(ctx) {
   function publicConfig() {
     return {
       enabled: config.enabled,
+      refuseUntil: Number(config.refuseUntil) > Date.now() ? Number(config.refuseUntil) : 0,
       sessionId: config.sessionId ?? null,
       quietStart: config.quietStart,
       quietEnd: config.quietEnd,
@@ -1314,6 +1389,7 @@ export function apply(ctx) {
     const force = decideForce({
       phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
       grace: Number(mind.brain.graceUntil) > now,
+      refuse: Number(config.refuseUntil) > now,
     })
     seedFromMemory(garden, candidates, now)
     seedFromCommitments(garden, readCommitments(home(), now, 3), now)
@@ -1382,7 +1458,9 @@ export function apply(ctx) {
       // release：只有他讲通了（宽限期内）才放行大肥鱼加的锁。力度掉到 3 以下不等于放行——
       // 锁屏页一弹，前台就是 DSH 自己；赶回桌面后前台是桌面，这时力度本来就是 0。
       force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined,
-        release: Number(mind.brain.graceUntil) > now },
+        release: !force.refuse && Number(mind.brain.graceUntil) > now },
+      // 拒绝模式：手机记住到期时间，自己在每次切到娱乐 App 的那一刻就锁，不等这一问。
+      refuse: Number(config.refuseUntil) > now ? { until: Number(config.refuseUntil) } : null,
     }
   }
 
@@ -1460,6 +1538,8 @@ function mergeConfig(current, body) {
     if (body.persona && typeof body.persona === 'object') next.persona = cleanPersona(body.persona)
     if (typeof body.mode === 'string') next.mode = modeOr(body.mode)
     if (Number.isFinite(Number(body.modeUntil))) next.modeUntil = Math.max(0, Number(body.modeUntil))
+    if (Number.isFinite(Number(body.refuseUntil))) next.refuseUntil = Math.max(0, Number(body.refuseUntil))
+    if (typeof body.notesPath === 'string') next.notesPath = body.notesPath.trim().slice(0, 300)
     if (Number.isFinite(Number(body.coachMinGapMs))) next.coachMinGapMs = Math.max(60_000, Math.min(6 * 3_600_000, Number(body.coachMinGapMs)))
     if (Number.isFinite(Number(body.coachHourlyMax))) next.coachHourlyMax = Math.max(0, Math.min(20, Math.round(Number(body.coachHourlyMax))))
     if (Number.isFinite(Number(body.coachDailyMax))) next.coachDailyMax = Math.max(0, Math.min(120, Math.round(Number(body.coachDailyMax))))

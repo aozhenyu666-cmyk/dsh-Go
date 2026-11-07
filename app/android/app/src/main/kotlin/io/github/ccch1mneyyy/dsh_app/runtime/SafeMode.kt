@@ -28,14 +28,23 @@ object SafePolicy {
     const val STRIKE_LIMIT = 2
     const val HEALTHY_MS = 120_000L
 
+    /** Restarts counted for the backoff: the ones within this window. */
+    const val RESTART_WINDOW_MS = 30 * 60_000L
+    private val RESTART_DELAYS = listOf(5_000L, 15_000L, 45_000L, 120_000L)
+    private const val RESTART_DELAY_MAX = 300_000L
+
     /**
-     * Delay before restarting a run that was killed from outside after more than a minute up, or
-     * null: at most three tries (5 s, 15 s, 45 s) in ten minutes. [recent] holds the earlier tries.
+     * Delay before restarting a run that died on its own after it had come up, or null.
+     * The engine is what the companion lives on, so it never gives up: 5 s, 15 s, 45 s, 2 min,
+     * then every 5 min while restarts keep coming within [RESTART_WINDOW_MS]. Covers outside
+     * kills (any exit code, 0 included: nobody asked it to stop) and late crashes. A run that
+     * never got ready, or died within 20 s of ready, is a startup problem and goes to safe mode.
      */
     fun autoRestartDelay(kind: FailureKind, exitCode: Int, upMs: Long?, recent: List<Long>, now: Long): Long? {
-        if (kind != FailureKind.KILLED || exitCode == 0 || upMs == null || upMs <= 60_000L) return null
-        val count = recent.count { now - it < 600_000L }
-        return listOf(5_000L, 15_000L, 45_000L).getOrNull(count)
+        if (kind != FailureKind.KILLED && kind != FailureKind.CRASHED_LATE) return null
+        if (upMs == null || upMs <= 20_000L) return null
+        val count = recent.count { now - it < RESTART_WINDOW_MS }
+        return RESTART_DELAYS.getOrNull(count) ?: RESTART_DELAY_MAX
     }
 
     /** [mode] is what the caller asked for: "safe", "normal", or null to keep the current mode. */

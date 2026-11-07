@@ -471,7 +471,7 @@ class InterceptGuard(
      * running (答过线才放行 must mean something), one interception at a time, and the facts that
      * make a page impossible or harmful (screen off, locked, DSH operating the phone).
      */
-    fun force(packageName: String, label: String?, env: InterceptEnv, now: Long): InterceptDecision = synchronized(lock) {
+    fun force(packageName: String, label: String?, env: InterceptEnv, now: Long, strict: Boolean = false): InterceptDecision = synchronized(lock) {
         rollDay(env.dayKey)
         val s = state
         if (packageName.isBlank()) return@synchronized InterceptDecision.Ignore
@@ -482,7 +482,8 @@ class InterceptGuard(
                 if (s.openPackage == packageName) InterceptRules.REASON_ALREADY_OPEN else InterceptRules.REASON_ANOTHER_OPEN,
             )
         }
-        if ((s.releases[packageName] ?: 0L) > now) return@synchronized allow(InterceptRules.REASON_RELEASED)
+        // [strict] = 拒绝模式: an earned 10-minute pass does not open the door either.
+        if (!strict && (s.releases[packageName] ?: 0L) > now) return@synchronized allow(InterceptRules.REASON_RELEASED)
         if (!env.screenOn) return@synchronized allow(InterceptRules.REASON_SCREEN_OFF)
         if (!env.unlocked) return@synchronized allow(InterceptRules.REASON_LOCKED)
         if (env.dshBusy) return@synchronized allow(InterceptRules.REASON_DSH_BUSY)

@@ -110,11 +110,11 @@ object InterceptRuntime {
      * book, whatever this feature's own switch and caps say (see [InterceptGuard.force]). False when
      * nothing was shown; the companion asks again within a minute, so a busy screen only delays it.
      */
-    fun forceBlock(context: Context, packageName: String, label: String?, why: String? = null): Boolean {
+    fun forceBlock(context: Context, packageName: String, label: String?, why: String? = null, strict: Boolean = false): Boolean {
         val g = ensure(context)
         if (!VisibleSurface.isFree() && !VisibleSurface.isHeldBy(VisibleSurface.OWNER_INTERCEPT)) return false
         val now = System.currentTimeMillis()
-        val d = g.force(packageName, label, env(now), now)
+        val d = g.force(packageName, label, env(now), now, strict)
         if (d !is InterceptDecision.Block) {
             Log.d(TAG, "companion lock skipped for " + packageName + ": " + ((d as? InterceptDecision.Allow)?.reason ?: "ignore"))
             return false

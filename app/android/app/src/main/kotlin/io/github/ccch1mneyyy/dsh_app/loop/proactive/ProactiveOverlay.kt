@@ -70,6 +70,16 @@ object ProactiveOverlay {
     /** Adds the window; false means "no host" and the caller should fall back to the Activity. */
     fun show(token: String, text: String, deadline: Long, why: String? = null): Boolean {
         val context = app ?: return false
+        // He is chatting in the window that is up: the new ball joins that conversation instead of
+        // wiping it (it used to replace the window, so "回一下就没了").
+        val chatting = live.values.lastOrNull()?.takeIf { it.chatting() }
+        if (chatting != null) {
+            live.values.filter { it !== chatting }.forEach { it.destroy() }
+            live.clear()
+            chatting.adopt(token, text)
+            live[token] = chatting
+            return true
+        }
         // One visible surface: a new ball replaces whatever was left of the previous one.
         live.values.toList().forEach { it.destroy() }
         live.clear()
@@ -121,7 +131,8 @@ object ProactiveOverlay {
         private val app: Context,
         private val context: Context,
         private val type: Int,
-        private val token: String,
+        /** The coordinator's token; a new ball that joins this window's conversation takes it over. */
+        private var token: String,
         /** The coordinator's presentation deadline; kept for reference, the window lives 20 min. */
         private val deadline: Long,
     ) {
@@ -135,7 +146,10 @@ object ProactiveOverlay {
         private var send: ImageView? = null
         private var statusView: TextView? = null
         private var waiting = false
+        /** He answered the current event (reported once per event). */
         private var chatted = false
+        /** He has typed in this window at all; it stays a conversation across new balls. */
+        private var talked = false
         /** Shown is reported once; it must not consume the later Answered/Dismissed report. */
         private var shownReported = false
         private var closedReported = false
@@ -162,6 +176,23 @@ object ProactiveOverlay {
             // 回应窗口：20 分钟没动静就收成气泡（不删掉）。coordinator 自己的 60 秒时限只关事件，
             // 不关这个窗口——关闭它是人点「收起」或回复之后的事。
             main.postDelayed(shrink, COLLAPSE_AFTER_MS)
+        }
+
+        /** He has talked in this window and it is still there (open or as a bubble). */
+        fun chatting(): Boolean = talked && (root != null || bubble != null)
+
+        /** A new ball while he is chatting here: same window, next line, new event. */
+        fun adopt(newToken: String, text: String) {
+            token = newToken
+            shownReported = false
+            closedReported = false
+            // The next line he sends answers this new event.
+            chatted = false
+            val (who, body) = splitSpeaker(text)
+            append(if (who != null) "$who：$body" else body)
+            main.removeCallbacks(shrink)
+            if (collapsed) expand() else main.postDelayed(shrink, COLLAPSE_AFTER_MS)
+            main.postDelayed({ proveShown() }, 120L)
         }
 
         private fun proveShown() {
@@ -402,6 +433,7 @@ object ProactiveOverlay {
             if (text.isEmpty() || waiting) return
             box.setText("")
             append(AppStrings.get(app, R.string.proactive_overlay_you, text))
+            talked = true
             if (!chatted) {
                 chatted = true
                 report(SurfaceReport.Answered("chat"))
@@ -443,6 +475,9 @@ object ProactiveOverlay {
         }
 
         private fun append(line: String) {
+            // The whole conversation, so reopening from the bubble shows it all, not just the first ball.
+            lastText = (if (lastText.isEmpty()) line else "$lastText\n\n$line").takeLast(MAX_TEXT)
+            if (root == null) return
             val view = transcript ?: return
             view.append(if (view.text.isNullOrEmpty()) line else "\n\n$line")
             scroller?.post { scroller?.fullScroll(ScrollView.FOCUS_DOWN) }

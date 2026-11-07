@@ -116,6 +116,7 @@ object ProactiveRuntime {
     private const val SAY_POLL_WAIT_MS = 8_000L
     /** How long a 锁 / 赶 holds without a fresh /plan saying so again. */
     private const val FORCE_HOLD_MS = 3 * 60_000L
+    private const val REFUSE_PREFS = "dsh_companion_refuse"
     /** A plan older than its own next-check time by this much is stale; fall back to the local scheduler. */
     private const val PLAN_STALE_MS = 15 * 60_000L
 
@@ -414,8 +415,27 @@ object ProactiveRuntime {
     }
 
     /** The companion's last 锁 / 赶, kept for a short while so re-entering the app meets it at once. */
-    private data class Force(val level: Int, val app: String, val why: String?, val until: Long)
+    private data class Force(val level: Int, val app: String, val why: String?, val until: Long, val refuse: Boolean = false)
     private var force: Force? = null
+
+    /**
+     * 拒绝模式 until this wall time (from /plan). While it runs the phone locks a listed app the
+     * moment it comes to the front, without waiting for a /plan round trip. Kept in prefs so a
+     * restarted process still refuses before the first /plan answer.
+     */
+    private var refuseUntil: Long = -1L
+    private fun refuseUntil(): Long {
+        if (refuseUntil < 0) refuseUntil = runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).getLong("until", 0L) }.getOrDefault(0L)
+        return refuseUntil
+    }
+    private fun setRefuseUntil(at: Long) {
+        if (at == refuseUntil()) return
+        refuseUntil = at
+        runCatching { app.getSharedPreferences(REFUSE_PREFS, Context.MODE_PRIVATE).edit().putLong("until", at).apply() }
+        Log.i(TAG, "refuse mode " + if (at > System.currentTimeMillis()) "on until $at" else "off")
+    }
+    private fun listed(pkg: String): Boolean =
+        runCatching { InterceptRuntime.config().targets.any { it.packageName == pkg } }.getOrDefault(false)
     private var lastFront: String? = null
 
     /**
@@ -428,21 +448,34 @@ object ProactiveRuntime {
         lastFront = packageName
         if (coordinator == null) return
         // App switches come in bursts; 15 s is enough to not hammer the plugin and still feel immediate.
+        val now = System.currentTimeMillis()
+        // 拒绝模式: lock now, at the door; the /plan answer would come a second later.
+        if (now < refuseUntil() && listed(packageName)) {
+            val f = Force(4, packageName, "拒绝模式", now + FORCE_HOLD_MS, refuse = true)
+            force = f
+            enforce(f, fresh = true)
+        }
         consultPlanSoon(minGapMs = 15_000L)
         val f = force ?: return
-        if (f.app == packageName && System.currentTimeMillis() < f.until) enforce(f)
+        if (f.app == packageName && now < f.until && !f.refuse) enforce(f)
     }
 
     /** 说到做到: 赶 = back to the launcher first; then 锁 the app behind a drill. */
-    private fun enforce(f: Force) {
+    private fun enforce(f: Force, fresh: Boolean = false) {
         if (!proactiveEnabled()) return
+        // [fresh]: called with the foreground switch itself; NowFeed may not have caught up yet.
         val front = NowFeed.snapshot(SystemClock.elapsedRealtime()).app
-        if (front != f.app) return
+        if (!fresh && front != f.app) return
+        if (f.refuse && VisibleSurface.isHeldBy(VisibleSurface.OWNER_PROACTIVE)) {
+            // An overlay still holds the one-screen slot after its event closed (he chatted in it):
+            // 拒绝模式 must not lose to that. The overlay window itself stays where it is.
+            VisibleSurface.release(VisibleSurface.OWNER_PROACTIVE, null)
+        }
         if (f.level >= 4) {
             runCatching { PhoneA11yService.instance?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME) }
                 .onFailure { Log.w(TAG, "home", it) }
         }
-        val shown = runCatching { InterceptRuntime.forceBlock(app, f.app, f.why) }.getOrDefault(false)
+        val shown = runCatching { InterceptRuntime.forceBlock(app, f.app, f.why, strict = f.refuse) }.getOrDefault(false)
         Log.i(TAG, "companion force=${f.level} ${f.app} shown=$shown")
     }
 
@@ -465,7 +498,11 @@ object ProactiveRuntime {
         val level = (f?.get("level") as? Number)?.toInt() ?: 0
         val target = f?.get("app") as? String
         val why = f?.get("why") as? String
-        force = if (level >= 3 && !target.isNullOrBlank()) Force(level, target, why, System.currentTimeMillis() + FORCE_HOLD_MS) else null
+        setRefuseUntil(((map["refuse"] as? Map<*, *>)?.get("until") as? Number)?.toLong() ?: 0L)
+        val refusing = System.currentTimeMillis() < refuseUntil()
+        force = if (level >= 3 && !target.isNullOrBlank()) {
+            Force(level, target, why, System.currentTimeMillis() + FORCE_HOLD_MS, refuse = refusing)
+        } else null
         // 只在插件明说"讲通了，放行"时解锁。力度低于 3 不算：锁屏页弹出后前台是 DSH 自己、
         // 赶回桌面后前台是桌面，插件看到的力度本来就是 0——那时解锁等于锁几秒就自己打开游戏。
         if (level < 3 && f?.get("release") == true) releaseCompanionLock()

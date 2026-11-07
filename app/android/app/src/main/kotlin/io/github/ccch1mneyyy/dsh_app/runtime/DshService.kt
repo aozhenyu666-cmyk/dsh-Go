@@ -74,7 +74,7 @@ class DshService : Service() {
                 // 「停止操作」 on the notification: stop the phone task, keep the engine.
                 // l10n:keep agent stop reason
                 PhoneControl.get(this).stopTask("用户在通知里停止")
-                return START_NOT_STICKY
+                return if (running) START_STICKY else START_NOT_STICKY
             }
             ACTION_STOP -> {
                 if (controller.phase == RuntimeController.Phase.INSTALLING) return START_NOT_STICKY
@@ -85,9 +85,18 @@ class DshService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
+                // intent == null: Android brought the service back after killing the app (START_STICKY).
+                if (intent == null) EngineExitLog.note(this, "stickyRestart", "phase=${controller.phase}")
                 ensureChannel(this)
                 val notification = buildNotification(this, controller)
-                foreground(notification)
+                try {
+                    foreground(notification)
+                } catch (e: Exception) {
+                    // Android 12+ can refuse a foreground start from the background; nothing to keep alive then.
+                    EngineExitLog.note(this, "foregroundRefused", e.toString())
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 running = true
                 acquireWakeLock()
                 registerNetworkCallback(controller)
@@ -95,10 +104,13 @@ class DshService : Service() {
                 controller.startProcess()
             }
         }
-        return START_NOT_STICKY
+        // Sticky while the engine is meant to run: if the system kills the whole app, it starts the
+        // service again and the engine with it. A user stop or an error calls stopSelf, which ends that.
+        return START_STICKY
     }
 
     override fun onDestroy() {
+        if (running) EngineExitLog.note(this, "serviceDestroyed", "phase=${RuntimeController.get(this).phase}")
         running = false
         installSink?.let { RuntimeController.get(this).removeSink(it) }
         installSink = null

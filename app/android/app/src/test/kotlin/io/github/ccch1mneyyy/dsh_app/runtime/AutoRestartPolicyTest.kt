@@ -4,22 +4,35 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AutoRestartPolicyTest {
-    @Test fun usesThreeDelaysWithinTenMinutes() {
-        val now = 1_000_000L
-        assertEquals(5_000L, SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, 60_001L, emptyList(), now))
-        assertEquals(15_000L, SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, 60_001L, listOf(now - 1), now))
-        assertEquals(45_000L, SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, 60_001L, listOf(now - 2, now - 1), now))
-        assertNull(SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, 60_001L, listOf(now - 3, now - 2, now - 1), now))
-        assertEquals(5_000L, SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, 60_001L, listOf(now - 600_000), now))
+    private val now = 10_000_000L
+    private fun delay(n: Int, kind: FailureKind = FailureKind.KILLED, code: Int = 137, up: Long? = 60_001L) =
+        SafePolicy.autoRestartDelay(kind, code, up, List(n) { now - 1 - it }, now)
+
+    @Test fun backsOffAndNeverGivesUp() {
+        assertEquals(5_000L, delay(0))
+        assertEquals(15_000L, delay(1))
+        assertEquals(45_000L, delay(2))
+        assertEquals(120_000L, delay(3))
+        assertEquals(300_000L, delay(4))
+        assertEquals(300_000L, delay(40))
     }
 
-    @Test fun rejectsEarlyCleanAndFatalExits() {
-        for (up in listOf(null, 0L, 59_999L, 60_000L)) {
-            assertNull(SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, up, emptyList(), 1_000_000L))
-        }
-        assertNull(SafePolicy.autoRestartDelay(FailureKind.KILLED, 0, 90_000L, emptyList(), 1_000_000L))
-        for (kind in FailureKind.entries.filter { it != FailureKind.KILLED }) {
-            assertNull(SafePolicy.autoRestartDelay(kind, 1, 90_000L, emptyList(), 1_000_000L))
+    @Test fun countsOnlyTheLastHalfHour() {
+        val old = List(10) { now - SafePolicy.RESTART_WINDOW_MS - it }
+        assertEquals(5_000L, SafePolicy.autoRestartDelay(FailureKind.KILLED, 137, 60_001L, old, now))
+    }
+
+    @Test fun coversOutsideKillsOfAnyCodeAndLateCrashes() {
+        assertEquals(5_000L, delay(0, code = 0))
+        assertEquals(5_000L, delay(0, code = 143))
+        assertEquals(5_000L, delay(0, kind = FailureKind.CRASHED_LATE, code = 1))
+        assertEquals(5_000L, delay(0, up = 20_001L))
+    }
+
+    @Test fun leavesStartupProblemsToSafeMode() {
+        for (up in listOf(null, 0L, 20_000L)) assertNull(delay(0, up = up))
+        for (kind in FailureKind.entries.filter { it != FailureKind.KILLED && it != FailureKind.CRASHED_LATE }) {
+            assertNull(delay(0, kind = kind, code = 1))
         }
     }
 }

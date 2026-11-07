@@ -215,3 +215,80 @@ test('上一版存进配置的默认名字（小肥鱼/大肥鱼）升级后换�
     assert.match(sis.contexts[0].text(), /你是鱼丸/)
   })
 })
+
+test('浮层里他刚回了一句：/plan 马上来问也不再发球（不把正在聊的窗口顶掉）', async () => {
+  await withHome(async (home) => {
+    mkdirSync(join(home, 'companion'), { recursive: true })
+    writeFileSync(join(home, 'companion', 'config.json'), JSON.stringify({ sessionId: 'session-sis', strategistSessionId: 'session-big', quietStart: 12, quietEnd: 12 }))
+    const sis = agentOf('session-sis')
+    const h = host({ 'session-sis': sis, 'session-big': agentOf('session-big') })
+    // 晚上对账时段：不聊的时候这一问一定开口（姐姐对账），用来确认是"正在聊"把它压住的
+    const phone = { app: 'com.tencent.mm', minutes: 1, screenOn: true, local: '21:10' }
+    // 他发了一句；user/message 事件还没回来，手机的 /plan 就先到了
+    const say = await call(h.handler(), 'POST', '/dsh-go-companion/v1/say', { v: 1, requestId: 'say-race-0001', text: '哈哈哈' })
+    assert.equal(say.status, 202)
+    const plan = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone })
+    assert.equal(plan.body.speak, false, JSON.stringify(plan.body))
+    assert.equal(plan.body.reason, 'in-conversation')
+  })
+})
+
+test('拒绝模式：一句话开关；开着时娱乐 App 一打开就赶回桌面锁住，讲理由也不松', async () => {
+  const { refuseSwitch, decideForce } = await import('../lib/force.js')
+  const now = 1_000_000
+  assert.equal(refuseSwitch('拒绝模式', now).until, now + 2 * 3_600_000)
+  assert.equal(refuseSwitch('开启拒绝模式 3 小时', now).until, now + 3 * 3_600_000)
+  assert.equal(refuseSwitch('拒绝模式40分钟', now).until, now + 40 * 60_000)
+  assert.deepEqual(refuseSwitch('关掉拒绝模式', now), { off: true })
+  assert.deepEqual(refuseSwitch('拒绝模式结束', now), { off: true })
+  assert.equal(refuseSwitch('今天好累', now), null)
+  const game = { app: 'com.game', label: '王者', fun: true, screenOn: true, minutes: 0 }
+  const f = decideForce({ phone: game, mode: 'partner', refuse: true, grace: true })
+  assert.equal(f.level, 4)
+  assert.equal(f.refuse, true)
+  assert.equal(decideForce({ phone: game, mode: 'partner', refuse: true, control: false }).level, 2, '没给控机权限只能到浮层')
+  assert.equal(decideForce({ phone: { ...game, fun: false }, refuse: true }).level, 0, '不在清单里的 App 不管')
+  assert.equal(decideForce({ phone: game, mode: 'partner' }).level, 0, '没开拒绝模式：刚打开不锁')
+
+  await withHome(async (home) => {
+    mkdirSync(join(home, 'companion'), { recursive: true })
+    writeFileSync(join(home, 'companion', 'config.json'), JSON.stringify({ sessionId: 'session-sis', strategistSessionId: 'session-big', quietStart: 12, quietEnd: 12 }))
+    const sis = agentOf('session-sis')
+    const h = host({ 'session-sis': sis, 'session-big': agentOf('session-big') })
+    await h.emit('session-sis', 'user/message', { id: 'u1', content: [{ type: 'text', text: '开启拒绝模式 1 小时' }], source: { kind: 'user' } })
+    const plan = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: { ...game, local: '15:00' } })
+    assert.equal(plan.body.force.level, 4, JSON.stringify(plan.body.force))
+    assert.equal(plan.body.force.release, false)
+    assert.ok(plan.body.refuse && plan.body.refuse.until > Date.now() + 50 * 60_000, '手机拿到到期时间，自己在切 App 那一刻锁')
+    assert.match(sis.contexts[0].text(), /拒绝模式开着/, '她知道拒绝模式开着，求情不松')
+    await h.emit('session-sis', 'user/message', { id: 'u2', content: [{ type: 'text', text: '关掉拒绝模式' }], source: { kind: 'user' } })
+    const off = await call(h.handler(), 'POST', '/dsh-go-companion/v1/plan', { roll: 100, timeZone: 'Asia/Shanghai', phone: { ...game, local: '15:00' } })
+    assert.equal(off.body.refuse, null)
+    assert.ok(off.body.force.level < 3)
+  })
+})
+
+test('能力：两姐妹都知道自己能看屏幕、动手机、翻相册、读笔记库；他说了笔记库路径就记下', async () => {
+  await withHome(async (home) => {
+    mkdirSync(join(home, 'companion'), { recursive: true })
+    writeFileSync(join(home, 'companion', 'config.json'), JSON.stringify({ sessionId: 'session-sis', strategistSessionId: 'session-big', quietStart: 12, quietEnd: 12 }))
+    const sis = agentOf('session-sis')
+    const big = agentOf('session-big')
+    host({ 'session-sis': sis, 'session-big': big })
+    const t = sis.contexts[0].text()
+    assert.match(t, /mcp__phone__screen/)
+    assert.match(t, /mcp__phone__intent/)
+    assert.match(t, /\/sdcard\/DCIM/)
+    assert.match(t, /按回桌面/, '妹妹可以直接把他按回桌面')
+    assert.match(big.contexts[0].text(), /读他的笔记和日程再推演/)
+    assert.ok(sis.tools.notes_vault && big.tools.notes_vault)
+    assert.equal(sis.tools.notes_vault.execute({ path: 'Documents/x' }).ok, false, '要绝对路径')
+    assert.equal(sis.tools.notes_vault.execute({ path: join(home, 'nope') }).ok, false, '看不到的文件夹不收')
+    const vault = join(home, 'vault')
+    mkdirSync(vault)
+    const r = sis.tools.notes_vault.execute({ path: vault + '/' })
+    assert.equal(r.ok, true, r.text)
+    assert.match(big.contexts[0].text(), new RegExp('笔记库在 ' + vault.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), '姐姐也看得到')
+    assert.match(big.contexts[0].text(), /鲸澜\//, '姐姐可以把计划写进笔记库')
+  })
+})
