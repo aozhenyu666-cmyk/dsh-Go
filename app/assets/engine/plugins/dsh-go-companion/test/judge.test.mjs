@@ -160,3 +160,11 @@ test('假用户脚本：套话型由模型判时落到 stock 并点破', async (
   assert.equal(out.verdict, 'stock')
   assert.equal(out.next, 'callout')
 })
+
+test('真模型在 why 里用了没转义的双引号：照样抠出判词', () => {
+  const raw = '{"verdict":"evasive","why":"没回答最重要的那件事，用"作业写完了"给自己开了张通行证。","next":"callout"}'
+  const out = parseJudge(raw)
+  assert.equal(out.verdict, 'evasive')
+  assert.equal(out.next, 'callout')
+  assert.match(out.why, /作业写完了/)
+})

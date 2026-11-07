@@ -19,7 +19,8 @@ export const VERDICTS = ['engaged', 'brief', 'evasive', 'stock', 'refuse', 'push
 export const NEXT_ACTIONS = ['deeper', 'angle', 'callout', 'stop']
 
 /** 判球是"顺手看一眼"，不该让一轮等太久。任务书给的 6 秒。 */
-export const JUDGE_TIMEOUT_MS = 6_000
+// 真模型（deepseek-flash 先思考再答）判一次约 3 秒；6 秒在长回复上会超时退回规则。
+export const JUDGE_TIMEOUT_MS = 10_000
 
 /** 判词 → 回击方式。判球之外的默认表，模型给出 next 时以模型为准。 */
 const NEXT_OF = {
@@ -53,7 +54,7 @@ export function judgeSystem(mode) {
     'engaged 接住了、有信息在推进；brief 很短没信息；evasive 把话题带走；',
     'stock 套话、复述、正确的废话；pushback 真正的反驳；refuse 明确不想聊了。',
     '回击方式只能是这四个之一：deeper 往深一步；angle 换个角度；callout 点破并追一次；stop 停下。',
-    '格式：{"verdict":"...","why":"一句话","next":"..."}',
+    '格式：{"verdict":"...","why":"一句话","next":"..."}。why 里引用他的话用「」，不要用双引号。',
     'pushback 是最好的球，往深里接，不要当成冒犯。判成 refuse 要克制：只有对方真的说不想聊才算。',
   ]
   // 教练模式判得严：敷衍和空话不许放过去。
@@ -95,7 +96,12 @@ export function parseJudge(raw) {
   try {
     obj = JSON.parse(text.slice(start, end + 1))
   } catch {
-    return null
+    // 真模型常在 why 里用没转义的双引号引用原话（"作业写完了"），整段 JSON 就坏了。
+    // 判词和回击是固定词表，按字段抠出来；why 取 "why":" 到 ","next" 之间。
+    const body = text.slice(start, end + 1)
+    const pick = (k) => (new RegExp('"' + k + '"\\s*:\\s*"([a-z]+)"').exec(body) || [])[1]
+    const why = (/"why"\s*:\s*"([\s\S]*?)"\s*,\s*"(?:next|verdict)"/.exec(body) || [])[1]
+    obj = { verdict: pick('verdict'), next: pick('next'), why: why || '' }
   }
   if (!obj || typeof obj !== 'object') return null
   const verdict = String(obj.verdict || '').trim().toLowerCase()
@@ -154,15 +160,22 @@ export async function judgeReply({ stream, provider, model, sessionId, serve, re
       system: judgeSystem(mode),
       messages,
       ...(sessionId ? { sessionId } : {}),
-      maxTokens: 200,
+      // 会先思考的模型（deepseek-flash）思考也吃输出额度：200 时长回复只够思考、判词写不出来，退回规则。
+      maxTokens: 1200,
       temperature: 0,
     })) {
       if (!chunk) continue
       if (chunk.type === 'text-delta') out += chunk.text
-      if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') return null
+      if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
+        console.error('[companion] judge fallback: model error ' + String(chunk.reason.error?.message || '').slice(0, 200))
+        return null
+      }
     }
     return out
-  })().catch(() => null)
+  })().catch((e) => {
+    console.error('[companion] judge fallback: ' + String(e?.message || e).slice(0, 200))
+    return null
+  })
   let raw = null
   try {
     raw = await Promise.race([run, timeout])
@@ -170,6 +183,8 @@ export async function judgeReply({ stream, provider, model, sessionId, serve, re
     clearTimeout(timer)
   }
   const parsed = raw ? parseJudge(raw) : null
+  // 退回规则时留一行原因：真机上没法单步调，只能看日志。
+  if (!parsed) console.error('[companion] judge fallback: ' + (raw === null ? 'timeout/error' : 'unparsable ' + JSON.stringify(String(raw).slice(0, 160))))
   if (!parsed) return { ...ruleVerdict(reply), judged: false }
   return { ...parsed, judged: true }
 }
