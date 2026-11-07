@@ -313,11 +313,14 @@ object ProactiveOverlay {
                 gravity = Gravity.END
                 setPadding(0, context.dp(4f), 0, 0)
             }
+            // 不许装看不见：没回过一句，「别烦我」「收起」都不放他走（他要的：总得说几句）。
             actions.addView(textAction(AppStrings.get(app, R.string.proactive_overlay_mute)) {
+                if (!mayLeave()) return@textAction
                 ProactiveRuntime.muteFor(60 * 60_000L)
                 close(SurfaceReport.Dismissed, muted = true)
             })
             actions.addView(textAction(AppStrings.get(app, R.string.proactive_overlay_collapse)) {
+                if (!mayLeave()) return@textAction
                 close(SurfaceReport.Dismissed)
             })
             card.addView(actions)
@@ -488,6 +491,11 @@ object ProactiveOverlay {
         /** Reply window ran out: keep the ball, as a bubble he can reopen. */
         private fun collapse() {
             if (collapsed || root == null) return
+            // Not answered yet: it stays open (no quiet fold-away into a bubble).
+            if (!talked) {
+                main.postDelayed(shrink, COLLAPSE_AFTER_MS)
+                return
+            }
             collapsed = true
             removeRoot()
             val pill = TextView(context).apply {
@@ -530,6 +538,14 @@ object ProactiveOverlay {
             runCatching { wm?.addView(view, p) }.onFailure { destroy() }
             // Reopened from the bubble: give it the same answer window again.
             main.postDelayed(shrink, COLLAPSE_AFTER_MS)
+        }
+
+        /** He may close only after he has said something in this window. */
+        private fun mayLeave(): Boolean {
+            if (talked) return true
+            setStatus("先回一句再走——随便说点什么都行。") // l10n:keep companion overlay rule
+            setTyping(true)
+            return false
         }
 
         /** 收起 / 别烦我: the person closed it on purpose. */

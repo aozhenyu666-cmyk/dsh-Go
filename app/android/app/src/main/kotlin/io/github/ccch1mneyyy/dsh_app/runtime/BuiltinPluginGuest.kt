@@ -129,6 +129,8 @@ object BuiltinPluginGuest {
                 "lib/roles.js",
                 "lib/gear.js",
                 "lib/gemini.js",
+                "lib/trust.js",
+                "lib/panel.js",
             ),
         ),
     )

@@ -10,7 +10,10 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["lib", "cordis.patch.yml"],
+  "files": [
+    "cordis.patch.yml",
+    "lib"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
@@ -23,5 +26,40 @@
     "node": ">=22.13",
     "dsh": ">=0.2.1-rc.2 <0.3.0-0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dshGo": {
+    "v": 1,
+    "title": {
+      "zh": "鱼丸 · 鲸澜",
+      "en": "Yuwan & Jinglan"
+    },
+    "icon": "heart",
+    "contributes": {
+      "composer.actions": [
+        {
+          "id": "sisters-open",
+          "label": {
+            "zh": "姐妹",
+            "en": "Sisters"
+          },
+          "icon": "heart"
+        }
+      ],
+      "panels": [
+        {
+          "id": "sisters",
+          "title": {
+            "zh": "鱼丸 · 鲸澜",
+            "en": "Yuwan & Jinglan"
+          },
+          "icon": "heart",
+          "placement": [
+            "session.tab",
+            "features",
+            "chat.panel"
+          ]
+        }
+      ]
+    }
+  }
 }

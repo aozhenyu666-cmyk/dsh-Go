@@ -56,6 +56,8 @@ import { drillLines, drillOf, pickDrill, scoldLines } from './drills.js'
 import { brainLines, chooseFace, cleanBrain, drillScorer, observe, onReply, onServe, onSilent, revise } from './brain.js'
 import { decideForce, forceLines, refuseSwitch } from './force.js'
 import { BUSY_CHECK_MS, aiTask, applyGear, effectiveGear, gearLines, gearSwitch } from './gear.js'
+import { trustGap, trustLines, trustScore } from './trust.js'
+import { buildSnapshot, sistersView } from './panel.js'
 import { GEMINI_PACKAGES, geminiBrief, geminiLines, geminiMode, geminiSteps, recapMarkdown, trackGemini } from './gemini.js'
 
 export const name = 'dsh-go-companion'
@@ -597,7 +599,7 @@ export function apply(ctx) {
       const face = { ...temper, ...(FACES.find((f) => f.face === faceId) || {}), face: faceId }
       const force = decideForce({
         phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
-        grace: Number(brain.graceUntil) > now,
+        grace: Number(brain.graceUntil) > now && trustNow(now).band !== 'low',
         refuse: refuseUntilAt(now) > now,
       })
       // 上一题没回 / 答糊弄了：这一球必须是说他 + 同一类题重问。
@@ -691,7 +693,10 @@ export function apply(ctx) {
       const key = String(r.requestId)
       const began = startedAt.get(key)
       if (r.state === 'accepted') startedAt.set(key, now)
-      if (state) record({ requestId: r.requestId, sessionId: r.sessionId, state, at: now, ms: began ? now - began : undefined, failure: r.failure ?? undefined })
+      if (state) record({ requestId: r.requestId, sessionId: r.sessionId, state, at: now, ms: began ? now - began : undefined, failure: r.failure ?? undefined,
+        // 家庭群要看得到她回了什么（只留一段）。
+        text: r.state === 'generated' && r.text ? String(r.text).slice(0, 400) : undefined })
+      if (r.state === 'generated' || r.state === 'failed') refreshPanels()
       if (r.state !== 'accepted') startedAt.delete(key)
     },
   })
@@ -1125,9 +1130,14 @@ export function apply(ctx) {
     if (why.reason === 'checkin') saveGearState({ ...loadGearState(), lastCheckAt: now })
     if (why.reason === 'busy-done' || why.reason === 'task-due') saveGearState({ ...loadGearState(), doneFor: Number(config.gearUntil) })
     if (why.reason === 'defied') pendingDefiance = null
+    if (why.reason === 'restless') saveGearState({ ...loadGearState(), restlessAt: now })
     if (why.reason === 'patrol') saveGearState({ ...loadGearState(), patrolAt: now, ...(why.note?.slot ? { patrolSlot: why.note.slot } : {}) })
     if (why.mark) saveGemini({ ...loadGemini(), ...why.mark })
   }
+  /** 两姐妹共用的信用分（从账本算，见 trust.js）。 */
+  const trustNow = (now = Date.now()) => trustScore(readLedger(home(), 800), now)
+  /** 放风中：娱乐临时解锁（盖过拒绝模式和任务模式），到点自动恢复。 */
+  const onBreak = (now) => Number(config.breakUntil) > now
   /** 拒绝到什么时候：拒绝模式（含忙时）和正在进行的 Gemini 连麦取更晚的。 */
   function refuseUntilAt(now) {
     const g = loadGemini()
@@ -1135,6 +1145,7 @@ export function apply(ctx) {
     const r = Number(config.refuseUntil) > now ? Number(config.refuseUntil) : 0
     // 任务到点还没验收：继续锁（每次往后顺 10 分钟），直到姐姐 end_task_mode 或者兜底两小时。
     const pending = aiTask(config, now) ? Math.max(Number(config.gearUntil) || 0, now + 10 * 60_000) : 0
+    if (onBreak(now)) return 0
     return Math.max(r, session, pending)
   }
   const toolOutput = {
@@ -1240,6 +1251,38 @@ export function apply(ctx) {
       },
     }
   }
+  /** 放风：信用分够才放得出来；到点自动恢复，回没回来记进信用分。 */
+  function breakTool(role) {
+    return {
+      name: 'grant_break',
+      description: '给他放一段风（休息，娱乐临时解锁，≤30 分钟），到点自动恢复拒绝/任务。只有信用分 ≥60 才放得出来。放了就用 schedule 帮他定好到点的收心提醒。',
+      parameters: {
+        type: 'object',
+        properties: {
+          minutes: { type: 'integer', minimum: 5, maximum: 30 },
+          reason: { type: 'string', description: '为什么放（他做了什么值得放）' },
+        },
+        required: ['minutes', 'reason'],
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const now = Date.now()
+        const t = trustNow(now)
+        if (t.score < 60) return { ok: false, text: '信用分 ' + t.score + '，不够放风（要 60）。' }
+        if (now - (Number(config.breakSince) || 0) < 2 * 3_600_000) return { ok: false, text: '两小时内放过一次了。' }
+        const minutes = Math.max(5, Math.min(30, Math.round(Number(args.minutes) || 15)))
+        config = { ...config, breakUntil: now + minutes * 60_000, breakSince: now, breakChecked: false }
+        try {
+          writeConfig(config)
+        } catch {
+          // 这一轮照样生效
+        }
+        record({ state: 'break-start', at: now, minutes, by: role, reason: String(args.reason || '').slice(0, 120) })
+        return { ok: true, text: '放风 ' + minutes + ' 分钟，到 ' + new Date(config.breakUntil).toISOString().slice(11, 16) + ' UTC，之后自动恢复。记得帮他定收心提醒。' }
+      },
+    }
+  }
   function endTaskTool(role) {
     return {
       name: 'end_task_mode',
@@ -1308,6 +1351,28 @@ export function apply(ctx) {
     }
     return { v: 1, ok: false, error: { code: 'unknown-event' } }
   }
+  /**
+   * 不许装看不见：鱼丸连着两球没人接，鲸澜接手；之后每 10 分钟来一次，直到他回一句（以前三球不接就歇 3 小时）。
+   * noIgnore:false 回到旧的"歇着"。
+   */
+  const PRESS_MS = 10 * 60_000
+  function pressIgnored(silence, now) {
+    if (config.noIgnore === false || !silence || silence.noTake < 2) return null
+    let last = 0
+    for (const e of readLedger(home(), 200)) if (e?.state === 'generated' && Number(e.at) > last) last = Number(e.at)
+    if (now - last < PRESS_MS) return null
+    return { noTake: silence.noTake, minutes: Math.round((Number(silence.sinceMs) || 0) / 60_000) }
+  }
+  /**
+   * 心猿意马：90 秒里切了 5 次以上、至少 4 个不同的 App，人还不在娱乐 App 里（在里面的话力度会管）。
+   * 鱼丸在他点开游戏之前截胡。20 分钟最多一次。
+   */
+  function restlessSignal(phone, now) {
+    const sw = phone?.switches
+    if (!sw || sw.in90s < 5 || sw.apps90s.length < 4 || phone.fun) return null
+    if (now - (Number(loadGearState().restlessAt) || 0) < 20 * 60_000) return null
+    return { seconds: 90, switches: sw.in90s, apps: sw.apps90s.slice(0, 5).join('、') }
+  }
   /** 最近的前台切换（巡逻用：来回刷手机）。 */
   const fronts = []
   function noteFront(phone, now) {
@@ -1320,7 +1385,11 @@ export function apply(ctx) {
     const gs = loadGearState()
     if (now - (Number(gs.patrolAt) || 0) < 90 * 60_000) return null
     const recent = fronts.filter((f) => now - f.at <= 15 * 60_000)
-    if (recent.length >= 8) return { why: '他 15 分钟里在 ' + new Set(recent.map((f) => f.app)).size + ' 个 App 之间来回切了 ' + recent.length + ' 次，像是在无目的地刷' }
+    // 手机自己数的切换次数更准（/plan 有节流，插件这边会漏）。
+    const sw = phone?.switches
+    const switches = sw ? sw.in15m : recent.length
+    const distinct = sw ? sw.distinct15m : new Set(recent.map((f) => f.app)).size
+    if (switches >= 8) return { why: '他 15 分钟里在 ' + distinct + ' 个 App 之间来回切了 ' + switches + ' 次，像是在无目的地刷' }
     const fun = funToday(phone)
     if (phone?.fun && fun >= 90) return { why: '他今天娱乐已经 ' + fun + ' 分钟了，现在还在' + (phone.label || phone.app) }
     const hour = phone?.local ? Number(phone.local.slice(0, 2)) : Math.floor(zoneMinuteOfDay(now, tz) / 60)
@@ -1489,7 +1558,7 @@ export function apply(ctx) {
     const refuseLines = refuseAt > Date.now()
       ? ['拒绝模式开着（到 ' + new Date(refuseAt).toISOString().slice(11, 16) + ' UTC）：他一打开娱乐 App 手机就会把他赶回桌面锁住。他求你放行，不松；要关只能他自己说"关掉拒绝模式"。']
       : []
-    const stateLines = [...gearLines(config, Date.now()), ...geminiLines(loadGemini(), Date.now())]
+    const stateLines = [...trustLines(trustNow()), ...gearLines(config, Date.now()), ...geminiLines(loadGemini(), Date.now())]
     const notes = notesFor(role).map((n) => (n.from === 'companion' ? names.companion : names.strategist) + '刚跟你递话（' +
       new Date(Number(n.at)).toISOString().slice(11, 16) + ' UTC）："' + n.text + '"')
     const noteLines = notes.length ? ['姐妹之间的悄悄话（他看不到，自然地用上就行）：', ...notes.map((t) => '- ' + t)] : []
@@ -1522,7 +1591,7 @@ export function apply(ctx) {
     // 传话工具按会话注册：这样工具知道是谁递给谁。
     if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function') {
       const offs = []
-      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), geminiLiveTool(role), geminiLogTool(role)]
+      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), breakTool(role), geminiLiveTool(role), geminiLogTool(role)]
       for (const tool of config.dual !== false ? [sisterTool(role), ...common] : common) {
         try {
           const off = agent.ctx.tools.register(tool)
@@ -1653,6 +1722,7 @@ export function apply(ctx) {
           // user/message 事件先到；不先记上就会再发一球，把浮层里正在聊的窗口顶掉。
           const target = toStrategist ? config.strategistSessionId : config.sessionId
           if (target) lastHumanAt.set(String(target), Date.now())
+          record({ state: 'say-text', at: Date.now(), to: toStrategist ? 'strategist' : 'companion', text: said.slice(0, 300), via: 'overlay' })
           const r = await chat.request({
             v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000,
             ...(toStrategist ? { sessionId: config.strategistSessionId } : {}),
@@ -1760,13 +1830,26 @@ export function apply(ctx) {
     // 手机每次问 /plan 都带上现状：水位决定节奏和力度，大脑顺带判上一球有没有把他拉回来。
     const phone = cleanPhone(body?.phone)
     const mind = sense(phone, ledger, sessionId, now)
+    if (phone) lastPhone = phone
+    const trust = trustScore(readLedger(home(), 800), now)
+    // 放风结束：看他回没回来（不在娱乐 App 里就算守约），记进信用分。
+    if (Number(config.breakUntil) > 0 && Number(config.breakUntil) <= now && config.breakChecked === false) {
+      config = { ...config, breakChecked: true }
+      try {
+        writeConfig(config)
+      } catch {
+        // ignore
+      }
+      record({ state: 'break-end', at: now, kept: !phone?.fun })
+    }
     saveBrain(mind.brain)
     const water = mind.water
     const mode = effectiveMode(config, now)
     const limits = modeLimits(config, mode)
     const force = decideForce({
       phone, tide: water, mode, noTake: silence.noTake, control: config.control !== false, funToday: funToday(phone),
-      grace: Number(mind.brain.graceUntil) > now,
+      // 信用分低：讲理由也不松（今天糊弄过她们）。
+      grace: Number(mind.brain.graceUntil) > now && trust.band !== 'low',
       refuse: refuseUntilAt(now) > now,
     })
     seedFromMemory(garden, candidates, now)
@@ -1785,7 +1868,7 @@ export function apply(ctx) {
       config: {
         ...config,
         ...limits,
-        minGapMs: tideGap(limits.minGapMs, water.band),
+        minGapMs: trustGap(tideGap(limits.minGapMs, water.band), trust.band),
         hourlyMax: tideHourly(limits.hourlyMax, water.band),
         diceThreshold: water.band === 'sink' || water.band === 'trap' ? 100
           : water.band === 'slide' ? Math.max(80, Number(config.diceThreshold) || 0) : config.diceThreshold,
@@ -1826,6 +1909,10 @@ export function apply(ctx) {
       } else if (gem.left) {
         nextSpeaker = { role: 'companion', reason: 'gemini-left', at: now, mark: { nagAt: now },
           topic: gem.session.topic, left: Math.max(1, Math.round((gem.session.until - now) / 60_000)), app: phone?.label || phone?.app }
+      } else if (gearNow === 'free' && restlessSignal(phone, now)) {
+        nextSpeaker = { role: 'companion', reason: 'restless', at: now, ...restlessSignal(phone, now) }
+      } else if (pressIgnored(silence, now)) {
+        nextSpeaker = { role: thinker, reason: 'ignored', at: now, note: pressIgnored(silence, now) }
       } else if (gearNow === 'busy') {
         const last = Math.max(Number(config.gearSince) || 0, Number(gs.lastCheckAt) || 0)
         if (now - last >= BUSY_CHECK_MS) nextSpeaker = { role: thinker, reason: 'checkin', at: now, busy: { what: config.gearWhat, until: Number(config.gearUntil) } }
@@ -1878,7 +1965,8 @@ export function apply(ctx) {
       // release：只有他讲通了（宽限期内）才放行大肥鱼加的锁。力度掉到 3 以下不等于放行——
       // 锁屏页一弹，前台就是 DSH 自己；赶回桌面后前台是桌面，这时力度本来就是 0。
       force: { level: force.level, name: force.name, why: force.why, app: phone?.app || undefined,
-        release: !force.refuse && Number(mind.brain.graceUntil) > now },
+        release: onBreak(now) || (!force.refuse && trust.band !== 'low' && Number(mind.brain.graceUntil) > now) },
+      trust: { score: trust.score, band: trust.band },
       // 拒绝模式：手机记住到期时间，自己在每次切到娱乐 App 的那一刻就锁，不等这一问。
       refuse: refuseUntilAt(now) > now ? { until: refuseUntilAt(now) } : null,
       gear: effectiveGear(config, now),
@@ -1931,6 +2019,153 @@ export function apply(ctx) {
         .slice(0, 8)
         .map(publicTopic),
       recent: readLedger(home(), 20),
+    }
+  }
+
+  // ---------------------------------------------------------------- 「鱼丸 · 鲸澜」面板 + 家庭群
+  /** 打开着的面板（按会话）：她们回话时刷新。 */
+  const panelScopes = new Map()
+  let panelApi = null
+  function refreshPanels() {
+    if (!panelApi) return
+    for (const scope of panelScopes.values()) {
+      try {
+        panelApi.refresh('sisters', scope)
+      } catch {
+        // 面板关了
+      }
+    }
+  }
+  /** 最近一次手机现状（/plan 带来的）：面板的"专注"分要用。 */
+  let lastPhone = null
+  function panelSnapshot() {
+    const now = Date.now()
+    const entries = readLedger(home(), 600)
+    const todayStart = startOfDay(now, config.timeZone)
+    let facts = []
+    const db = openMemoryDb(memoryPath())
+    try {
+      facts = backgroundFacts(loadCandidates(db, { sessionId: config.sessionId, now }), 6)
+    } catch {
+      // 记忆读不到就空着
+    } finally {
+      try {
+        db?.close?.()
+      } catch {
+        // ignore
+      }
+    }
+    return buildSnapshot({
+      entries,
+      todayEntries: entries.filter((e) => Number(e?.at) >= todayStart),
+      trust: trustScore(entries, now),
+      phone: lastPhone,
+      names: roleNames(config),
+      speakerOf,
+      config,
+      facts,
+      commitments: readCommitments(home(), now, 3),
+      gemini: loadGemini(),
+      notesDir: notesDir(),
+      now,
+    })
+  }
+  /** 一句话发进去，等到回完（最多两分钟）。 */
+  async function sayTo(sid, text) {
+    const id = 'say-' + randomUUID().replace(/-/g, '').slice(0, 16)
+    lastHumanAt.set(String(sid), Date.now())
+    const r = await chat.request({ v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: String(text).slice(0, 2_000) }, deadlineMs: 120_000, sessionId: sid })
+    if (r.status >= 400) return null
+    for (let i = 0; i < 6; i += 1) {
+      const w = await chat.wait(id, 25_000)
+      const st = w?.body?.state
+      if (st === 'generated') return String(w.body.text || '')
+      if (st === 'failed' || st === 'cancelled') return null
+    }
+    return null
+  }
+  /**
+   * 家庭群：发给一个人，或者一起——鱼丸先回，鲸澜看到她的回答再接着说（可以接，也可以反驳她）。
+   * 在后台跑，面板先返回，回复到了自动刷新。
+   */
+  function groupSay(text, to) {
+    const names = roleNames(config)
+    const said = String(text || '').trim().slice(0, 1_000)
+    if (!said) return '说点什么再发。'
+    const sis = config.sessionId
+    const big = config.dual !== false ? config.strategistSessionId : ''
+    record({ state: 'say-text', at: Date.now(), to, text: said.slice(0, 300), via: 'panel' })
+    if (to === 'strategist' && !big) return '还没设谋士会话。'
+    if (to === 'companion' || (to === 'both' && !big)) {
+      if (!sis) return '还没设陪伴会话。'
+      sayTo(sis, said).catch(() => {})
+      return '发给' + names.companion + '了。'
+    }
+    if (to === 'strategist') {
+      sayTo(big, said).catch(() => {})
+      return '发给' + names.strategist + '了。'
+    }
+    ;(async () => {
+      const first = await sayTo(sis, '（家庭群：他同时发给了你和' + names.strategist + '）' + said)
+      const tail = first ? names.companion + '刚回了「' + first.replace(/^〔[^〕]{1,20}〕/, '').slice(0, 300) + '」。你接着说：可以接她的话，也可以反驳她，别重复她。' : names.companion + '这次没回上，你直接回他。'
+      await sayTo(big, '（家庭群：他同时发给了你和' + names.companion + '）' + said + '\n（' + tail + '）')
+      refreshPanels()
+    })().catch(() => {})
+    return '发到群里了：' + names.companion + '先回，' + names.strategist + '接着说。'
+  }
+  if (typeof ctx.inject === 'function') {
+    try {
+      ctx.inject(['dshGo'], (dctx) => {
+        const d = dctx?.dshGo
+        if (!d || typeof d.panel !== 'function') return
+        panelApi = d
+        const keyOf = (scope) => String((scope && scope.sessionId) || '')
+        const values = (event) => {
+          const v = event && event.value ? event.value.values || event.value : {}
+          return v && typeof v === 'object' ? v : {}
+        }
+        if (typeof d.on === 'function') d.on('sisters-open', () => ({ open: 'panel:sisters' }))
+        d.panel('sisters', {
+          view: sistersView,
+          data: (scope, emit) => {
+            panelScopes.set(keyOf(scope), scope)
+            emit(panelSnapshot())
+            return () => panelScopes.delete(keyOf(scope))
+          },
+          actions: {
+            'sisters.refresh': (scope) => {
+              d.refresh('sisters', scope)
+              return { toast: '' }
+            },
+            'group.say': (scope, event) => {
+              const v = values(event)
+              const toast = groupSay(v['data.form.text'], ['companion', 'strategist', 'both'].includes(v['data.form.to']) ? v['data.form.to'] : 'both')
+              d.refresh('sisters', scope)
+              return { toast }
+            },
+            // 面板只能收紧，不能放松：没有"关拒绝模式""结束任务"的按钮。
+            'sisters.busy': (scope) => {
+              setGear({ gear: 'busy', until: Date.now() + 45 * 60_000, what: '正事' }, 'panel')
+              d.refresh('sisters', scope)
+              return { toast: '忙时 45 分钟：不闲聊、定时报到、娱乐一开就锁。' }
+            },
+            'sisters.refuse': (scope) => {
+              const until = Math.max(Date.now() + 30 * 60_000, Number(config.refuseUntil) || 0)
+              config = { ...config, refuseUntil: until, refuseBy: config.refuseBy || 'panel' }
+              try {
+                writeConfig(config)
+              } catch {
+                // 这一轮照样生效
+              }
+              record({ state: 'control', at: Date.now(), action: 'refuse', minutes: 30, by: 'panel' })
+              d.refresh('sisters', scope)
+              return { toast: '拒绝模式 30 分钟。' }
+            },
+          },
+        })
+      })
+    } catch (error) {
+      console.error('[companion] 面板注册失败：' + String((error && error.message) || error))
     }
   }
 

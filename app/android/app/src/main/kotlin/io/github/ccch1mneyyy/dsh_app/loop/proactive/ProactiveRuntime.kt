@@ -443,11 +443,22 @@ object ProactiveRuntime {
      * slides into a game or comes back out): ask the companion now instead of waiting for the alarm,
      * and if it already said lock for this app, lock again before the next minute.
      */
+    /** Every foreground switch (not just the throttled /plan ones): restless switching is the tell before a game. */
+    private val switches = ArrayDeque<Pair<Long, String>>()
+
     fun onForeground(packageName: String?) {
         if (packageName.isNullOrBlank() || packageName == lastFront) return
         lastFront = packageName
+        val tNow = SystemClock.elapsedRealtime()
+        synchronized(switches) {
+            switches.addLast(tNow to packageName)
+            while (switches.isNotEmpty() && tNow - switches.first().first > 15 * 60_000L) switches.removeFirst()
+        }
         if (coordinator == null) return
         // App switches come in bursts; 15 s is enough to not hammer the plugin and still feel immediate.
+        // But a restless burst (5 switches in 90 s) is exactly the moment to ask now.
+        val restless = synchronized(switches) { switches.count { tNow - it.first <= 90_000L } >= 5 }
+        if (restless) consultPlanSoon(minGapMs = 5_000L)
         val now = System.currentTimeMillis()
         // 拒绝模式: lock now, at the door; the /plan answer would come a second later.
         if (now < refuseUntil() && listed(packageName)) {
@@ -869,6 +880,16 @@ object ProactiveRuntime {
             "charging" to s.charging,
             "local" to String.format(java.util.Locale.US, "%02d:%02d", minuteOfDay(wall) / 60, minuteOfDay(wall) % 60),
             "today" to today,
+            // 走神前兆：90 秒 / 15 分钟里切了几次 App、切过哪些。
+            "switches" to synchronized(switches) {
+                val recent = switches.filter { now - it.first <= 90_000L }
+                linkedMapOf<String, Any?>(
+                    "in90s" to recent.size,
+                    "apps90s" to recent.map { it.second }.distinct().take(8).map { label(it) ?: it },
+                    "in15m" to switches.size,
+                    "distinct15m" to switches.map { it.second }.distinct().size,
+                )
+            },
         )
     }.getOrNull()
 

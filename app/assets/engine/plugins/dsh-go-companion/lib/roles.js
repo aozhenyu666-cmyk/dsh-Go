@@ -160,6 +160,15 @@ export function strategistBallFrame(owner, names, { reason, note, allowTools = f
     lines.push('别说教、别长篇；不要上网查资料。')
     return lines
   }
+  if (reason === 'ignored') {
+    const n = note || {}
+    lines.push('他已经连着 ' + (n.noTake || '几') + ' 次没理' + names.companion + '了' + (n.minutes ? '（最早那次是 ' + n.minutes + ' 分钟前）' : '') + '。' +
+      names.companion + '叫你来接手——你不是来哄的。')
+    lines.push('一两句：点名他不回这件事，要他现在回一句（说清在干嘛、要多久）。冷、短、不阴阳。' +
+      (allowTools ? '他要是在娱乐 App 里，直接 start_task_mode（refuse 或 task）锁了再说；在正事上就别锁，只要他回一句。' : ''))
+    lines.push('不回你不会停：十分钟后还会再来。这一次不要上网查资料。')
+    return lines
+  }
   if (reason === 'patrol') {
     const p = note || {}
     lines.push('这是你的一次巡逻：' + (p.why || '到点看一眼他在干嘛') + '。')
@@ -212,6 +221,7 @@ export function capabilityLines(role, { notesDir = '', allowTools = true } = {})
     '- 文件和相册：/sdcard 是他的手机存储（相册 /sdcard/DCIM，截图 /sdcard/Pictures/Screenshots，下载 /sdcard/Download）。可以列出最近的照片/截图，看文件名、时间、EXIF（地点/时间），据此了解他最近在干嘛；给他的产出放 /sdcard/Download/DSH-Go/。',
     '- 记事：remember 记关于他的事；schedule 工具定时提醒（答应了就真设好）。',
     '- 管他：dafeiyu_control 一键切"忙时 X 分钟"（不闲聊、定时报到、娱乐一开就锁）/ "闲时" / 拒绝模式 / 安静 X 分钟 / 严格温和。他说"帮我盯着""接下来一小时别让我玩""我要去做饭"这类话，就直接用它，别只嘴上答应。',
+    '- 放风：grant_break 给他一段休息（≤30 分钟，娱乐临时解锁，到点自动恢复）；只有信用分够（≥60）才放得出来，低分别想。',
     '- 立任务：start_task_mode 不用他同意就能立（目标、时长、理由），娱乐当场锁死，他自己说"忙完了"也解不开；只有验收合格调用 end_task_mode 才解锁。',
     '- Gemini 连麦：他有 Gemini App（Pro），开 Live 能实时语音、看他屏幕——比你们打字快得多。要高频盯他、陪他练、审他摸鱼、帮他想事时，用 gemini_live 生成给 Gemini 的背景（他是谁、这次干嘛、怎么盯他），照它返回的步骤写进剪贴板、打开 Gemini。连完之后用后台屏把那段对话读回来，gemini_log 存进笔记库。他说"读一下 Gemini""刚才跟 Gemini 聊了啥"也这样做。',
   ]
@@ -246,8 +256,13 @@ export const NOTES_CANDIDATES = [
 export function companionSpecialLines(special, names, allowTools = false) {
   if (!special) return []
   // 单人格（没有姐姐）时，报到和连麦复盘也由她来，用姐姐那套说法。
-  if (['checkin', 'gemini-recap', 'defied', 'patrol', 'task-due'].includes(special.reason)) {
+  if (['checkin', 'gemini-recap', 'defied', 'patrol', 'task-due', 'ignored'].includes(special.reason)) {
     return strategistBallFrame('他', names, { reason: special.reason, allowTools, busy: special.busy, gemini: special.gemini, note: special.note }).slice(2)
+  }
+  if (special.reason === 'restless') {
+    return ['他 ' + (special.seconds || 90) + ' 秒里切了 ' + (special.switches || '好几') + ' 次 App（' + (special.apps || '来回乱切') + '），手指头在屏幕上乱划——这是要走神去摸鱼的前兆，他还没点开游戏。' +
+      '截胡他：一两句，损他一下、问他卡在哪了；' + (allowTools ? '卡壳了就提议用 gemini_live 拉 Gemini 帮他理思路（他点头再开）。' : '卡壳了就让他说出来。') +
+      '别讲道理、别说"你该去做事了"。']
   }
   if (special.reason === 'busy-done') {
     return ['他刚忙完「' + (special.what || '正事') + '」' + (special.minutes ? '（忙了 ' + special.minutes + ' 分钟）' : '') + '。像朋友那样迎他：问一句搞定没、累不累，可以邀功（你一直憋着没吵他），然后正常闹他。']

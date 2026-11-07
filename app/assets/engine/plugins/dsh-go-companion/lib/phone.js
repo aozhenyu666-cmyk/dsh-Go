@@ -91,9 +91,18 @@ export function cleanPhone(raw) {
     charging: raw.charging === true,
     local,
     today,
+    switches: cleanSwitches(raw.switches),
   }
   if (!out.app && !today.length && !out.charging && !local) return null
   return out
+}
+
+/** 走神前兆：90 秒 / 15 分钟里切了几次 App（手机每次切前台都记）。 */
+function cleanSwitches(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const n = (v) => Math.max(0, Math.min(500, Math.round(Number(v) || 0)))
+  const apps = Array.isArray(raw.apps90s) ? raw.apps90s.map((a) => String(a).slice(0, 30)).filter(Boolean).slice(0, 8) : []
+  return { in90s: n(raw.in90s), apps90s: apps, in15m: n(raw.in15m), distinct15m: n(raw.distinct15m) }
 }
 
 /** 今天娱乐类一共多少分钟。 */
