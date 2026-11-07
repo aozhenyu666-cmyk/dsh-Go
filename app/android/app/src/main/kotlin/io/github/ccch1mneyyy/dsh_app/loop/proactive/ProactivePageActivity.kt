@@ -92,7 +92,9 @@ class ProactivePageActivity : Activity() {
         }
         token = t
         live[t] = this
-        setContentView(content(text))
+        // 双人格的〔名字〕标记：兜底页面上显示成"名字：正文"。
+        val (who, body) = ProactiveOverlay.splitSpeaker(text)
+        setContentView(content(if (who != null) "$who：$body" else text))
         awaitVisible()
     }
 
@@ -198,7 +200,7 @@ class ProactivePageActivity : Activity() {
             setWaiting(false)
             append(
                 when {
-                    !reply.isNullOrBlank() -> "大肥鱼：$reply"
+                    !reply.isNullOrBlank() -> ProactiveOverlay.splitSpeaker(reply).let { (w, b) -> "${w ?: "大肥鱼"}：$b" }
                     error == "agent-busy" || error == "desk-busy" -> "（大肥鱼还在说上一句，等一下再发）"
                     else -> "（没发出去：${error ?: "unknown"}）"
                 },

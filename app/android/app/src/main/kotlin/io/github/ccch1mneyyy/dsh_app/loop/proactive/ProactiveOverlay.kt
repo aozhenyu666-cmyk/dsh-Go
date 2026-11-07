@@ -142,12 +142,16 @@ object ProactiveOverlay {
         private var collapsed = false
         private var bubble: View? = null
         private var lastText = ""
+        /** Who is speaking (鱼丸 / 鲸澜): the plugin tags each line with 〔名字〕. Null = single persona. */
+        private var speaker: String? = null
         private var lastWhy: String? = null
         private val slow = Runnable { setStatus(AppStrings.get(app, R.string.proactive_overlay_slow_model)) }
         private val shrink = Runnable { collapse() }
 
         fun attach(text: String, why: String?) {
-            lastText = text.take(MAX_TEXT)
+            val (who, body) = splitSpeaker(text)
+            speaker = who
+            lastText = body.take(MAX_TEXT)
             lastWhy = why
             val view = backAware(expanded(lastText, why))
             val p = windowParams()
@@ -180,7 +184,7 @@ object ProactiveOverlay {
                 }
             }
             card.addView(TextView(context).apply {
-                this.text = AppStrings.get(app, R.string.proactive_overlay_from)
+                this.text = speaker ?: AppStrings.get(app, R.string.proactive_overlay_from)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setTextColor(palette.muted)
                 maxLines = 1
@@ -414,7 +418,8 @@ object ProactiveOverlay {
                 when {
                     !reply.isNullOrBlank() -> {
                         setStatus(null)
-                        append(AppStrings.get(app, R.string.proactive_overlay_reply, reply))
+                        val (who, body) = splitSpeaker(reply)
+                        append(if (who != null) "$who：$body" else AppStrings.get(app, R.string.proactive_overlay_reply, reply))
                     }
                     error == "agent-busy" || error == "desk-busy" -> {
                         setStatus(null)
@@ -538,6 +543,13 @@ object ProactiveOverlay {
             bubble = null
             if (live[token] === this) live.remove(token)
         }
+    }
+
+    /** 双人格：插件在每句话前标〔名字〕（〔鱼丸〕/〔鲸澜〕）。拆出说话人和正文；没标就是单人格。 */
+    private val SPEAKER = Regex("^〔([^〕]{1,20})〕")
+    fun splitSpeaker(text: String): Pair<String?, String> {
+        val m = SPEAKER.find(text) ?: return null to text
+        return m.groupValues[1] to text.substring(m.range.last + 1).trimStart()
     }
 
     /** 回应窗口 20 分钟：到点收成气泡，不删掉。 */

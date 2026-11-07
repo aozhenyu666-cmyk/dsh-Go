@@ -310,6 +310,8 @@ export class Desk {
 
   guardTool(sessionId) {
     if (sessionId == null || !this.proactiveTurns.has(sessionId)) return undefined
+    // 他给了高权限：主动找他的那一轮也可以动手（设提醒、退出 App）。DSH 自己的权限审批照常生效。
+    if (typeof this.deps.allowTools === 'function' && this.deps.allowTools()) return undefined
     this.counters.toolDenied++
     return {
       kind: 'deny',

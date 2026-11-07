@@ -80,7 +80,7 @@ reset()
   await sleep(300)
   const s2 = await serve(bili(25), 'dual')
   const bp = lastServePrompt()
-  check('主动发球由妹妹说（朋友，不是助手）', /你是小肥鱼——他的朋友，不是助手/.test(bp), bp.slice(0, 200))
+  check('主动发球由妹妹说（朋友，不是助手）', /你是鱼丸——他的朋友，不是助手/.test(bp), bp.slice(0, 200))
   check('妹妹发球不劝做事、不讲道理', /别劝他"该去做事了"/.test(bp) && !/思维教练/.test(bp), '')
   check('妹妹也拿到手机现状', /哔哩哔哩，已经开了 25 分钟/.test(bp), '')
   void s2
@@ -90,7 +90,7 @@ reset()
   said = '在吗，陪我聊会'
   const a = await route('POST', '/say', { v: 1, requestId: 'say-sis-' + Date.now(), text: said })
   await waitResult(a.body?.requestId)
-  check('跟妹妹聊：每轮带着她的人设', /你是小肥鱼/.test(sysOf()) && /不碰正事/.test(sysOf()), sysOf().slice(0, 200))
+  check('跟妹妹聊：每轮带着她的人设', /你是鱼丸/.test(sysOf()) && /不碰正事/.test(sysOf()), sysOf().slice(0, 200))
   said = '我该考研还是工作'
   const b = await route('POST', '/say', { v: 1, requestId: 'say-big-' + Date.now(), text: said, role: 'strategist' })
   await waitResult(b.body?.requestId)

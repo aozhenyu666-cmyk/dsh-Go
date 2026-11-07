@@ -75,7 +75,7 @@ function seed(home) {
   db.close()
   const cfgDir = join(home, 'companion')
   mkdirSync(cfgDir, { recursive: true })
-  writeFileSync(join(cfgDir, 'config.json'), JSON.stringify({ sessionId: 'session-abc', quietStart: 12, quietEnd: 12, minGapMs: 0 }))
+  writeFileSync(join(cfgDir, 'config.json'), JSON.stringify({ sessionId: 'session-abc', quietStart: 12, quietEnd: 12, minGapMs: 0, dual: false, proactiveTools: false }))
 }
 
 test('路由：request → status → 回执账本', async () => {

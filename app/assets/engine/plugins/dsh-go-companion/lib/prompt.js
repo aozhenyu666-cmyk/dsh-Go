@@ -8,7 +8,7 @@ import { modeOr, personaLines } from './persona.js'
 import { phoneLines } from './phone.js'
 import { temperLine } from './temper.js'
 import { drillLines } from './drills.js'
-import { COMPANION_REPLY_LINE, COMPANION_SERVE_RULES, companionBallFrame } from './roles.js'
+import { COMPANION_REPLY_LINE, COMPANION_SERVE_RULES, companionBallFrame, strategistBallFrame } from './roles.js'
 
 const KIND_RULES = {
   continue:
@@ -56,9 +56,23 @@ export function buildPrompt(input) {
   const lines = []
   // 姐妹双人格：主动找他的是妹妹（陪伴）。她的开场、发球玩法、回话方式都换成她自己的。
   const companion = input.role === 'companion'
-  const names = input.names || { companion: '小肥鱼', strategist: '大肥鱼' }
+  const names = input.names || { companion: '鱼丸', strategist: '鲸澜' }
+  // 姐姐主动找他（妹妹递了急话 / 晚上对账）：一次说清一件事，不走妹妹那套发球玩法。
+  if (input.role === 'strategist') {
+    for (const l of strategistBallFrame(owner, names, { reason: input.reason, note: input.note, allowTools: input.allowTools === true })) lines.push(l)
+    for (const l of phoneLines(input.phone)) lines.push(l)
+    if (commitments.length) {
+      lines.push('他还没完成的约定：')
+      for (const c of commitments) lines.push('- ' + String(c.statement || '').slice(0, 160) + (c.dueAt ? '（' + String(c.dueAt).slice(0, 16) + '）' : ''))
+    }
+    if (facts.length) {
+      lines.push('你记得的事（别逐条复述）：')
+      for (const f of facts) lines.push('- ' + String(f).slice(0, 200))
+    }
+    return lines.join('\n')
+  }
   if (companion) {
-    for (const l of companionBallFrame(owner, names)) lines.push(l)
+    for (const l of companionBallFrame(owner, names, input.allowTools === true)) lines.push(l)
   } else {
   lines.push(
     '（这不是' + owner + '说的话，是 DSH Go 手机端发起的一次主动交流。' +

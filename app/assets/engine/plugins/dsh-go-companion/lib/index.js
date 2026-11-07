@@ -91,8 +91,10 @@ const DEFAULTS = Object.freeze({
   // 姐妹双人格：陪伴（妹妹，sessionId）+ 谋士（姐姐，strategistSessionId）。关掉就回到单人格大肥鱼。
   dual: true,
   strategistSessionId: undefined,
-  companionName: '小肥鱼',
-  strategistName: '大肥鱼',
+  companionName: '鱼丸',
+  strategistName: '鲸澜',
+  // 他给了高权限：主动找他的那一轮也能动手（设提醒、退出 App、调手机）。DSH 自己的审批照常生效。
+  proactiveTools: true,
   companionCard: '',
   strategistCard: '',
   // 做题模式：默认关，主线是聊天。说"开始做题 / 做题模式"打开，"别出题了"关掉。
@@ -499,6 +501,30 @@ export function apply(ctx) {
     const db = openMemoryDb(memoryPath())
     try {
       const now = Date.now()
+      if (speakerOf(sessionId) === 'strategist') {
+        // 姐姐主动找他：一次说清一件事（妹妹递的急话 / 晚上对账）。
+        const why = strategistBallReason.get(String(req?.requestId || '')) || { reason: pendingHandoff(now) ? 'handoff' : 'review' }
+        const note = why.note || (why.reason === 'handoff' ? pendingHandoff(now) : null)
+        const candidates = loadCandidates(db, { sessionId, now })
+        const prompt = buildPrompt({
+          role: 'strategist',
+          reason: why.reason,
+          note: note?.text,
+          phone: cleanPhone(req?.phone),
+          commitments: readCommitments(home(), now, 3),
+          facts: backgroundFacts(candidates, BACKGROUND_LIMIT),
+          names: roleNames(config),
+          owner: config.owner,
+          allowTools: config.proactiveTools !== false,
+        })
+        if (note) markDelivered(note)
+        const entries = readLedger(home(), 400)
+        const rally = nextShot(entries, { sessionId, now })
+        return {
+          text: prompt, prompt, topic: null, serveType: 'strategist', rallyId: rally.rallyId, shot: rally.shot,
+          silence: { stage: 'none' }, extra: { speaker: 'strategist', reason: why.reason },
+        }
+      }
       const candidates = loadCandidates(db, { sessionId, now })
       const entries = readLedger(home(), 400)
       const recent = summarize(entries, startOfDay(now, config.timeZone))
@@ -583,6 +609,7 @@ export function apply(ctx) {
         phone,
         role: config.dual === false ? undefined : 'companion',
         names: roleNames(config),
+        allowTools: config.proactiveTools !== false,
         temper: face,
         drill,
         scold,
@@ -643,6 +670,7 @@ export function apply(ctx) {
   const desk = new Desk({
     resolveAgent: (id) => resolveAgent(ctx, id, config),
     compose,
+    allowTools: () => config.proactiveTools !== false,
     makeMessage: userMessage,
     isArchived: (id) => isArchived(ctx, id),
     defaultSession: () => config.sessionId,
@@ -675,6 +703,7 @@ export function apply(ctx) {
       if (r.state !== 'accepted') startedAt.delete(key)
       // 生成成功后等一次人的回应；2 小时内没有就记 none（有限跟进/冷却的依据）。
       if (r.state === 'generated') {
+        lastBall = { role: speakerOf(r.sessionId), at: Date.now() }
         // 大脑从这一刻开始计：10 分钟内他有没有离开那个娱乐 App。
         const served = servedContext.get(String(r.requestId))
         servedContext.delete(String(r.requestId))
@@ -929,6 +958,75 @@ export function apply(ctx) {
   // 人格卡以前只在主动发球那一球里带给模型；他在 App 里或浮层里正常聊，模型拿不到，
   // 人格就只剩会话自带的设定（新装就是通用助手）。这里给目标会话挂一段固定的系统上下文，
   // 和记忆插件同一个机制（systemPrompt.context），每轮都带，不改历史、不破坏前缀缓存之外的东西。
+  // ---------------------------------------------------------------- 姐妹传话
+  // 两人可以互相递话（sister_note 工具，按会话注册，所以知道是谁递给谁）。递给对方的话 24 小时内
+  // 出现在对方每一轮的人设里；妹妹标了 urgent 的，姐姐会主动去找他（见 /plan）。
+  const notesFile = () => stateFile('notes.json')
+  function loadNotes() {
+    const raw = readState(notesFile(), null)
+    const list = Array.isArray(raw?.notes) ? raw.notes : []
+    const cut = Date.now() - 3 * 86_400_000
+    return list.filter((n) => n && Number(n.at) > cut).slice(-40)
+  }
+  function saveNotes(list) {
+    writeJson(notesFile(), { notes: list.slice(-40) })
+  }
+  function notesFor(role, now = Date.now()) {
+    return loadNotes().filter((n) => n.to === role && now - Number(n.at) < 86_400_000).slice(-5)
+  }
+  function sisterTool(role) {
+    const names = () => roleNames(config)
+    const other = role === 'strategist' ? 'companion' : 'strategist'
+    return {
+      name: 'sister_note',
+      description:
+        role === 'strategist'
+          ? '给妹妹递一句话（她会在接下来和他的聊天里知道）。比如他被你说重了、太紧绷，让她去陪陪他、逗逗他。'
+          : '给姐姐递一句话（她会在接下来和他的聊天里知道）。他说了正事、或者该被姐姐管一管了，就递过去；急的标 urgent，姐姐会主动去找他。',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: '一两句话：他怎么了、你想让对方做什么。' },
+          urgent: { type: 'boolean', description: '急：对方会尽快主动去找他。' },
+        },
+        required: ['text'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, text: { type: 'string' } } },
+        render: (_a, v) => [{ type: 'text', text: String((v && v.text) || '') }],
+      },
+      execute: (args = {}) => {
+        const text = String(args.text || '').trim().slice(0, 300)
+        if (!text) return { ok: false, text: '话是空的。' }
+        if (config.dual === false || !config.strategistSessionId) return { ok: false, text: '现在只有一个人格，没有人可以递话。' }
+        const list = loadNotes()
+        list.push({ from: role, to: other, text, urgent: args.urgent === true, at: Date.now() })
+        saveNotes(list)
+        record({ state: 'sister-note', at: Date.now(), from: role, to: other, urgent: args.urgent === true || undefined, text })
+        const to = other === 'strategist' ? names().strategist : names().companion
+        return { ok: true, text: '递给' + to + '了' + (args.urgent === true ? '（急）' : '') + '。' }
+      },
+    }
+  }
+  /** 姐姐还没去找他的那条急话（2 小时内）。 */
+  function pendingHandoff(now) {
+    return loadNotes().filter((n) => n.to === 'strategist' && n.urgent && !n.delivered && now - Number(n.at) < 2 * 3_600_000).pop() || null
+  }
+  function markDelivered(note) {
+    if (!note) return
+    const list = loadNotes()
+    for (const n of list) if (n.at === note.at && n.text === note.text) n.delivered = Date.now()
+    saveNotes(list)
+  }
+  /** /plan 决定了"下一球是姐姐"：/request 来的时候照这个把球送进姐姐的会话。 */
+  let nextSpeaker = null
+  /** requestId -> 姐姐这一球为什么开口（handoff / review）。 */
+  const strategistBallReason = new Map()
+  /** 最近一球是谁说的：浮层里回话默认回给她（30 分钟内）。 */
+  let lastBall = { role: 'companion', at: 0 }
+  const speakerOf = (sid) => (config.dual !== false && sid && sid === config.strategistSessionId ? 'strategist' : 'companion')
+
   /** 单人格时代的说法（dual 关掉时用）。 */
   function singlePersonaText(mode) {
     const lines = ['你是' + String(config.self || '大肥鱼') + '，' + String(config.owner || '他') + '身边的伙伴，不是客服也不是工具。']
@@ -944,13 +1042,17 @@ export function apply(ctx) {
     if (config.personaInChat === false) return ''
     const mode = effectiveMode(config, Date.now())
     if (config.dual === false) return singlePersonaText(mode)
+    const names = roleNames(config)
+    const notes = notesFor(role).map((n) => (n.from === 'companion' ? names.companion : names.strategist) + '刚跟你递话（' +
+      new Date(Number(n.at)).toISOString().slice(11, 16) + ' UTC）："' + n.text + '"')
+    const noteLines = notes.length ? ['姐妹之间的悄悄话（他看不到，自然地用上就行）：', ...notes.map((t) => '- ' + t)] : []
     if (role === 'strategist') {
       // 关系库人物卡（价值观/底线/边界）是姐姐的底子。
       const core = personaLines(mergePersona(readCorePersona(home()), {}), mode).filter((l) => !/^现在是(伙伴|教练)模式/.test(l))
-      return strategistChatText(config, core)
+      return strategistChatText(config, core, noteLines)
     }
     const extra = mode === 'coach' ? ['他现在开了严格模式：你可以更凶、更不依不饶，但还是你自己的样子。'] : []
-    return companionChatText(config, extra)
+    return companionChatText(config, [...extra, ...noteLines])
   }
   /** role -> {sid, agent, off}：两个会话各挂各的人设。 */
   const personaMounts = new Map()
@@ -963,8 +1065,22 @@ export function apply(ctx) {
     } catch {
       // ignore
     }
-    const next = { sid, agent: agent || null, off: null }
+    const next = { sid, agent: agent || null, off: null, toolOff: null }
+    try {
+      cur.toolOff?.()
+    } catch {
+      // ignore
+    }
     personaMounts.set(role, next)
+    // 传话工具按会话注册：这样工具知道是谁递给谁。
+    if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function' && config.dual !== false) {
+      try {
+        const off = agent.ctx.tools.register(sisterTool(role))
+        if (typeof off === 'function') next.toolOff = off
+      } catch (error) {
+        console.error('[companion] 传话工具挂不上（' + role + '）：' + String((error && error.message) || error))
+      }
+    }
     if (!agent?.ctx?.systemPrompt?.context) return
     try {
       const off = agent.ctx.systemPrompt.context({
@@ -1047,6 +1163,14 @@ export function apply(ctx) {
             },
           })
         }
+        if (path === '/request' && body.value && typeof body.value === 'object') {
+          // /plan 刚决定"下一球是姐姐"：把这一球送进姐姐的会话。
+          if (nextSpeaker && Date.now() - nextSpeaker.at < 5 * 60_000 && config.strategistSessionId && !body.value.sessionId) {
+            body.value.sessionId = config.strategistSessionId
+            strategistBallReason.set(String(body.value.requestId || ''), nextSpeaker)
+            nextSpeaker = null
+          }
+        }
         if (path === '/request') {
           // Start the clock here, not in the Desk callback: the accepted callback is not the only
           // entry point and this is the one moment that is certainly before the model runs.
@@ -1070,7 +1194,9 @@ export function apply(ctx) {
           const id = typeof body.value?.requestId === 'string' && body.value.requestId ? body.value.requestId : 'say-' + randomUUID()
           startedAt.set(id, Date.now())
           // role=strategist：这句话给姐姐（谋士会话）；默认给妹妹（陪伴会话）。
-          const toStrategist = body.value?.role === 'strategist' && config.dual !== false && config.strategistSessionId
+          // 没指定就回给刚才主动找他的那位（30 分钟内）：姐姐来找他，他在浮层里回的就是姐姐。
+          const wanted = body.value?.role || (lastBall.role === 'strategist' && Date.now() - lastBall.at < 30 * 60_000 ? 'strategist' : 'companion')
+          const toStrategist = wanted === 'strategist' && config.dual !== false && config.strategistSessionId
           const r = await chat.request({
             v: 1, requestId: id, eventId: id, kind: 'say', payload: { text: said.slice(0, 2_000) }, deadlineMs: 120_000,
             ...(toStrategist ? { sessionId: config.strategistSessionId } : {}),
@@ -1092,6 +1218,11 @@ export function apply(ctx) {
         const waitMs = Math.min(Math.max(Number(url.searchParams.get('waitMs') ?? 0) || 0, 0), 25_000)
         const id = String(url.searchParams.get('requestId') ?? '')
         const r = await (chat.records.has(id) ? chat : desk).wait(id, waitMs)
+        // 双人格：话前面标上是谁说的（〔鱼丸〕/〔鲸澜〕），浮层据此显示名字。
+        if (config.dual !== false && r?.body?.state === 'generated' && typeof r.body.text === 'string') {
+          const n = roleNames(config)
+          r.body = { ...r.body, speaker: speakerOf(r.body.sessionId), text: '〔' + (speakerOf(r.body.sessionId) === 'strategist' ? n.strategist : n.companion) + '〕' + r.body.text }
+        }
         return send(res, r.status, r.body)
       }
       if (req.method === 'GET' && path === '/status') {
@@ -1135,6 +1266,7 @@ export function apply(ctx) {
       drills: config.drills === true,
       personaInChat: config.personaInChat !== false,
       dual: config.dual !== false,
+      proactiveTools: config.proactiveTools !== false,
       strategistSessionId: config.strategistSessionId ?? null,
       companionName: roleNames(config).companion,
       strategistName: roleNames(config).strategist,
@@ -1212,6 +1344,18 @@ export function apply(ctx) {
       free: true,
     })
     // 他正在跟大肥鱼聊：不发主动球（发了也只会撞上"正忙"）。力度照常给手机——在游戏里边玩边聊也得锁。
+    // 姐姐什么时候主动开口：妹妹递了急话，或者晚上 20–22 点（当地）一天一次对账。
+    // 安静时段 / 他说了别烦我 时都不说；其余时候不受妹妹的阶梯和骰子影响（她们是两个人）。
+    nextSpeaker = null
+    if (config.dual !== false && config.strategistSessionId && out.reason !== 'muted' && out.reason !== 'quiet') {
+      const handoff = pendingHandoff(now)
+      const hour = phone?.local ? Number(phone.local.slice(0, 2)) : Math.floor(zoneMinuteOfDay(now, tz) / 60)
+      const todayStart = startOfDay(now, tz)
+      const reviewedToday = ledger.some((e) => e?.state === 'generated' && e.sessionId === config.strategistSessionId && Number(e.at) >= todayStart)
+      if (handoff) nextSpeaker = { role: 'strategist', reason: 'handoff', note: handoff, at: now }
+      else if (hour >= 20 && hour < 22 && !reviewedToday) nextSpeaker = { role: 'strategist', reason: 'review', at: now }
+      if (nextSpeaker) Object.assign(out, { speak: true, reason: 'strategist-' + nextSpeaker.reason, nextCheckAt: now })
+    }
     // 有一球正在路上（接下了、还没生成完）：再说开口就会连发两球（手机每次切 App 都会问一次）。
     desk.sweep()
     if (out.speak && desk.inFlight()) {
@@ -1226,8 +1370,9 @@ export function apply(ctx) {
     }
     // 力度到了"锁 / 赶"：不管这一球说不说，手机都要执行（说到做到）。
     if (force.level >= 3) out.nextCheckAt = Math.min(Number(out.nextCheckAt) || now, now + 60_000)
+    if (!out.speak) nextSpeaker = null
     return {
-      v: 1, ...out, silence, sessionId,
+      v: 1, ...out, silence, sessionId, speaker: nextSpeaker ? 'strategist' : 'companion',
       tide: { level: water.level, band: water.band, why: water.why },
       // release：只有他讲通了（宽限期内）才放行大肥鱼加的锁。力度掉到 3 以下不等于放行——
       // 锁屏页一弹，前台就是 DSH 自己；赶回桌面后前台是桌面，这时力度本来就是 0。
@@ -1320,6 +1465,7 @@ function mergeConfig(current, body) {
     if (typeof body.drills === 'boolean') next.drills = body.drills
     if (typeof body.personaInChat === 'boolean') next.personaInChat = body.personaInChat
     if (typeof body.dual === 'boolean') next.dual = body.dual
+    if (typeof body.proactiveTools === 'boolean') next.proactiveTools = body.proactiveTools
     if (body.strategistSessionId === null) next.strategistSessionId = undefined
     else if (typeof body.strategistSessionId === 'string' && body.strategistSessionId.length <= 256) next.strategistSessionId = body.strategistSessionId || undefined
     for (const k of ['companionName', 'strategistName']) if (typeof body[k] === 'string' && body[k].trim()) next[k] = body[k].trim().slice(0, 20)
