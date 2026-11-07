@@ -14,7 +14,7 @@
 
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_LIMITS, Desk, SOURCE_KIND } from './core.js'
 import { BACKGROUND_LIMIT, backgroundFacts, loadCandidates, openMemoryDb } from './topics.js'
@@ -1084,7 +1084,7 @@ export function apply(ctx) {
       },
       execute: (args = {}) => {
         const path = String(args.path || '').trim().replace(/\/+$/, '')
-        if (!path.startsWith('/')) return { ok: false, text: '要手机里的绝对路径，比如 /sdcard/Documents/Obsidian/我的库。' }
+        if (!isAbsolute(path)) return { ok: false, text: '要手机里的绝对路径，比如 /sdcard/Documents/Obsidian/我的库。' }
         if (!isDir(path)) return { ok: false, text: '这个文件夹我看不到：要么路径不对，要么没在 DSH Go 里打开"访问手机文件"。' }
         config = { ...config, notesPath: path.slice(0, 300) }
         try {
