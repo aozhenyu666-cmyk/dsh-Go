@@ -152,12 +152,104 @@ class _ProactivePageState extends State<ProactivePage> {
     if (i < 0) i = -1;
     final next = presets[(i + 1) % presets.length];
     await _save(config.copyWith(quietStartMinute: next.$1, quietEndMinute: next.$2));
+    // 大肥鱼自己也有安静时段（按小时）：一起改，两边说法一致。起止相同 = 不设。
+    if (_sessions.ready) {
+      await _channel.setCompanionConfig({'quietStart': next.$1 ~/ 60, 'quietEnd': next.$2 ~/ 60});
+      await _refresh();
+    }
   }
 
   Future<void> _cycleDaily(ProactiveConfig config) async {
     const steps = ProactivePage.dailyMaxSteps;
     final i = steps.indexOf(config.dailyMax);
     await _save(config.copyWith(dailyMax: steps[(i + 1) % steps.length]));
+  }
+
+  // ---- 大肥鱼自己的参数（插件 /config） ---------------------------------------------------
+
+  static const _partnerGapSteps = [10, 15, 20, 30, 45, 60, 90];
+  static const _coachGapSteps = [3, 5, 8, 10, 15, 20, 30];
+  static const _hourlySteps = [2, 3, 4, 6, 8, 10, 12];
+  static const _dailySteps = [6, 10, 20, 40, 0];
+
+  int _companionInt(String key, int fallback) {
+    final v = _sessions.config[key];
+    return v is num ? v.toInt() : fallback;
+  }
+
+  bool get _coach => _sessions.config['mode'] == 'coach';
+
+  int _nextStep(List<int> steps, int current) {
+    final i = steps.indexOf(current);
+    return steps[(i + 1) % steps.length];
+  }
+
+  Future<void> _companion(Map<String, Object?> patch) async {
+    final ok = await _channel.setCompanionConfig(patch);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没改成：大肥鱼没回应，稍后再试')));
+    }
+    await _refresh();
+  }
+
+  Future<void> _editCompanionGap() async {
+    final key = _coach ? 'coachMinGapMs' : 'minGapMs';
+    final current = _companionInt(key, _coach ? 8 * 60000 : 45 * 60000) ~/ 60000;
+    final value = await showDialog<int>(
+      context: context,
+      builder: (_) => _MinutesDialog(title: _coach ? '严格模式最短间隔' : '温和模式最短间隔', initial: current),
+    );
+    if (value == null || !mounted) return;
+    await _companion({key: value * 60000});
+  }
+
+  List<Widget> _companionRows() {
+    final coach = _coach;
+    final gapKey = coach ? 'coachMinGapMs' : 'minGapMs';
+    final hourKey = coach ? 'coachHourlyMax' : 'hourlyMax';
+    final dayKey = coach ? 'coachDailyMax' : 'dailyMax';
+    final gap = _companionInt(gapKey, coach ? 8 * 60000 : 45 * 60000) ~/ 60000;
+    final hourly = _companionInt(hourKey, coach ? 6 : 3);
+    final daily = _companionInt(dayKey, coach ? 40 : 6);
+    return [
+      ListPageRow(
+        icon: AppIcons.chat,
+        title: '说话模式',
+        subtitle: '聊天里说「严格点」「温柔点」也能切',
+        value: coach ? '严格' : '温和',
+        onTap: () => unawaited(_companion({'mode': coach ? 'partner' : 'coach'})),
+      ),
+      GestureDetector(
+        onLongPress: () => unawaited(_editCompanionGap()),
+        child: ListPageRow(
+        icon: AppIcons.commandTimeout,
+        title: coach ? '最短间隔（严格）' : '最短间隔（温和）',
+        subtitle: '点一下换档，长按自己填。越陷越深会自动缩短，刷到停不下来时最快约 1.5 分钟一次',
+        subtitleMaxLines: 3,
+        value: '$gap 分钟',
+        onTap: () {
+          final steps = coach ? _coachGapSteps : _partnerGapSteps;
+          unawaited(_companion({gapKey: _nextStep(steps, gap) * 60000}));
+        },
+        ),
+      ),
+      ListPageRow(
+        icon: AppIcons.commandTimeout,
+        title: '每小时最多',
+        subtitle: '你接住之后接着聊的不算，被冷落后补的几球也不算',
+        subtitleMaxLines: 2,
+        value: '$hourly 次',
+        onTap: () => unawaited(_companion({hourKey: _nextStep(_hourlySteps, hourly)})),
+      ),
+      ListPageRow(
+        icon: AppIcons.today,
+        title: '每天最多',
+        subtitle: '只算新开的话头',
+        value: daily <= 0 ? '不限' : '$daily 次',
+        onTap: () => unawaited(_companion({dayKey: _nextStep(_dailySteps, daily)})),
+      ),
+    ];
   }
 
   /// P7: "能不能主动开口" — every row is one thing a new install must turn on, and its tap opens
@@ -246,6 +338,9 @@ class _ProactivePageState extends State<ProactivePage> {
                 ),
               ),
             ),
+            // 大肥鱼在线：间隔和上限都是它的参数，在这里直接改（以前这里只读，调不了）。
+            if (pluginOnline) ..._companionRows()
+            else ...[
             ListPageRow(
               icon: AppIcons.commandTimeout,
               title: l10n.proactiveGap,
@@ -274,6 +369,7 @@ class _ProactivePageState extends State<ProactivePage> {
                       isMin: false,
                     )),
             ),
+            ],
             ListPageRow(
               icon: AppIcons.notificationsOff,
               title: l10n.proactiveQuiet,
@@ -283,6 +379,7 @@ class _ProactivePageState extends State<ProactivePage> {
                   : l10n.loopQuietHoursOff,
               onTap: status == null ? null : () => unawaited(_cycleQuiet(config)),
             ),
+            if (!pluginOnline)
             ListPageRow(
               icon: AppIcons.today,
               title: l10n.proactiveDaily,

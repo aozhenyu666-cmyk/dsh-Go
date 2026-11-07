@@ -143,6 +143,23 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
                 },
                 "POST", "/config", linkedMapOf("sessionId" to call.argument<String>("sessionId")),
             )
+            // 设置页改大肥鱼自己的参数（模式、间隔、每小时/每天上限、安静时段）：原样转给插件 /config。
+            "companionConfig" -> {
+                val patch = LinkedHashMap<String, Any?>()
+                (call.arguments as? Map<*, *>)?.forEach { (k, v) -> if (k is String) patch[k] = v }
+                ProactiveRuntime.fetchPluginRoute(
+                    object : MethodChannel.Result {
+                        override fun success(value: Any?) {
+                            // 新的间隔/上限要马上生效，不等旧计划到点。
+                            ProactiveRuntime.companionConfigChanged()
+                            result.success(value)
+                        }
+                        override fun error(code: String, message: String?, details: Any?) = result.error(code, message, details)
+                        override fun notImplemented() = result.notImplemented()
+                    },
+                    "POST", "/config", patch,
+                )
+            }
             else -> result.notImplemented()
         }
     }

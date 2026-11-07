@@ -70,7 +70,8 @@ const DEFAULTS = Object.freeze({
   dailyMax: 6,
   // 每小时上限：阶梯换法子时 minGap 会被压过，靠它兜住"别连着砸"。
   hourlyMax: 3,
-  minGapMs: 30 * 60_000,
+  // 温和模式的最短间隔（设置页可调）。原来是 30 分钟再乘 1.5，现在直接写 45。
+  minGapMs: 45 * 60_000,
   diceThreshold: 60,
   cooldownMs: 24 * 60 * 60_000,
   allowColdSession: true,

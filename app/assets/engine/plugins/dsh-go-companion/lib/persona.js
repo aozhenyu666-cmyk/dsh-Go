@@ -138,7 +138,8 @@ export function modeLimits(config, mode) {
     }
   }
   return {
-    minGapMs: modeGap(c.minGapMs, 'partner'),
+    // 设置页填多少就是多少（以前这里悄悄乘 1.5，页面上的数字和实际对不上）。
+    minGapMs: limitOr(c.minGapMs, 45 * 60_000),
     hourlyMax: limitOr(c.hourlyMax, 0),
     dailyMax: limitOr(c.dailyMax, 0),
   }

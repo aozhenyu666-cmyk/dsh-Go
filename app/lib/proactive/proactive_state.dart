@@ -295,6 +295,17 @@ class ProactiveChannel {
     }
   }
 
+  /// Changes the companion's own settings (`POST /dsh-go-companion/v1/config`): mode, gaps, caps,
+  /// quiet hours. The plugin validates and clamps every field; this only forwards the patch.
+  Future<bool> setCompanionConfig(Map<String, Object?> patch) async {
+    try {
+      final raw = await _methods.invokeMethod<Object?>('companionConfig', patch);
+      return raw is Map && raw['error'] == null;
+    } on Exception {
+      return false;
+    }
+  }
+
   /// Chooses the target session (`POST /dsh-go-proactive/v1/config`). Null clears it.
   Future<ProactiveAgentSessions> setAgentSession(String? sessionId) async {
     try {
@@ -322,7 +333,11 @@ class ProactiveAgentSessions {
     this.judgeProvider,
     this.judgeModel,
     this.timings = const {},
+    this.config = const {},
   });
+
+  /// The companion's own settings as `/status` reports them (mode, minGapMs, coach*, caps, quiet…).
+  final Map<String, Object?> config;
 
   /// The configured target; null means "not chosen yet", and then no proactive turn happens.
   final String? sessionId;
@@ -386,6 +401,7 @@ class ProactiveAgentSessions {
       judgeProvider: raw['judgeProvider'] is String ? raw['judgeProvider'] as String : null,
       judgeModel: raw['judgeModel'] is String ? raw['judgeModel'] as String : null,
       timings: medians,
+      config: raw['config'] is Map ? Map<String, Object?>.from(raw['config'] as Map) : const {},
     );
   }
 }

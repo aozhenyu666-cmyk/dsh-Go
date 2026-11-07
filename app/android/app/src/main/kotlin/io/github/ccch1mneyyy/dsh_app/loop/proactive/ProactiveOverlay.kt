@@ -286,7 +286,6 @@ object ProactiveOverlay {
                 close(SurfaceReport.Dismissed)
             })
             card.addView(actions)
-            trackIme(card)
             return card
         }
 
@@ -343,7 +342,9 @@ object ProactiveOverlay {
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             title = AppStrings.get(app, R.string.proactive_overlay_title)
-            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            // 不让系统按键盘挪窗口，也不自己跟着键盘高度挪：两边一起动会来回抖（真机：点输入框疯狂闪）。
+            // 打字时整张卡片移到屏幕上方（setTyping），键盘在下方，谁也不挡谁。
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
             y = context.dp(16f)
             if (Build.VERSION.SDK_INT >= 28) layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
@@ -359,9 +360,13 @@ object ProactiveOverlay {
         private fun setTyping(on: Boolean) {
             val v = root ?: return
             val p = params ?: return
+            if (typing == on) return
             typing = on
             p.flags = if (on) p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
             else p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            // 打字：贴到屏幕上方，避开键盘；不打字：回到底部。只在切换时动一次，不跟着键盘高度来回挪。
+            p.gravity = (if (on) Gravity.TOP else Gravity.BOTTOM) or Gravity.CENTER_HORIZONTAL
+            p.y = context.dp(if (on) 40f else 16f)
             runCatching { wm?.updateViewLayout(v, p) }
             val imm = context.getSystemService(InputMethodManager::class.java)
             val box = input ?: return

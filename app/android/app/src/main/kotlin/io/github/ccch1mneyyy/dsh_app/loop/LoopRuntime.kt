@@ -52,7 +52,7 @@ object LoopRuntime {
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var engine: LoopEngine? = null
     private var service: WeakReference<AccessibilityService>? = null
-    private val verify = Runnable { verifyNow() }
+    private val verify = Runnable { verifyPending = false; verifyNow() }
 
     /** Failure counters and the last few faults, for the settings page. */
     val diagnostics = LoopDiagnostics()
@@ -117,6 +117,7 @@ object LoopRuntime {
     fun detach(s: AccessibilityService) {
         if (service?.get() === s) service = null
         main.removeCallbacks(verify)
+        verifyPending = false
         // No more readings: a stale "protected page in front" must not hold the kernel forever.
         lastForeground = null
         // Pages can no longer start from the background: the kernel falls back to notifications.
@@ -219,8 +220,20 @@ object LoopRuntime {
         main.post { runCatching { ProactiveRuntime.refreshGate("trigger_config") } }
     }
 
+    /** A verify is already queued: later events ride on it instead of pushing it back. */
+    private var verifyPending = false
+
+    /**
+     * At most [SETTLE_MS] after the first window event, the foreground is read once.
+     *
+     * It used to be a pure debounce (every event pushed the read back by 350 ms). Short-video apps
+     * and games fire window events non-stop while they play, so the read kept slipping and the block
+     * page came 5–6 s late (真机测出来的). Now later events never delay a pending read; the next
+     * event after it runs schedules a fresh one.
+     */
     private fun schedule() {
-        main.removeCallbacks(verify)
+        if (verifyPending) return
+        verifyPending = true
         main.postDelayed(verify, SETTLE_MS)
     }
 
