@@ -31,5 +31,6 @@
     <string name="intercept_quick_sms">Messages</string>
     <string name="intercept_quick_maps">Maps</string>
     <string name="intercept_quick_pay">Pay</string>
+    <string name="intercept_return_gemini">Back to Gemini</string>
     <string name="intercept_channel">Interception</string>
 </resources>

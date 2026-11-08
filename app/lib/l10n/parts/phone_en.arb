@@ -423,5 +423,26 @@
         "type": "String"
       }
     }
-  }
+  },
+  "phoneGeminiTitle": "Gemini session",
+  "phoneGeminiHint": "Only Gemini stays open; other apps lock the moment they open. Calls, messages, maps and payment stay available.",
+  "phoneGeminiRunning": "Running: {topic} · {minutes} min left · Gemini only",
+  "@phoneGeminiRunning": {
+    "placeholders": {
+      "topic": { "type": "String" },
+      "minutes": { "type": "int" }
+    }
+  },
+  "phoneGeminiEmptyTopic": "Session (no topic)",
+  "phoneGeminiStart": "Start a session",
+  "phoneGeminiEnd": "End the session",
+  "phoneGeminiTopic": "What is this session for? (chapter 3, the report…)",
+  "phoneGeminiMinutes": "Length",
+  "phoneGeminiMode": "How to help",
+  "phoneGeminiStudy": "Study coach",
+  "phoneGeminiThink": "Think together",
+  "phoneGeminiInterrogate": "Interrogate slacking",
+  "phoneGeminiFailed": "No answer from Da Fei Yu. Try again.",
+  "phoneGeminiStarted": "Session started: Gemini only",
+  "phoneGeminiEnded": "Session over; locks are back"
 }

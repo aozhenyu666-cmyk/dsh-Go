@@ -1140,6 +1140,19 @@ export function apply(ctx) {
   const loadGearState = () => readState(stateFile('gear.json'), {}) || {}
   const saveGearState = (g) => writeJson(stateFile('gear.json'), g)
   const geminiPackages = () => (Array.isArray(config.geminiPackages) && config.geminiPackages.length ? config.geminiPackages.map(String) : GEMINI_PACKAGES)
+  /** 正在进行的 Gemini 互动舱：手机据此只许 Gemini（急事底线 App 除外）。 */
+  const geminiSessionView = (now = Date.now()) => {
+    const s = loadGemini().session
+    if (!s || !(Number(s.until) > now)) return null
+    return {
+      app: geminiPackages()[0],
+      allow: geminiPackages(),
+      until: Number(s.until),
+      topic: String(s.topic || ''),
+      mode: String(s.mode || 'think'),
+      by: s.by || undefined,
+    }
+  }
   function setGear(sw, by) {
     config = applyGear(config, sw, Date.now())
     try {
@@ -1424,6 +1437,32 @@ export function apply(ctx) {
    * 违抗按规矩当场升级（不等模型）：开拒绝模式，并让姐姐马上来收尾。
    */
   let pendingDefiance = null
+  /**
+   * Gemini 互动舱（应用管理页 / 两个人格都能开）：一场连麦期间手机只许 Gemini。
+   *   start: { action:'start', topic, minutes, mode, by } → 写进 gemini.json 的 session
+   *   end:   { action:'end' } → 提前收工，锁恢复成平时的拒绝模式 / 档位
+   */
+  function sessionRoute(body) {
+    const now = Date.now()
+    const action = String(body?.action || '')
+    const g = loadGemini()
+    if (action === 'end') {
+      saveGemini({ ...g, session: null })
+      record({ state: 'gemini-end', at: now, by: String(body?.by || 'ui').slice(0, 20) })
+      return { v: 1, ok: true, session: null }
+    }
+    if (action !== 'start') return { v: 1, ok: false, error: { code: 'bad-action', message: 'start|end' } }
+    const minutes = Math.max(5, Math.min(180, Math.round(Number(body?.minutes) || 30)))
+    const mode = geminiMode(body?.mode)
+    const topic = String(body?.topic || '').trim().slice(0, 120)
+    const session = {
+      topic, mode, minutes, startedAt: now, until: now + minutes * 60_000,
+      by: String(body?.by || 'ui').slice(0, 20),
+    }
+    saveGemini({ ...g, session })
+    record({ state: 'gemini-start', at: now, topic, mode, minutes, by: session.by })
+    return { v: 1, ok: true, session: geminiSessionView(now) }
+  }
   function eventRoute(body) {
     const now = Date.now()
     const type = String(body?.type || '')
@@ -1680,6 +1719,27 @@ export function apply(ctx) {
       },
     }
   }
+  /** 提前收工：结束 Gemini 互动舱，手机恢复平时的拒绝模式 / 档位。两个人都能用。 */
+  function geminiEndTool(role) {
+    return {
+      name: 'gemini_end',
+      description: '结束正在进行的 Gemini 连麦（提前收工）。手机随即解除"只许 Gemini"的锁，恢复平时的档位和拒绝模式；连麦中的复盘照常用 gemini_log 存。',
+      parameters: {
+        type: 'object',
+        properties: { reason: { type: 'string', description: '为什么提前结束（一句话）' } },
+        additionalProperties: false,
+      },
+      output: toolOutput,
+      execute: (args = {}) => {
+        const g = loadGemini()
+        if (!g.session) return { ok: false, text: '现在没有进行中的 Gemini 连麦。' }
+        const topic = String(g.session.topic || '')
+        saveGemini({ ...g, session: null })
+        record({ state: 'gemini-end', at: Date.now(), by: role, reason: String(args.reason || '').slice(0, 80) || undefined })
+        return { ok: true, text: '连麦结束了' + (topic ? '（' + topic + '）' : '') + '，手机不再只许 Gemini。' }
+      },
+    }
+  }
   /** 姐姐还没去找他的那条急话（2 小时内）。 */
   function pendingHandoff(now) {
     return loadNotes().filter((n) => n.to === 'strategist' && n.urgent && !n.delivered && now - Number(n.at) < 2 * 3_600_000).pop() || null
@@ -1752,7 +1812,7 @@ export function apply(ctx) {
     // 传话工具按会话注册：这样工具知道是谁递给谁。
     if (agent?.ctx?.tools && typeof agent.ctx.tools.register === 'function') {
       const offs = []
-      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), breakTool(role), kbTool(role), blockTool(role), geminiLiveTool(role), geminiLogTool(role)]
+      const common = [notesTool(), controlTool(), startTaskTool(role), endTaskTool(role), breakTool(role), kbTool(role), blockTool(role), geminiLiveTool(role), geminiEndTool(role), geminiLogTool(role)]
       for (const tool of config.dual !== false ? [sisterTool(role), ...common] : common) {
         try {
           const off = agent.ctx.tools.register(tool)
@@ -1834,7 +1894,7 @@ export function apply(ctx) {
     const url = new URL(req.url, 'http://local')
     const path = url.pathname.slice(PREFIX.length)
     try {
-      if (req.method === 'POST' && (path === '/request' || path === '/cancel' || path === '/config' || path === '/plan' || path === '/outcome' || path === '/say' || path === '/event')) {
+      if (req.method === 'POST' && (path === '/request' || path === '/cancel' || path === '/config' || path === '/plan' || path === '/outcome' || path === '/say' || path === '/event' || path === '/session')) {
         const body = await readJson(req)
         if (body.error) {
           return send(res, body.error, {
@@ -1892,6 +1952,7 @@ export function apply(ctx) {
         }
         if (path === '/outcome') return send(res, 200, outcomeRoute(body.value))
         if (path === '/event') return send(res, 200, eventRoute(body.value))
+        if (path === '/session') return send(res, 200, sessionRoute(body.value))
         config = mergeConfig(config, body.value)
         writeConfig(config)
         // 换了会话 / 名字 / 人设：马上重挂，不等下一次定时检查。
@@ -2156,6 +2217,8 @@ export function apply(ctx) {
       // 拒绝模式：手机记住到期时间，自己在每次切到娱乐 App 的那一刻就锁，不等这一问。
       refuse: refuseUntilAt(now) > now ? { until: refuseUntilAt(now) } : null,
       gear: effectiveGear(config, now),
+      // Gemini 互动舱：这段时间只许 Gemini（allow 里的包名），其余 App 由手机直接锁。
+      session: geminiSessionView(now),
     }
   }
 
@@ -2199,6 +2262,8 @@ export function apply(ctx) {
       silence: silenceState(entries, { sessionId: config.sessionId, now }),
       lastTopicId: today.lastTopicId || null,
       memory: { path: memoryPath(), exists: existsSync(memoryPath()) },
+      // 应用管理页的「Gemini 互动」：进行中的连麦舱（null = 没开）。
+      gemini: { session: geminiSessionView(now) },
       garden: gardenStats(garden, now),
       gardenTopics: garden.topics
         .filter((t) => t.status !== 'done')

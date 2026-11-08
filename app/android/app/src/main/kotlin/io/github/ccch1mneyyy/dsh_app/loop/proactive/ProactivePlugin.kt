@@ -160,6 +160,15 @@ class ProactivePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventCha
                     "POST", "/config", patch,
                 )
             }
+            // 应用管理页的「Gemini 互动」：开 / 关一场连麦舱。
+            "geminiSession" -> {
+                ProactiveRuntime.geminiSession(
+                    call.argument<String>("action") ?: "end",
+                    call.argument<String>("topic"),
+                    call.argument<Int>("minutes") ?: 30,
+                    call.argument<String>("mode"),
+                ) { m -> result.success(m) }
+            }
             else -> result.notImplemented()
         }
     }

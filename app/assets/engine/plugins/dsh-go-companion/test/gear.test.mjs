@@ -304,3 +304,27 @@ test('手机报 breakglass：放风 10 分钟，期间娱乐不再锁', async ()
     assert.equal(p.body.refuse, null, '放风盖过拒绝模式')
   })
 })
+
+test('Gemini 互动舱：/plan 带 session 白名单，两个人格都能开、都能收工', async () => {
+  await withHome(async (home) => {
+    const t = setup(home)
+    assert.ok(t.sis.tools.gemini_live && t.sis.tools.gemini_end, '妹妹两个工具都有')
+    assert.ok(t.big.tools.gemini_live && t.big.tools.gemini_end, '姐姐两个工具都有')
+    const started = await call(t.h.handler(), 'POST', '/dsh-go-companion/v1/session', {
+      action: 'start', topic: '线代第三章', minutes: 30, mode: 'study',
+    })
+    assert.equal(started.body.ok, true, JSON.stringify(started.body))
+    assert.equal(started.body.session?.topic, '线代第三章')
+    assert.ok(started.body.session.allow.includes('com.google.android.apps.bard'))
+    assert.ok(started.body.session.allow.includes('com.google.android.googlequicksearchbox'))
+    const inside = await t.plan(gemini(2))
+    assert.equal(inside.body.session?.topic, '线代第三章')
+    assert.equal(inside.body.session.mode, 'study')
+    assert.equal(inside.body.reason, 'in-gemini')
+    const ended = t.big.tools.gemini_end.execute({ reason: '讲完了' })
+    assert.equal(ended.ok, true, ended.text)
+    const after = await t.plan(wechat)
+    assert.equal(after.body.session, null)
+    assert.equal(t.sis.tools.gemini_end.execute({}).ok, false, '没开的时候收工要拒绝')
+  })
+})

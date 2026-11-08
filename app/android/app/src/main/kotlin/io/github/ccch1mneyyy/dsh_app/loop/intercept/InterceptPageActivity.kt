@@ -650,6 +650,16 @@ class InterceptPageActivity : Activity() {
                     setPadding(0, dp(2), 0, dp(4))
                 })
             }
+            // Gemini 互动舱：主按钮是"回 Gemini"，不是回桌面。点它静默关页，不触发违抗复查。
+            if (ProactiveRuntime.sessionActive()) {
+                ProactiveRuntime.sessionApp()?.let { gem ->
+                    addView(pillButton(AppStrings.get(ctx, R.string.intercept_return_gemini), primary = true, onTap = {
+                        reported = true
+                        if (!isFinishing) finish()
+                        InterceptRuntime.openTarget(ctx, gem)
+                    }))
+                }
+            }
             // The ways out, in increasing order of commitment: the drill, timed pass, standing pass,
             // pause everything, leave. Every button names this page's eventId, never a new one.
             addView(pillButton("", primary = true, onTap = {

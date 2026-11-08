@@ -132,6 +132,9 @@ object LoopRuntime {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             runCatching { TamperGuard.onWindow(s, event.packageName?.toString()) }
                 .onFailure { Log.w("LoopRuntime", "tamper guard", it) }
+            // Gemini 互动舱：切到别的 App 就当场锁，不等 /plan 的 60 秒节流。
+            runCatching { ProactiveRuntime.onFrontChanged(event.packageName?.toString()) }
+                .onFailure { Log.w("LoopRuntime", "session lock", it) }
         }
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return

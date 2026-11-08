@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../proactive/proactive_state.dart';
 import '../../state/phone_state.dart';
 import '../common/app_sheet.dart';
 import '../common/list_page_row.dart';
@@ -82,6 +83,8 @@ class PhoneAppRulesPage extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(32, 40, 32, 24),
           )
         else ...[
+          const _GeminiSessionCard(),
+          const SizedBox(height: 24),
           for (final (i, (rule, list)) in groups.indexed) ...[
             if (i > 0) const SizedBox(height: 24),
             ListPageCard(
@@ -261,4 +264,172 @@ class _AddAppDialogState extends State<_AddAppDialog> {
 
 extension on String {
   String? ifEmpty(String? other) => isEmpty ? other : this;
+}
+
+/// 应用管理里的「Gemini 互动」：开一场连麦，期间只许 Gemini（电话/短信/地图/支付除外）。
+/// 两个人格也能在聊天里用 gemini_live / gemini_end 开、关同一场；这里只是手机上的一处入口。
+class _GeminiSessionCard extends StatefulWidget {
+  const _GeminiSessionCard();
+
+  @override
+  State<_GeminiSessionCard> createState() => _GeminiSessionCardState();
+}
+
+class _GeminiSessionCardState extends State<_GeminiSessionCard> {
+  final ProactiveChannel _channel = ProactiveChannel();
+  Map<String, Object?>? _session;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final sessions = await _channel.agentSessions();
+    if (!mounted) return;
+    setState(() => _session = sessions.geminiSession);
+  }
+
+  int get _minutesLeft {
+    final until = (_session?['until'] as num?)?.toInt() ?? 0;
+    if (until <= 0) return 0;
+    final left = ((until - DateTime.now().millisecondsSinceEpoch) / 60000).ceil();
+    return left < 0 ? 0 : left;
+  }
+
+  Future<void> _end() async {
+    setState(() => _busy = true);
+    final r = await _channel.geminiSession(action: 'end');
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (r != null) _session = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(r == null ? context.l10n.phoneGeminiFailed : context.l10n.phoneGeminiEnded)),
+    );
+  }
+
+  Future<void> _start() async {
+    final plan = await showDialog<_GeminiPlan>(context: context, builder: (_) => const _GeminiStartDialog());
+    if (plan == null || !mounted) return;
+    setState(() => _busy = true);
+    final r = await _channel.geminiSession(action: 'start', topic: plan.topic, minutes: plan.minutes, mode: plan.mode);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (r != null) _session = r;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(r == null ? context.l10n.phoneGeminiFailed : context.l10n.phoneGeminiStarted)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final s = _session;
+    final topic = (s?['topic'] as String?)?.trim() ?? '';
+    return ListPageCard(
+      children: [
+        ListPageRow(
+          icon: AppIcons.chat,
+          iconColor: Theme.of(context).colorScheme.primary,
+          title: l10n.phoneGeminiTitle,
+          subtitle: s == null
+              ? l10n.phoneGeminiHint
+              : l10n.phoneGeminiRunning(topic.isEmpty ? l10n.phoneGeminiEmptyTopic : topic, _minutesLeft),
+          subtitleMaxLines: 3,
+          onTap: _busy ? null : () => s == null ? _start() : _end(),
+        ),
+      ],
+    );
+  }
+}
+
+class _GeminiPlan {
+  const _GeminiPlan(this.topic, this.minutes, this.mode);
+
+  final String topic;
+  final int minutes;
+  final String mode;
+}
+
+class _GeminiStartDialog extends StatefulWidget {
+  const _GeminiStartDialog();
+
+  @override
+  State<_GeminiStartDialog> createState() => _GeminiStartDialogState();
+}
+
+class _GeminiStartDialogState extends State<_GeminiStartDialog> {
+  final _topic = TextEditingController();
+  int _minutes = 30;
+  String _mode = 'study';
+
+  @override
+  void dispose() {
+    _topic.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return AlertDialog(
+      title: Text(l10n.phoneGeminiTitle),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _topic,
+              autofocus: true,
+              decoration: InputDecoration(hintText: l10n.phoneGeminiTopic),
+            ),
+            const SizedBox(height: 16),
+            Text(l10n.phoneGeminiMinutes, style: Theme.of(context).textTheme.labelLarge),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final m in const [15, 30, 45, 60])
+                  ChoiceChip(
+                    label: Text('$m'),
+                    selected: _minutes == m,
+                    onSelected: (_) => setState(() => _minutes = m),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(l10n.phoneGeminiMode, style: Theme.of(context).textTheme.labelLarge),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final (mode, label) in [
+                  ('study', l10n.phoneGeminiStudy),
+                  ('think', l10n.phoneGeminiThink),
+                  ('interrogate', l10n.phoneGeminiInterrogate),
+                ])
+                  ChoiceChip(
+                    label: Text(label),
+                    selected: _mode == mode,
+                    onSelected: (_) => setState(() => _mode = mode),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.commonCancel)),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _GeminiPlan(_topic.text.trim(), _minutes, _mode)),
+          child: Text(l10n.phoneGeminiStart),
+        ),
+      ],
+    );
+  }
 }

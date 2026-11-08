@@ -306,6 +306,35 @@ class ProactiveChannel {
     }
   }
 
+  /// 应用管理页的「Gemini 互动」：开 / 关一场连麦舱（插件 `POST /session`）。
+  ///
+  /// 返回进行中的 session（`topic` / `minutes` / `mode` / `until` / `allow`），失败返回 null。
+  Future<Map<String, Object?>?> geminiSession({
+    required String action,
+    String? topic,
+    int minutes = 30,
+    String? mode,
+  }) async {
+    try {
+      final raw = await _methods.invokeMethod<Object?>('geminiSession', {
+        'action': action,
+        if (topic != null && topic.isNotEmpty) 'topic': topic,
+        'minutes': minutes,
+        if (mode != null && mode.isNotEmpty) 'mode': mode,
+      });
+      if (raw is! Map) return null;
+      if (raw['error'] is Map) return null;
+      final session = raw['session'];
+      if (session is Map) {
+        return {for (final e in session.entries) if (e.key is String) e.key as String: e.value};
+      }
+      // end 的成功回包是 {ok: true, session: null}：给调用方一个"成功但没有场次"的信号。
+      return raw.containsKey('session') ? const <String, Object?>{} : null;
+    } on Exception {
+      return null;
+    }
+  }
+
   /// Chooses the target session (`POST /dsh-go-proactive/v1/config`). Null clears it.
   Future<ProactiveAgentSessions> setAgentSession(String? sessionId) async {
     try {
@@ -334,6 +363,7 @@ class ProactiveAgentSessions {
     this.judgeModel,
     this.timings = const {},
     this.config = const {},
+    this.geminiSession,
   });
 
   /// The companion's own settings as `/status` reports them (mode, minGapMs, coach*, caps, quiet…).
@@ -364,6 +394,11 @@ class ProactiveAgentSessions {
   /// P6: median milliseconds of the last 10 rounds — generate / judge / chat.
   final Map<String, int> timings;
 
+  /// 进行中的「Gemini 互动」连麦舱（`/status` 的 `gemini.session`）；null = 没开。
+  final Map<String, Object?>? geminiSession;
+
+  bool get geminiRunning => geminiSession != null;
+
   bool get ready => error == null;
 
   static ProactiveAgentSessions fromWire(Object? raw) {
@@ -388,6 +423,17 @@ class ProactiveAgentSessions {
         if (e.key is String && e.value is num) medians[e.key as String] = (e.value as num).toInt();
       }
     }
+    Map<String, Object?>? geminiSession;
+    final gemini = raw['gemini'];
+    if (gemini is Map) {
+      final s = gemini['session'];
+      if (s is Map) {
+        geminiSession = {
+          for (final e in s.entries)
+            if (e.key is String) e.key as String: e.value,
+        };
+      }
+    }
     return ProactiveAgentSessions(
       sessionId: raw['sessionId'] is String ? raw['sessionId'] as String : null,
       agents: [
@@ -402,6 +448,7 @@ class ProactiveAgentSessions {
       judgeModel: raw['judgeModel'] is String ? raw['judgeModel'] as String : null,
       timings: medians,
       config: raw['config'] is Map ? Map<String, Object?>.from(raw['config'] as Map) : const {},
+      geminiSession: geminiSession,
     );
   }
 }

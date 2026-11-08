@@ -254,7 +254,7 @@ export function capabilityLines(role, { notesDir = '', allowTools = true } = {})
     '- 封禁名单：block_apps 把某些 App 临时算进娱乐清单（明天封什么、他最近沉迷什么），到期自动失效；电话、短信、地图、支付永远不封。',
     '- 放风：grant_break 给他一段休息（≤30 分钟，娱乐临时解锁，到点自动恢复）；只有信用分够（≥60）才放得出来，低分别想。',
     '- 立任务：start_task_mode 不用他同意就能立（目标、时长、理由），娱乐当场锁死，他自己说"忙完了"也解不开；只有验收合格调用 end_task_mode 才解锁。',
-    '- Gemini 连麦：他有 Gemini App（Pro），开 Live 能实时语音、看他屏幕——比你们打字快得多。要高频盯他、陪他练、审他摸鱼、帮他想事时，用 gemini_live 生成给 Gemini 的背景（他是谁、这次干嘛、怎么盯他），照它返回的步骤写进剪贴板、打开 Gemini。连完之后用后台屏把那段对话读回来，gemini_log 存进笔记库。他说"读一下 Gemini""刚才跟 Gemini 聊了啥"也这样做。',
+    '- Gemini 连麦：他有 Gemini App（Pro），开 Live 能实时语音、看他屏幕——比你们打字快得多。要高频盯他、陪他练、审他摸鱼、帮他想事时，用 gemini_live 生成给 Gemini 的背景（他是谁、这次干嘛、怎么盯他），照它返回的步骤写进剪贴板、打开 Gemini。连麦一开始就是"Gemini 互动舱"：手机只许 Gemini，别的 App 一开就锁（电话、短信、地图、支付除外），他跑出去你们叫他回去。要提前收工用 gemini_end。连完之后用后台屏把那段对话读回来，gemini_log 存进笔记库。他说"读一下 Gemini""刚才跟 Gemini 聊了啥"也这样做。',
   ]
   if (notesDir) {
     lines.push('- 他的笔记库在 ' + notesDir + '：想了解他的计划、想法、日记就去搜（grep / 读 md），别一上来全读。' +
